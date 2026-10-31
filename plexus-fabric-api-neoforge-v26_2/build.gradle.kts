@@ -12,6 +12,11 @@ dependencies {
     compileOnly(variantOf(libs.neoforge.universal) { classifier("universal") }) { isTransitive = false }
     compileOnly(libs.fabric.api.base) { isTransitive = false }
     compileOnly(libs.fabric.resource.loader.v1) { isTransitive = false }
+    compileOnly(libs.fabric.lifecycle.events.v1) { isTransitive = false }
+    compileOnly(libs.fabric.tag.api.v1) { isTransitive = false }
+    compileOnly(libs.fabric.convention.tags.v2) { isTransitive = false }
+    compileOnly(libs.fabric.recipe.api.v1) { isTransitive = false }
+    compileOnly(libs.fabric.resource.conditions.api.v1) { isTransitive = false }
     compileOnly(libs.jspecify)
     compileOnly(libs.jetbrains.annotations)
     // NeoForge's event bus and FML (ModList, ModContainer) and their Dist, for the modules that use NeoForge's events.
@@ -46,10 +51,14 @@ val patchedGame = files(installNeoForgeClient.map {
 // lint), which -Werror would turn into errors.
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-classfile")
-    // The adapted Fabric API code calls game methods the game marks deprecated and casts generics unchecked, as Fabric
-    // API does (it builds without -Werror); its code is kept as it is.
+    // The adapted Fabric API code calls game methods the game marks deprecated (some for removal), casts generics
+    // unchecked, uses raw types and overloads a game method ambiguously, as Fabric API does (it builds without
+    // -Werror); its code is kept as it is.
     options.compilerArgs.add("-Xlint:-deprecation")
+    options.compilerArgs.add("-Xlint:-removal")
     options.compilerArgs.add("-Xlint:-unchecked")
+    options.compilerArgs.add("-Xlint:-rawtypes")
+    options.compilerArgs.add("-Xlint:-overloads")
 }
 
 // What Plexus Mod Loader's Fabric bridge carries (HostModules in plexus-runtime-impl): each jar under the host's key, and an
@@ -85,6 +94,16 @@ val hostModules = listOf(
         always = true,
         dependsOn = listOf("fabricRegistrySyncV0"),
     ),
+    HostModule("fabric-content-registries-v0", "fabricContentRegistriesV0", "11.3.2+plexus.neoforge.26.2"),
+    HostModule(
+        "fabric-data-generation-api-v1",
+        "fabricDataGenerationApiV1",
+        "25.6.0+plexus.neoforge.26.2",
+        dependsOn = listOf("fabricRegistrySyncV0"),
+    ),
+    // NeoForge's ServerPlayer.openMenu(MenuProvider) hands the vanilla body to openMenu(MenuProvider, Consumer), where
+    // Fabric API's mixins do not fit; Forgified Fabric API opens extended menus through NeoForge's menu data instead.
+    HostModule("fabric-menu-api-v1", "fabricMenuApiV1", "2.0.17+plexus.neoforge.26.2"),
 )
 
 val hostModuleJars = hostModules.map { module ->

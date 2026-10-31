@@ -1,0 +1,164 @@
+/*
+ * Copyright (c) 2016, 2017, 2018, 2019 FabricMC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+// Source: Sinytra Forgified Fabric API, branch 26.2.x, commit 40f8ce0,
+// fabric-content-registries-v0/src/main/java/net/fabricmc/fabric/mixin/content/registry/fluid/EntityMixin.java (Fabric
+// API's
+// file as Forgified Fabric API has it).
+// Merged with Fabric API 0.165.0+26.3's version of the file (FabricMC/fabric, tag 0.165.0+26.3).
+// Plexus Mod Loader (ADR-0031): reformatted; on 26.3 EntityFluidInteraction.update returns a boolean.
+package net.fabricmc.fabric.mixin.content.registry.fluid;
+
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.function.Predicate;
+import net.fabricmc.fabric.api.registry.fluid.EntityFluidExtension;
+import net.fabricmc.fabric.api.registry.fluid.FluidBehavior;
+import net.fabricmc.fabric.impl.content.registry.ContentRegistriesImpl;
+import net.fabricmc.fabric.impl.content.registry.fluid.EntityFluidInteractionRegistryImpl;
+import net.fabricmc.fabric.impl.content.registry.fluid.InternalEntityFluidExtension;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityFluidInteraction;
+import net.minecraft.world.level.material.Fluid;
+import net.neoforged.neoforge.fluids.FluidType;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+@Mixin(Entity.class)
+public abstract class EntityMixin implements EntityFluidExtension, InternalEntityFluidExtension {
+    @Shadow
+    @Final
+    private EntityFluidInteraction fluidInteraction;
+
+    @Shadow
+    public abstract boolean isPushedByFluid();
+
+    @Shadow
+    protected boolean firstTick;
+
+    @Shadow
+    public abstract boolean isInWater();
+
+    @Shadow
+    public abstract boolean isInLava();
+
+    @Unique
+    private final Set<TagKey<Fluid>> wasTouchingCustomFluid = new HashSet<>();
+
+    @ModifyArg(
+            method = "<init>",
+            at =
+                    @At(
+                            value = "INVOKE",
+                            target = "Lnet/minecraft/world/entity/EntityFluidInteraction;<init>(Ljava/util/Set;)V"))
+    private Set<TagKey<Fluid>> addCustomTags(Set<TagKey<Fluid>> fluids) {
+        var result = new HashSet<>(fluids);
+        result.addAll(EntityFluidInteractionRegistryImpl.getTrackedFluids());
+        return result;
+    }
+
+    @WrapOperation(
+            method = "updateFluidInteraction",
+            at =
+                    @At(
+                            value = "INVOKE",
+                            target =
+                                    "Lnet/minecraft/world/entity/EntityFluidInteraction;update(Lnet/minecraft/world/entity/Entity;Ljava/util/function/Predicate;)Z"))
+    private boolean applyCustomFluidCurrent(
+            EntityFluidInteraction interaction,
+            Entity entity,
+            Predicate<FluidType> typePushPredicate,
+            Operation<Boolean> original) {
+        return original.call(
+                interaction,
+                entity,
+                typePushPredicate.or(type -> this.isPushedByFluid() && ContentRegistriesImpl.isCustomFluidType(type)));
+    }
+
+    @ModifyReturnValue(method = "isInLiquid", at = @At("RETURN"))
+    private boolean checkForCustomFluids(boolean original) {
+        return original || !this.wasTouchingCustomFluid.isEmpty();
+    }
+
+    @ModifyReturnValue(method = "updateFluidInteraction", at = @At("RETURN"))
+    private boolean handleCustomFluidInteractionUpdates(boolean hasInteracted) {
+        final boolean isPushedByFluid = this.isPushedByFluid();
+
+        for (TagKey<Fluid> tagKey : EntityFluidInteractionRegistryImpl.getTrackedFluids()) {
+            boolean inFluid = ContentRegistriesImpl.isInFluid(this.fluidInteraction, tagKey);
+            boolean wasInFluid = this.wasTouchingCustomFluid.contains(tagKey);
+
+            if (inFluid) {
+                FluidBehavior fluidBehavior = EntityFluidInteractionRegistryImpl.getFluidBehavior(tagKey);
+
+                if (!wasInFluid) {
+                    fluidBehavior.onFluidEntered(tagKey, (Entity) (Object) this, this.firstTick);
+                    this.wasTouchingCustomFluid.add(tagKey);
+                }
+
+                hasInteracted = true;
+                fluidBehavior.handleFluidInteractionUpdate(
+                        tagKey, (Entity) (Object) this, this.fluidInteraction, isPushedByFluid);
+            } else if (wasInFluid) {
+                this.wasTouchingCustomFluid.remove(tagKey);
+                EntityFluidInteractionRegistryImpl.getFluidBehavior(tagKey)
+                        .onFluidExited(tagKey, (Entity) (Object) this);
+            }
+        }
+
+        return hasInteracted;
+    }
+
+    @Inject(method = "getFluidHeight(Lnet/minecraft/tags/TagKey;)D", at = @At("HEAD"), cancellable = true)
+    private void getCustomFluidHeight(TagKey<Fluid> fluid, CallbackInfoReturnable<Double> cir) {
+        if (fluid != FluidTags.WATER && fluid != FluidTags.LAVA) {
+            cir.setReturnValue(this.fluidInteraction.getFluidHeight(fluid));
+        }
+    }
+
+    @Inject(method = "isEyeInFluid(Lnet/minecraft/tags/TagKey;)Z", at = @At("HEAD"), cancellable = true)
+    private void isEyeInCustomFluid(TagKey<Fluid> fluid, CallbackInfoReturnable<Boolean> cir) {
+        if (fluid != FluidTags.WATER && fluid != FluidTags.LAVA) {
+            cir.setReturnValue(this.fluidInteraction.isEyeInFluid(fluid));
+        }
+    }
+
+    @Override
+    public boolean isInFluid(TagKey<Fluid> fluid) {
+        if (fluid == FluidTags.WATER) {
+            return this.isInWater();
+        } else if (fluid == FluidTags.LAVA) {
+            return this.isInLava();
+        }
+
+        return this.wasTouchingCustomFluid.contains(fluid);
+    }
+
+    @Override
+    public Set<TagKey<Fluid>> fabric_api$getTouchedCustomFluids() {
+        return this.wasTouchingCustomFluid;
+    }
+}

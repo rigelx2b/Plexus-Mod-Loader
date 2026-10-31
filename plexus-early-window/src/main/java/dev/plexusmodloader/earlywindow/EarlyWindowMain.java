@@ -85,7 +85,10 @@ public final class EarlyWindowMain {
         frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.setFocusableWindowState(false);
         frame.setAutoRequestFocus(false);
-        EarlyWindowArt.icon().ifPresent(frame::setIconImage);
+        List<BufferedImage> icons = EarlyWindowArt.icons();
+        if (!icons.isEmpty()) {
+            frame.setIconImages(icons);
+        }
         JComponent view = new JComponent() {
             @Override
             protected void paintComponent(Graphics graphics) {

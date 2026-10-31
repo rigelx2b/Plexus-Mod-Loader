@@ -1570,7 +1570,10 @@ val quiltCorpusScenarios = listOf(
             // (ADR-0030).
             // 2026-10-27: no Fabric API module is left out next to Forge any more; All Stacks Infinite (a redirect of a
             // call Forge makes an instance call) and Dwarfs and Giants (a shadow field whose type Forge changed) are (224).
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 122 loaded, 127 not loaded"),
+            // 2026-11-01: as with corpusFabricForge, fabric-content-registries-v0 (224, Forge's fluid hooks) and
+            // fabric-biome-api-v1 (112, Forge's ChunkGenerator.featuresPerStep, link check against the patched game
+            // since 2026-10-29) are left out; the expected counts had not followed.
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 120 loaded, 129 not loaded"),
             // FusionFix (Quilt) needs Fusion; Forge's build of Fusion, mostly the same classes, stands in for the Fabric
             // build it leaves out (ADR-0026 37).
             corpusCounts("mods that need fusion use MinecraftForge 26.2-65.1.5's build fusion 1.3.16", "share Fabric's Mixin"),
@@ -1579,7 +1582,7 @@ val quiltCorpusScenarios = listOf(
                 "MinecraftForge 26.2-65.1.5: 41 of 47 Forge mod file(s) meet their requirements; 6 left out",
                 "MinecraftForge $minecraft-",
             ),
-            corpusCounts("[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 51 Fabric, 71 Quilt, 42 Forge", "[Plexus Mod Loader] Loaded mods per loader: "),
+            corpusCounts("[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 49 Fabric, 71 Quilt, 42 Forge", "[Plexus Mod Loader] Loaded mods per loader: "),
             corpusCounts("b-side-1.0.jar is built for several loaders (QUILT and Forge); MinecraftForge runs it", "share Fabric's Mixin"),
             corpusCounts("PLEXUS-COMPAT-139 Quilt mod voicechat (voicechat-quilt-2.6.25+26.2.jar) is NOT loaded: MinecraftForge 26.2-65.1.5 loads its own build of voicechat", "share Fabric's Mixin"),
             "share Fabric's Mixin",
@@ -1668,9 +1671,32 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "[fabric_api_events] crafting remainder of a lava bucket: minecraft:bucket",
         "All 1 required tests passed",
     )
-    // fabric-registry-sync-v0's dynamic registry and fabric-object-builder-api-v1's builders, on all three setups.
-    val registrySyncMods = mods + modJars(":test-mods:fabric-dynamic-registry", ":test-mods:fabric-object-builder")
+    // fabric-registry-sync-v0's dynamic registry, fabric-object-builder-api-v1's builders,
+    // fabric-resource-conditions-api-v1 on a mod's own JSON reload listener, fabric-entity-events-v1's sleep events,
+    // fabric-data-generation-api-v1's tags provider and fabric-menu-api-v1's extended menus, on all three setups.
+    val registrySyncMods = mods + modJars(
+        ":test-mods:fabric-dynamic-registry",
+        ":test-mods:fabric-object-builder",
+        ":test-mods:fabric-resource-conditions",
+        ":test-mods:fabric-entity-events",
+        ":test-mods:fabric-data-generation",
+        ":test-mods:fabric-menu",
+    )
     val registrySyncLines = listOf(
+        "[fabric_menu] openMenu with an ExtendedMenuProvider opened fabric_menu:sample: true",
+        "[fabric_menu] screen opening data requests: 1",
+        "[fabric_menu] screen opening data requests with a SimpleMenuProvider around it: 2",
+        "[fabric_data_generation] tags provider wrote data/fabric_data_generation/tags/item/sample.json",
+        "[fabric_data_generation] replace: true",
+        "[fabric_data_generation] values: [\"minecraft:stick\",\"#minecraft:planks\"]",
+        "[fabric_data_generation] minecraft:apple is listed for removal: true",
+        "[fabric_entity_events] MODIFY_SLEEPING_DIRECTION at the bed: north",
+        "[fabric_entity_events] ALLOW_SETTING_SPAWN at the bed",
+        "[fabric_entity_events] ALLOW_NEARBY_MONSTERS at the bed, vanilla result: false",
+        "[fabric_entity_events] ALLOW_SLEEPING at the bed",
+        "[fabric_resource_conditions] reload listener loaded: {fabric_resource_conditions:met=met, fabric_resource_conditions:plain=plain}",
+        "[fabric_resource_conditions] recipe behind a met Fabric condition loaded: true",
+        "[fabric_resource_conditions] recipe behind an unmet Fabric condition loaded: false",
         "[fabric_dynamic_registry] DynamicRegistrySetupCallback sees fabric_dynamic_registry:demo: true",
         "[fabric_dynamic_registry] fabric_dynamic_registry:demo has fabric_dynamic_registry:sample = hello",
         "[fabric_object_builder] default max health of minecraft:zombie: 42.0",
@@ -1678,12 +1704,29 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "[fabric_object_builder] entity data serializer fabric_object_builder:counter registered: true",
         "[fabric_object_builder] mob attributes built in onInitialize, max health: 20.0",
     )
+    // fabric-content-registries-v0, which MinecraftForge's patch leaves out (224): alone and next to NeoForge only.
+    val contentRegistriesMods = modJars(
+        ":test-mods:fabric-content-registries",
+        ":test-mods:fabric-oxidizable-blocks",
+    )
+    val contentRegistriesLines = listOf(
+        "[fabric_content_registries] composter level after a stick: 1",
+        "[fabric_content_registries] burn duration of minecraft:bone: 1600",
+        "[fabric_content_registries] iron axe on minecraft:bone_block leaves minecraft:basalt",
+        "[fabric_content_registries] iron hoe on minecraft:clay leaves minecraft:farmland",
+        "[fabric_oxidizable_blocks] next weathering stage of minecraft:stone: minecraft:cobblestone",
+        "[fabric_oxidizable_blocks] first weathering stage of minecraft:cobblestone: minecraft:stone",
+        "[fabric_oxidizable_blocks] iron axe on minecraft:cobblestone leaves minecraft:stone",
+        "[fabric_oxidizable_blocks] honeycomb on minecraft:sandstone leaves minecraft:smooth_sandstone",
+        "[fabric_oxidizable_blocks] iron axe on minecraft:smooth_sandstone leaves minecraft:sandstone",
+    )
     listOf(
-        scenarios.gameTest("fabricApiGameTest", registrySyncMods) {
+        scenarios.gameTest("fabricApiGameTest", registrySyncMods + contentRegistriesMods) {
             dependsOn(modCorpus)
             description = "Real Fabric API's block break events, resource conditions and crafting remainders on the vanilla game."
             expectedOutput.addAll(lines)
             expectedOutput.addAll(registrySyncLines)
+            expectedOutput.addAll(contentRegistriesLines)
         },
         scenarios.gameTest("forgeFabricApiGameTest", registrySyncMods) {
             dependsOn(modCorpus)
@@ -1710,13 +1753,14 @@ val fabricApiEvents = if (minecraft == "26.2") {
         // NeoForge starts only with a NeoForge mod file in the game; the harness is one.
         scenarios.gameTest(
             "neoForgeFabricApiGameTest",
-            registrySyncMods + modJars(":test-mods:neoforge-gametest-harness"),
+            registrySyncMods + contentRegistriesMods + modJars(":test-mods:neoforge-gametest-harness"),
         ) {
             dependsOn(modCorpus)
             runsNeoForge()
             description = "Real Fabric API's block break events, resource conditions and crafting remainders next to NeoForge."
             expectedOutput.addAll(lines)
             expectedOutput.addAll(registrySyncLines)
+            expectedOutput.addAll(contentRegistriesLines)
             expectedOutput.addAll(
                 "Fabric mod fabric_api_events 1.0.0 (fabric-api-events-",
                 "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
@@ -1725,6 +1769,9 @@ val fabricApiEvents = if (minecraft == "26.2") {
                 "runs its build on the host's hooks instead (ADR-0031): fabric-block-api-v1-3.1.0+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-14.5.0+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-registry-sync-v0-7.1.1+plexus.neoforge.26.2.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-11.3.2+plexus.neoforge.26.2.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-data-generation-api-v1-25.6.0+plexus.neoforge.26.2.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-2.0.17+plexus.neoforge.26.2.jar",
                 // The original object builder loads there, but its attribute modifications do not reach the game.
                 "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
                     + " its build on the host's hooks instead (ADR-0031): fabric-object-builder-api-v1-24.1.1+plexus.neoforge.26.2.jar",
@@ -1733,17 +1780,36 @@ val fabricApiEvents = if (minecraft == "26.2") {
         },
     )
 } else if (minecraft == "26.3") {
-    // On 26.3, Fabric API's block, item, registry sync and object builder modules alone and next to NeoForge, where
-    // Plexus Mod Loader's builds of them run (ADR-0031). fabric-api-events is not used: next to NeoForge 26.3 the
-    // resource conditions and entity events modules it needs are still left out (224).
+    // On 26.3, Fabric API's block, item, registry sync, object builder, content registries, resource conditions and
+    // data generation, menu and entity events modules alone and next to NeoForge, where Plexus Mod Loader's builds of
+    // them run (ADR-0031). fabric-api-events, written for 26.2, is not used.
     val mods = files(corpusRoot.map { it.dir("fabric").asFileTree.matching { include("fabric-api-*.jar") } }) +
         modJars(
             ":test-mods:fabric-block-item",
             ":test-mods:fabric-dynamic-registry",
             ":test-mods:fabric-object-builder",
+            ":test-mods:fabric-oxidizable-blocks",
+            ":test-mods:fabric-resource-conditions",
+            ":test-mods:fabric-data-generation",
+            ":test-mods:fabric-menu",
+            ":test-mods:fabric-entity-events",
             gameTestHarness,
         )
     val lines = listOf(
+        "[fabric_entity_events] MODIFY_SLEEPING_DIRECTION at the bed: north",
+        "[fabric_entity_events] ALLOW_SETTING_SPAWN at the bed",
+        "[fabric_entity_events] ALLOW_NEARBY_MONSTERS at the bed, vanilla result: false",
+        "[fabric_entity_events] ALLOW_SLEEPING at the bed",
+        "[fabric_menu] openMenu with an ExtendedMenuProvider opened fabric_menu:sample: true",
+        "[fabric_menu] screen opening data requests: 1",
+        "[fabric_menu] screen opening data requests with a SimpleMenuProvider around it: 2",
+        "[fabric_resource_conditions] reload listener loaded: {fabric_resource_conditions:met=met, fabric_resource_conditions:plain=plain}",
+        "[fabric_resource_conditions] recipe behind a met Fabric condition loaded: true",
+        "[fabric_resource_conditions] recipe behind an unmet Fabric condition loaded: false",
+        "[fabric_data_generation] tags provider wrote data/fabric_data_generation/tags/item/sample.json",
+        "[fabric_data_generation] replace: true",
+        "[fabric_data_generation] values: [\"minecraft:stick\",\"#minecraft:planks\"]",
+        "[fabric_data_generation] minecraft:apple is listed for removal: true",
         "[fabric_block_item] FabricBlockState.getAppearance(minecraft:stone) = minecraft:stone",
         "[fabric_block_item] FabricBlockState.getProvidedEnchantmentPower(minecraft:bookshelf) = 1.0",
         "[fabric_block_item] enchanting table offers minecraft:sharpness for minecraft:diamond_sword: false",
@@ -1755,23 +1821,33 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "[fabric_object_builder] minecraft:furnace block entity type accepts minecraft:smoker: true",
         "[fabric_object_builder] entity data serializer fabric_object_builder:counter registered: true",
         "[fabric_object_builder] mob attributes built in onInitialize, max health: 20.0",
+        "[fabric_oxidizable_blocks] next weathering stage of minecraft:stone: minecraft:cobblestone",
+        "[fabric_oxidizable_blocks] first weathering stage of minecraft:cobblestone: minecraft:stone",
+        "[fabric_oxidizable_blocks] iron axe on minecraft:cobblestone leaves minecraft:stone",
+        "[fabric_oxidizable_blocks] honeycomb on minecraft:sandstone leaves minecraft:smooth_sandstone",
+        "[fabric_oxidizable_blocks] iron axe on minecraft:smooth_sandstone leaves minecraft:sandstone",
         "All 1 required tests passed",
     )
     listOf(
         scenarios.gameTest("fabricApiGameTest", mods) {
             dependsOn(modCorpus)
-            description = "Real Fabric API's block, item, registry sync and object builder modules on the vanilla game."
+            description = "Real Fabric API's block, item, registry sync, object builder, content registries, resource conditions, data generation, menu and entity events modules on the vanilla game."
             expectedOutput.addAll(lines)
         },
         scenarios.gameTest("neoForgeFabricApiGameTest", mods + modJars(":test-mods:neoforge-gametest-harness")) {
             dependsOn(modCorpus)
             runsNeoForge()
-            description = "Real Fabric API's block, item, registry sync and object builder modules next to NeoForge."
+            description = "Real Fabric API's block, item, registry sync, object builder, content registries, resource conditions, data generation, menu and entity events modules next to NeoForge."
             expectedOutput.addAll(lines)
             expectedOutput.addAll(
                 "runs its build on the host's hooks instead (ADR-0031): fabric-block-api-v1-3.1.0+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-14.8.0+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-registry-sync-v0-8.0.4+plexus.neoforge.26.3.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-15.0.6+plexus.neoforge.26.3.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-resource-conditions-api-v1-6.2.0+plexus.neoforge.26.3.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-data-generation-api-v1-27.4.2+plexus.neoforge.26.3.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-2.0.30+plexus.neoforge.26.3.jar",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-entity-events-v1-6.0.4+plexus.neoforge.26.3.jar",
                 "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
                     + " its build on the host's hooks instead (ADR-0031): fabric-object-builder-api-v1-24.1.12+plexus.neoforge.26.3.jar",
             )

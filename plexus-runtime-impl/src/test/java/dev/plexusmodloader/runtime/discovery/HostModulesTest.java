@@ -1,7 +1,6 @@
 package dev.plexusmodloader.runtime.discovery;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -102,7 +101,7 @@ class HostModulesTest {
                 HOST, List.of(fits), bridges, GameSide.DEDICATED_SERVER, directory.resolve("out"), loader);
 
         assertEquals(1, result.replaced().size());
-        assertFalse(result.replaced().getFirst().leftOut());
+        assertEquals(HostModules.Reason.ALWAYS, result.replaced().getFirst().reason());
         assertEquals(fits.jar(), result.replaced().getFirst().original());
         assertEquals(
                 "24.1.1+plexus.neoforge.26.2",
@@ -116,9 +115,54 @@ class HostModulesTest {
         HostModules.Result result = HostModules.replaceLeftOut(
                 HOST, List.of(original), bridges, GameSide.DEDICATED_SERVER, directory.resolve("out"), loader);
 
-        assertTrue(result.replaced().getFirst().leftOut());
+        assertEquals(HostModules.Reason.LEFT_OUT, result.replaced().getFirst().reason());
         assertEquals(
                 result.mods().getFirst().jar(), result.replaced().getFirst().hostModule());
+    }
+
+    /** Several mods nest the module (a Quilt mod set with three Fabric API copies): one host module stands for all. */
+    @Test
+    void copiesOfALeftOutModuleBecomeOneHostModule() throws IOException {
+        ForeignMod older = leftOut(mod("fabric-block-api-v1", "3.0.3+ec56b6019e"));
+        ForeignMod other = mod("fabric-api-base", "2.0.4");
+        ForeignMod newer = leftOut(mod("fabric-block-api-v1", "3.1.0+53515aab9e"));
+
+        HostModules.Result result = HostModules.replaceLeftOut(
+                HOST,
+                List.of(older, other, newer),
+                bridges,
+                GameSide.DEDICATED_SERVER,
+                directory.resolve("out"),
+                loader);
+
+        assertEquals(2, result.mods().size());
+        assertEquals(
+                "3.1.0+plexus.neoforge.26.2",
+                result.mods().getFirst().assessment().version());
+        assertSame(other, result.mods().get(1));
+        assertEquals(
+                List.of(older.jar(), newer.jar()),
+                result.replaced().stream()
+                        .map(HostModules.Replacement::original)
+                        .toList());
+    }
+
+    /** A copy that fits the patch would otherwise compete with the host module for the same ID. */
+    @Test
+    void aCopyThatFitsNextToALeftOutCopyGoesWithIt() throws IOException {
+        ForeignMod fits = mod("fabric-block-api-v1", "3.0.3+ec56b6019e");
+        ForeignMod blocked = leftOut(mod("fabric-block-api-v1", "3.1.0+53515aab9e"));
+
+        HostModules.Result result = HostModules.replaceLeftOut(
+                HOST, List.of(fits, blocked), bridges, GameSide.DEDICATED_SERVER, directory.resolve("out"), loader);
+
+        assertEquals(1, result.mods().size());
+        assertEquals(
+                "3.1.0+plexus.neoforge.26.2",
+                result.mods().getFirst().assessment().version());
+        assertEquals(
+                List.of(HostModules.Reason.ANOTHER_COPY, HostModules.Reason.LEFT_OUT),
+                result.replaced().stream().map(HostModules.Replacement::reason).toList());
     }
 
     @Test

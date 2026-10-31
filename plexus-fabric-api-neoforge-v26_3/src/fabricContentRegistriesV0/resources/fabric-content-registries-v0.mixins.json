@@ -1,0 +1,38 @@
+{
+  "required": true,
+  "package": "net.fabricmc.fabric.mixin.content.registry",
+  "compatibilityLevel": "JAVA_25",
+  "mixinextras": {
+    "minVersion": "0.5.0"
+  },
+  "mixins": [
+    "BaseRegistryMixin",
+    "BlockBehaviourAccessor",
+    "BlockBehaviourBlockStateBaseMixin",
+    "DataMapHooksMixin",
+    "FireBlockMixin",
+    "GiveGiftToHeroAccessor",
+    "GiveGiftToHeroMixin",
+    "HoneycombItemMixin",
+    "PathfindingContextMixin",
+    "VillagerMixin",
+    "WalkNodeEvaluatorMixin",
+    "WeatheringCopperMixin",
+    "WorkAtComposterAccessor",
+    "fluid.EntityAccessor",
+    "fluid.EntityFluidInteractionAccessor",
+    "fluid.EntityFluidInteractionCurrentAccumulatorAccessor",
+    "fluid.EntityFluidInteractionMixin",
+    "fluid.EntityMixin",
+    "fluid.FloatGoalMixin",
+    "fluid.LivingEntityAccessor",
+    "fluid.LivingEntityMixin",
+    "fluid.SwimMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

@@ -516,6 +516,145 @@ class HostPatchAdjustmentsTest {
     }
 
     /**
+     * The mixin's getter returns a list in an {@code @Unique} field of the mixin, and the patch added the same getter
+     * of its own field of that name (Fabric's tag API and Forge both add {@code TagFile.remove()}, Fabric for {@code
+     * "fabric:remove"}, Forge for {@code "remove"}). Mixin keeps the two fields apart, so the patched getter would hide
+     * the mixin's list. One getter answers for both: it overwrites the patched one and returns the patched list followed
+     * by the mixin's, whose field takes a name of its own in every method of the mixin.
+     */
+    @Test
+    void aGetterOfAUniqueListAnswersForThePatchedListToo() throws Exception {
+        byte[] vanilla = memberTarget(false, CD_List);
+        byte[] patched = memberTarget(true, CD_List);
+        byte[] mixin = uniqueListGetterMixin();
+        Path jar = jar(Map.of(MEMBER_CONFIG, MEMBER_CONFIG_TEXT, "m/MemberAccessor.class", mixin));
+
+        HostPatchAdjustments adjustments = plan(jar, vanilla, patched);
+
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        HostPatchAdjustments.Finding finding = adjustments.findings().getFirst();
+        assertEquals("PLEXUS-COMPAT-212", finding.code());
+        assertFalse(finding.incompatible(), finding.toString());
+        assertTrue(finding.reason().contains("followed by the mixin's"), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.MemberAccessor", mixin));
+        assertEquals(
+                List.of("plexus$joined$connection"),
+                applied.fields().stream().map(f -> f.fieldName().stringValue()).toList());
+        MethodModel getter = applied.methods().stream()
+                .filter(m -> m.methodName().equalsString("getConnection"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(
+                getter
+                        .findAttribute(java.lang.classfile.Attributes.runtimeVisibleAnnotations())
+                        .orElseThrow()
+                        .annotations()
+                        .stream()
+                        .anyMatch(annotation ->
+                                annotation.className().equalsString("Lorg/spongepowered/asm/mixin/Overwrite;")),
+                getter.toString());
+        String code = getter.code().orElseThrow().elementList().toString();
+        assertTrue(code.contains("t/Target") && code.contains("connection"), code);
+        assertTrue(code.contains("plexus$joined$connection") && code.contains("addAll"), code);
+        String setter = applied.methods().stream()
+                .filter(m -> m.methodName().equalsString("setConnection"))
+                .findFirst()
+                .orElseThrow()
+                .code()
+                .orElseThrow()
+                .elementList()
+                .toString();
+        assertTrue(setter.contains("plexus$joined$connection"), setter);
+    }
+
+    /**
+     * An {@code @Unique} method of the mixin has the name and descriptor of a default method an interface the patch
+     * added gives the target (Fabric API's entity events add {@code self()} to {@code LivingEntity}, Forge's {@code
+     * IForgeLivingEntity} has a default {@code self()}). Mixin would add it as it is and hide the default from the
+     * host's calls ({@code AbstractMethodError}); it takes a name of its own and the mixin's calls follow it.
+     */
+    @Test
+    void aUniqueMethodWithTheNameOfAnAddedInterfacesDefaultTakesANameOfItsOwn() throws Exception {
+        ClassDesc hostInterface = ClassDesc.of("h.HostExtension");
+        MethodTypeDesc selfType = MethodTypeDesc.of(TARGET);
+        byte[] extension = ClassFile.of()
+                .build(
+                        hostInterface,
+                        builder -> builder.withFlags(
+                                        ClassFile.ACC_PUBLIC | ClassFile.ACC_INTERFACE | ClassFile.ACC_ABSTRACT)
+                                .withMethodBody(
+                                        "self",
+                                        selfType,
+                                        ClassFile.ACC_PUBLIC,
+                                        code -> code.aload(0).checkcast(TARGET).areturn()));
+        byte[] vanilla = memberTarget(false, CD_List);
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withInterfaceSymbols(hostInterface)
+                                .withField("connection", CD_List, ClassFile.ACC_PRIVATE));
+        ClassDesc self = ClassDesc.of("m.MemberAccessor");
+        byte[] mixin = ClassFile.of().build(self, builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod(
+                    "self",
+                    selfType,
+                    ClassFile.ACC_PRIVATE,
+                    method -> method.with(RuntimeInvisibleAnnotationsAttribute.of(
+                                    Annotation.of(ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/Unique;"))))
+                            .withCode(code -> code.aload(0).checkcast(TARGET).areturn()));
+            builder.withMethodBody(
+                    "useSelf",
+                    MethodTypeDesc.of(TARGET),
+                    ClassFile.ACC_PUBLIC,
+                    code -> code.aload(0).invokespecial(self, "self", selfType).areturn());
+        });
+        Path jar = jar(Map.of(MEMBER_CONFIG, MEMBER_CONFIG_TEXT, "m/MemberAccessor.class", mixin));
+
+        HostPatchAdjustments adjustments = plan(
+                GameSide.DEDICATED_SERVER,
+                Map.of(MEMBER_CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                new GameClassBytes() {
+                    @Override
+                    public Optional<byte[]> classBytes(String className) {
+                        return switch (className.replace('.', '/')) {
+                            case "t/Target" -> Optional.of(patched);
+                            case "h/HostExtension" -> Optional.of(extension);
+                            default -> Optional.empty();
+                        };
+                    }
+
+                    @Override
+                    public boolean isDefined(String className) {
+                        return false;
+                    }
+                });
+
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        HostPatchAdjustments.Finding finding = adjustments.findings().getFirst();
+        assertEquals("PLEXUS-COMPAT-212", finding.code());
+        assertFalse(finding.incompatible(), finding.toString());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.MemberAccessor", mixin));
+        assertEquals(
+                List.of("plexus$unique$self", "useSelf"),
+                applied.methods().stream()
+                        .map(m -> m.methodName().stringValue())
+                        .sorted()
+                        .toList());
+        String call = applied.methods().stream()
+                .filter(m -> m.methodName().equalsString("useSelf"))
+                .findFirst()
+                .orElseThrow()
+                .code()
+                .orElseThrow()
+                .elementList()
+                .toString();
+        assertTrue(call.contains("plexus$unique$self"), call);
+    }
+
+    /**
      * A method a Fabric mixin adds that the host's patch added with other code (Fabric's tag API and Forge both add
      * {@code TagFile.remove()}, each for its own list): one class cannot hold both, so the mod is incompatible. Plexus Mod
      * Loader does not rename the mixin's method, which would leave other callers reaching the host's.
@@ -3517,6 +3656,37 @@ class HostPatchAdjustmentsTest {
                             .ldc("x")
                             .invokevirtual(self, "describe", DESCRIBE)
                             .areturn());
+        });
+    }
+
+    /** As {@link #unmodifiableGetterMixin}, with the field {@code @Unique} and a setter of it. */
+    private static byte[] uniqueListGetterMixin() {
+        ClassDesc self = ClassDesc.of("m.MemberAccessor");
+        return ClassFile.of().build(self, builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withField(
+                    "connection",
+                    CD_List,
+                    field -> field.withFlags(ClassFile.ACC_PRIVATE)
+                            .with(RuntimeInvisibleAnnotationsAttribute.of(
+                                    Annotation.of(ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/Unique;")))));
+            builder.withMethodBody("getConnection", MethodTypeDesc.of(CD_List), ClassFile.ACC_PUBLIC, code -> {
+                code.aload(0)
+                        .getfield(self, "connection", CD_List)
+                        .invokestatic(
+                                ClassDesc.of("java.util.Collections"),
+                                "unmodifiableList",
+                                MethodTypeDesc.of(CD_List, CD_List))
+                        .areturn();
+            });
+            builder.withMethodBody(
+                    "setConnection",
+                    MethodTypeDesc.of(CD_void, CD_List),
+                    ClassFile.ACC_PUBLIC,
+                    code -> code.aload(0)
+                            .aload(1)
+                            .putfield(self, "connection", CD_List)
+                            .return_());
         });
     }
 

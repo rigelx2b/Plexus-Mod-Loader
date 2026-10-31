@@ -267,9 +267,14 @@ public final class PlexusRuntime {
                 LOGGER.info(
                         "[Plexus Mod Loader] {} {} {}",
                         replaced.original().getFileName(),
-                        replaced.leftOut()
-                                ? "does not fit the host's patch (PLEXUS-COMPAT-224); Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031):"
-                                : "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031):",
+                        switch (replaced.reason()) {
+                            case LEFT_OUT ->
+                                "does not fit the host's patch (PLEXUS-COMPAT-224); Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031):";
+                            case ALWAYS ->
+                                "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031):";
+                            case ANOTHER_COPY ->
+                                "is another copy of a module that does not run as written next to the host; Plexus Mod Loader runs one build on the host's hooks for every copy (ADR-0031):";
+                        },
                         replaced.hostModule().getFileName());
             }
             if (!hostModules.replaced().isEmpty()) {

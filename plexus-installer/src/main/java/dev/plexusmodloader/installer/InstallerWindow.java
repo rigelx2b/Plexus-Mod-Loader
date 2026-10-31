@@ -97,10 +97,15 @@ final class InstallerWindow {
         this.text = language == Language.KOREAN ? KOREAN : ENGLISH;
         frame = new JFrame(text("title").formatted(payload.plexusVersion()));
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        frame.setIconImage(ProfileIcon.image(64));
+        frame.setIconImages(List.of(
+                ProfileIcon.mark(16),
+                ProfileIcon.mark(32),
+                ProfileIcon.mark(48),
+                ProfileIcon.mark(64),
+                ProfileIcon.mark(256)));
 
         JLabel header = new JLabel(
-                "Plexus Mod Loader " + payload.plexusVersion(), new ImageIcon(ProfileIcon.image(40)), JLabel.LEADING);
+                "Plexus Mod Loader " + payload.plexusVersion(), new ImageIcon(ProfileIcon.mark(40)), JLabel.LEADING);
         header.setFont(header.getFont().deriveFont(Font.BOLD, 18f));
         header.setIconTextGap(10);
         languages = new JComboBox<>(Language.values());

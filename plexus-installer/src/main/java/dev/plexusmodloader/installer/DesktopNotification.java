@@ -28,7 +28,7 @@ final class DesktopNotification {
             return false;
         }
         SystemTray tray = SystemTray.getSystemTray();
-        TrayIcon icon = new TrayIcon(ProfileIcon.image(64), title);
+        TrayIcon icon = new TrayIcon(ProfileIcon.mark(64), title);
         icon.setImageAutoSize(true);
         try {
             tray.add(icon);

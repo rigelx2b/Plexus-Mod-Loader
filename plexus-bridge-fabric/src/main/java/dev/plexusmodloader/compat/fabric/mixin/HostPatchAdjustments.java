@@ -1217,8 +1217,7 @@ final class HostPatchAdjustments {
     }
 
     /** The default methods of interface {@code name} and its superinterfaces: name and descriptor, to the declaring one. */
-    private static Map<String, String> defaults(
-            String name, Function<String, Optional<ClassModel>> classes, Set<String> seen) {
+    static Map<String, String> defaults(String name, Function<String, Optional<ClassModel>> classes, Set<String> seen) {
         Map<String, String> found = new LinkedHashMap<>();
         if (!seen.add(name)) {
             return found;

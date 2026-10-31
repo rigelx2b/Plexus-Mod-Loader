@@ -145,6 +145,12 @@ includeIfPresent(
     "test-mods:fabric-dynamic-registry",
     "test-mods:fabric-object-builder",
     "test-mods:fabric-block-item",
+    "test-mods:fabric-content-registries",
+    "test-mods:fabric-data-generation",
+    "test-mods:fabric-oxidizable-blocks",
+    "test-mods:fabric-resource-conditions",
+    "test-mods:fabric-menu",
+    "test-mods:fabric-entity-events",
     "tools:api-reference",
     "tools:tick-probe",
 )

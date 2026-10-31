@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-content-registries-v0",
+  "name": "Fabric Content Registries (v0)",
+  "version": "15.0.6+plexus.neoforge.26.3",
+  "environment": "*",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-content-registries-v0/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api-base": "*",
+    "fabric-lifecycle-events-v1": "*",
+    "fabric-resource-loader-v1": "*",
+    "fabric-item-api-v1": "*",
+    "minecraft": "26.3"
+  },
+  "description": "Adds registries for vanilla mechanics that are missing them.",
+  "mixins": [
+    "fabric-content-registries-v0.mixins.json",
+    {
+      "config": "fabric-content-registries-v0.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.3",
+      "replaces": "15.0.6"
+    }
+  },
+  "entrypoints": {
+    "main": [
+      "net.fabricmc.fabric.impl.content.registry.ContentRegistriesImpl"
+    ]
+  }
+}
