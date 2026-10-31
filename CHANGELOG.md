@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.7.0 — 2026-11-01
+
+### Highlights
+
+- New Plexus Mod Loader logo on the website, the installer, the Minecraft Launcher profile and the loading screens, where its chevrons turn around the core.
+- Next to NeoForge 26.2 and 26.3, no Fabric API module is left out on the server any more: Plexus Mod Loader now carries its own builds of the content registries, data generation and menu modules, and on 26.3 of the resource conditions and entity events modules too.
+- Next to MinecraftForge, Fabric mobs and players no longer stop the server, Fabric extended menus open, and Fabric tag removals are kept.
+
+### 주요 변경
+
+- 새 Plexus 모드 로더 로고를 웹사이트, 설치 프로그램, Minecraft 런처 프로필, 로딩 화면에 씁니다. 로딩 화면에서는 셰브런이 코어 둘레를 돕니다.
+- NeoForge 26.2·26.3 옆의 서버에서 빠지는 Fabric API 모듈이 더 없습니다. Plexus 모드 로더가 content registries, data generation, menu 모듈을, 26.3에서는 resource conditions와 entity events 모듈도 직접 구현해 제공합니다.
+- MinecraftForge 옆에서 Fabric 몹·플레이어 때문에 서버가 멈추던 문제, Fabric 확장 메뉴가 열리지 않던 문제, Fabric 태그 제거가 사라지던 문제를 고쳤습니다.
+
+### Added
+
+- Next to NeoForge 26.2.0.93 and 26.3.0.98, Fabric API's `fabric-content-registries-v0` runs as Plexus Mod Loader's own build on NeoForge's hooks (ADR-0031), from Forgified Fabric API's code: compostables, fuel values, axe stripping and hoe tilling (26.2), oxidation stages and waxable blocks (both) now reach the game there. NeoForge 26.3 reads oxidation stages and waxed blocks from its data maps only, so the 26.3 build hands Fabric mods' registrations to those lookups. Like Forgified Fabric API, swimming, drowning, fluid jumping and boats in Fabric-registered fluids follow NeoForge's fluid types.
+- Next to NeoForge 26.2.0.93, Fabric API's `fabric-data-generation-api-v1` runs as Plexus Mod Loader's own build on NeoForge's hooks (ADR-0031), from Forgified Fabric API's code: Fabric mods that need it (such as Fusion) load there, and Fabric tag providers write replacement, forced tags and removals. Removing several entries or a tag no longer fails with "Implemented via mixin" as it does in Forgified Fabric API.
+- Next to NeoForge 26.3.0.98, Fabric API's `fabric-resource-conditions-api-v1` and `fabric-data-generation-api-v1` run as Plexus Mod Loader's own builds on NeoForge's hooks (ADR-0031). Fabric conditions on JSON data that mods read through `SimpleJsonResourceReloadListener` and on recipes now apply there, and Fabric mods that need either module load. Before, both modules were left out next to NeoForge 26.3 (`PLEXUS-COMPAT-224`).
+- Next to NeoForge 26.2.0.93 and 26.3.0.98, Fabric API's `fabric-menu-api-v1` runs as Plexus Mod Loader's own build on NeoForge's hooks (ADR-0031), from Forgified Fabric API's code: extended menus open through NeoForge's menu data, and Fabric mods that need the module are no longer left out for it. The client then needs NeoForge too, since the opening data travels in NeoForge's open-screen payload instead of Fabric API's.
+- Next to NeoForge 26.3.0.98, Fabric API's `fabric-entity-events-v1` runs as Plexus Mod Loader's own build on NeoForge's hooks (ADR-0031): Fabric API 26.3's build with its sleep direction and nearby-monster checks moved into the lambda where NeoForge 26.3 runs `startSleepInBed`'s checks. No Fabric API module is left out next to NeoForge 26.2 or 26.3 on the server any more.
+
+### Changed
+
+- New Plexus Mod Loader logo: three chevrons around a cut hexagonal core. The logo without a background (`logo.svg`) is on the website, in the README and in the loading screens, where its chevrons slowly turn around the still core (once in 7.2 seconds), on a ring clear of it, in place of the spinning gold cube (the game's loading screen, Plexus Mod Loader's early window, and Forge's and NeoForge's early screens); the logo on a dark tile (`site/static/img/favicon.svg`) is the browser icon, the website's other icons and the Minecraft Launcher profile icon; the window icons (Plexus Mod Loader's early window, NeoForge's early screen, the installer) are the logo without a background. Every icon draws the logo as large as fits, with a small margin, so it is not smaller than other apps' icons, and the windows carry the icon at every size Windows asks for (16 to 256 pixels). The website's link card shows the new logo and name. `tools/logo/LogoArt.java` draws every raster from the same shapes; it replaces `tools/loading-screen/generate_plexus_assets.py`.
+
+### Fixed
+
+- With MinecraftForge: Fabric mobs and players no longer stop the server when they tick (`AbstractMethodError` on `IForgeLivingEntity.self()`). Fabric API's entity events add a private `self()` to `LivingEntity` with the signature of Forge's default method, which hid that default from Forge's own calls; the private method now takes a name of its own (`PLEXUS-COMPAT-212`).
+- With MinecraftForge: Fabric mods' extended menus open; before, opening one stopped the server with "Codec for ... is not registered!". Forge's registries skip the `MappedRegistry.register` that Fabric API's `RegistryEntryAddedCallback` listens on, so Plexus Mod Loader now fires that event for every entry Fabric mods add during their initialization.
+- With MinecraftForge and NeoForge: Fabric tag removals (`fabric:remove` in data packs, and removals Fabric data generators write) are applied and written again. Forge and NeoForge add `TagFile.remove()` for their own list; it now returns both lists.
+- Next to NeoForge 26.3.0.98 on the client, Fabric API's `fabric-lifecycle-events-v1` loads again (and `fabric-content-registries-v0` with it): its tags-loaded event runs where NeoForge 26.3 rebuilds the creative search trees.
+- Next to NeoForge, when several mods nest copies of a Fabric API module that Plexus Mod Loader runs as its own build (ADR-0031), every copy was replaced on its own and all of them were then left out as duplicates (`PLEXUS-COMPAT-117`), together with the mods that need them. One build now stands for every copy: in the Quilt mod set next to NeoForge 26.2, 120 foreign mods load instead of 109.
+
 ## 1.6.0 — 2026-10-31
 
 ### Highlights

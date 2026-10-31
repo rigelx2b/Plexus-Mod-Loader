@@ -36,7 +36,7 @@ public final class PlexusLoadingOverlay {
     private static final AtomicBoolean REPORTED = new AtomicBoolean();
     private static final AtomicBoolean FAILED = new AtomicBoolean();
 
-    /** The cube's frames: 24 of 32 x 32 pixels, a quarter turn ({@code plexus_cube.png}, Plexus Mod Loader's own art). */
+    /** The logo's frames: 120 of 32 x 32 pixels, its chevrons turning once around the core ({@code plexus_cube.png}). */
     private static final int CUBE = 32;
 
     private static final int FRAME_MILLIS = 60;

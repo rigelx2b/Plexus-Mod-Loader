@@ -232,6 +232,15 @@ final class NeoForgeInjectionPoints {
                         "removeAllEffects",
                         "Ljava/util/Map;clear()V",
                         "Ljava/util/Set;forEach(Ljava/util/function/Consumer;)V"),
+                // ClientPacketListener.handleUpdateTags (26.2.0.93, 26.3.0.98): once the tags are applied, vanilla
+                // rebuilds the search tab's tags from CreativeModeTabs.searchTab(), where Fabric API 26.3's
+                // ClientPacketListenerMixin fires TAGS_LOADED. NeoForge posts its TagsUpdatedEvent there instead and
+                // rebuilds the search trees of every tab, from CreativeModeTabs.allTabs().
+                new InjectionPointReplacement(
+                        "net/minecraft/client/multiplayer/ClientPacketListener",
+                        "handleUpdateTags",
+                        "Lnet/minecraft/world/item/CreativeModeTabs;searchTab()Lnet/minecraft/world/item/CreativeModeTab;",
+                        "Lnet/minecraft/world/item/CreativeModeTabs;allTabs()Ljava/util/List;"),
                 // HopperBlockEntity.ejectItems and suckInItems (26.2.0.93, 26.3.0.98): NeoForge looks up a
                 // ContainerOrHandler (the container, or NeoForge's item handler of the block) where vanilla looks up
                 // the container. Fabric API's transfer API moves items through a block's Fabric storage after the

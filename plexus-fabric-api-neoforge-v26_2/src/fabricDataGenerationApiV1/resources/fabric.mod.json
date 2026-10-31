@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-data-generation-api-v1",
+  "name": "Fabric Data Generation API (v1)",
+  "version": "25.6.0+plexus.neoforge.26.2",
+  "environment": "*",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-data-generation-api-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "fabric-convention-tags-v2": "*",
+    "fabric-recipe-api-v1": "*",
+    "fabric-registry-sync-v0": "*",
+    "fabric-resource-conditions-api-v1": "*",
+    "fabric-tag-api-v1": "*",
+    "minecraft": "26.2"
+  },
+  "description": "Allows for automatic data generation.",
+  "mixins": [
+    "fabric-data-generation-api-v1.mixins.json",
+    {
+      "config": "fabric-data-generation-api-v1.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "accessWidener": "fabric-data-generation-api-v1.classtweaker",
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.2",
+      "replaces": "25.6.0"
+    }
+  }
+}

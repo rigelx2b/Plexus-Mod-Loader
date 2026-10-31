@@ -19,9 +19,12 @@ class LoadingScreenPainterTest {
     @Test
     void artIsInTheModule() {
         List<BufferedImage> cube = EarlyWindowArt.cube();
-        assertEquals(24, cube.size());
+        assertEquals(120, cube.size());
         assertEquals(32, cube.getFirst().getWidth());
-        assertTrue(EarlyWindowArt.icon().isPresent());
+        List<BufferedImage> icons = EarlyWindowArt.icons();
+        assertEquals(9, icons.size());
+        assertEquals(16, icons.getFirst().getWidth());
+        assertEquals(256, icons.getLast().getWidth());
         assertTrue(EarlyWindowArt.logo(Optional.empty(), Optional.empty()).isEmpty());
     }
 
@@ -34,15 +37,15 @@ class LoadingScreenPainterTest {
         assertEquals(0xFFFFFF, rgb(image, 2 * 150, 2 * 194));
         assertEquals(0xFFFFFF, rgb(image, 2 * 100, 2 * 199));
         assertEquals(LoadingScreenPainter.MOJANG_RED, rgb(image, 2 * 300, 2 * 199));
-        // The cube (389, 192 .. 421, 224): some of it is gold, not background.
-        boolean gold = false;
-        for (int y = 2 * 192; y < 2 * 224 && !gold; y++) {
-            for (int x = 2 * 389; x < 2 * 421 && !gold; x++) {
+        // The logo (389, 192 .. 421, 224): some of it is its cyan, purple or indigo, not background.
+        boolean logo = false;
+        for (int y = 2 * 192; y < 2 * 224 && !logo; y++) {
+            for (int x = 2 * 389; x < 2 * 421 && !logo; x++) {
                 int pixel = rgb(image, x, y);
-                gold = ((pixel >> 16) & 0xFF) > 200 && ((pixel >> 8) & 0xFF) > 120 && (pixel & 0xFF) < 100;
+                logo = (pixel & 0xFF) > 180 && (pixel & 0xFF) > ((pixel >> 16) & 0xFF);
             }
         }
-        assertTrue(gold, "no gold pixel where the cube is");
+        assertTrue(logo, "no pixel of the logo where it is drawn");
         // The name's first letter P starts at (332, 228): its top left pixel is lit.
         assertNotEquals(LoadingScreenPainter.MOJANG_RED, rgb(image, 2 * 332, 2 * 228));
     }

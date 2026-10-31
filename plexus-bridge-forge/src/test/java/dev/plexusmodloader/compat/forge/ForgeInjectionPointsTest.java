@@ -399,9 +399,20 @@ class ForgeInjectionPointsTest {
         assertFalse(
                 points.stream()
                         .anyMatch(p -> p.targetClass().equals("net/minecraft/client/gui/Gui")
-                                || p.targetClass().equals("net/minecraft/client/resources/model/ModelManager")
-                                || p.targetClass().equals("net/minecraft/client/multiplayer/ClientPacketListener")),
+                                || p.targetClass().equals("net/minecraft/client/resources/model/ModelManager")),
                 "the 1.2.3 client points named calls vanilla does not make");
+        // The one ClientPacketListener point names a call vanilla makes (Fabric API 26.3's TAGS_LOADED point).
+        List<InjectionPointReplacement> packetListener = points.stream()
+                .filter(p -> p.targetClass().equals("net/minecraft/client/multiplayer/ClientPacketListener"))
+                .toList();
+        assertEquals(1, packetListener.size());
+        assertEquals("handleUpdateTags", packetListener.getFirst().method());
+        assertEquals(
+                "Lnet/minecraft/world/item/CreativeModeTabs;searchTab()Lnet/minecraft/world/item/CreativeModeTab;",
+                packetListener.getFirst().replaced());
+        assertEquals(
+                "Lnet/minecraft/world/item/CreativeModeTabs;allTabs()Ljava/util/List;",
+                packetListener.getFirst().replacement());
     }
 
     /**

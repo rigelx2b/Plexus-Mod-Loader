@@ -21,6 +21,11 @@ mixinExtras = "0.5.5"
 # Fabric API 0.161.0+26.2 nests these module versions; the NeoForge host modules (ADR-0031) compile against them.
 fabricApiBase = "2.0.4+ece063239e"
 fabricResourceLoaderV1 = "2.0.13+9edec1269e"
+fabricLifecycleEventsV1 = "4.1.4+29b6eb019e"
+fabricTagApiV1 = "2.1.4+515ac5339e"
+fabricConventionTagsV2 = "4.7.1+1f023a9e9e"
+fabricRecipeApiV1 = "9.0.22+11e1c9a39e"
+fabricResourceConditionsApiV1 = "6.1.0+10e9a28b9e"
 jspecify = "1.0.0"
 jetbrainsAnnotations = "26.0.2"
 # Quilt Loader (Apache-2.0): its public API and version classes are packed into the Fabric bridge jar (ADR-0027).
@@ -78,6 +83,11 @@ junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabricLoader" }
 fabric-api-base = { module = "net.fabricmc.fabric-api:fabric-api-base", version.ref = "fabricApiBase" }
 fabric-resource-loader-v1 = { module = "net.fabricmc.fabric-api:fabric-resource-loader-v1", version.ref = "fabricResourceLoaderV1" }
+fabric-lifecycle-events-v1 = { module = "net.fabricmc.fabric-api:fabric-lifecycle-events-v1", version.ref = "fabricLifecycleEventsV1" }
+fabric-tag-api-v1 = { module = "net.fabricmc.fabric-api:fabric-tag-api-v1", version.ref = "fabricTagApiV1" }
+fabric-convention-tags-v2 = { module = "net.fabricmc.fabric-api:fabric-convention-tags-v2", version.ref = "fabricConventionTagsV2" }
+fabric-recipe-api-v1 = { module = "net.fabricmc.fabric-api:fabric-recipe-api-v1", version.ref = "fabricRecipeApiV1" }
+fabric-resource-conditions-api-v1 = { module = "net.fabricmc.fabric-api:fabric-resource-conditions-api-v1", version.ref = "fabricResourceConditionsApiV1" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 jetbrains-annotations = { module = "org.jetbrains:annotations", version.ref = "jetbrainsAnnotations" }
 sponge-mixin = { module = "net.fabricmc:sponge-mixin", version.ref = "mixin" }

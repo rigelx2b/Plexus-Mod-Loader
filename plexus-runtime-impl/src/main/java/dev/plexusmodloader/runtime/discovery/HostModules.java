@@ -12,11 +12,15 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Plexus Mod Loader's own builds of Fabric API modules for a host loader (ADR-0031): a module that cannot run as written
@@ -26,6 +30,8 @@ import java.util.Properties;
  * <host key>.<mod id>.always} set to {@code true} has the build replace that module even when the module fits the
  * patch: one that loads there but does not do what it does under Fabric Loader (a test mod's lines differ). A replacement
  * is a mod of its own (no container), assessed by its bridge as any mod file is; the host check then runs on it too.
+ * When several mods nest copies of one module and any copy is replaced, every copy is: one host module stands for them
+ * all, as Fabric Loader keeps one copy of a nested module.
  *
  * <p>Not thread-safe; the runtime calls it once, on the launch thread.
  */
@@ -41,7 +47,7 @@ public final class HostModules {
     /**
      * The result of {@link #replaceLeftOut}.
      *
-     * @param mods the mods, each replaced one in its original's place
+     * @param mods the mods, each replaced module once, in the place of its first copy
      * @param replaced the replacements, in the order of {@code mods}
      */
     public record Result(List<ForeignMod> mods, List<Replacement> replaced) {
@@ -51,15 +57,24 @@ public final class HostModules {
         }
     }
 
+    /** Why an original module is replaced. */
+    public enum Reason {
+        /** It does not fit the host's patch ({@code PLEXUS-COMPAT-224}). */
+        LEFT_OUT,
+        /** It fits, but the index marks the host module {@code always}. */
+        ALWAYS,
+        /** It fits, but another copy of the same module is replaced. */
+        ANOTHER_COPY
+    }
+
     /**
      * One original module replaced by a host module.
      *
      * @param original the original's jar
      * @param hostModule the host module's extracted jar
-     * @param leftOut whether the original was left out for not fitting the host's patch ({@code PLEXUS-COMPAT-224});
-     *     otherwise the index marks the host module {@code always}
+     * @param reason why the original is replaced
      */
-    public record Replacement(Path original, Path hostModule, boolean leftOut) {}
+    public record Replacement(Path original, Path hostModule, Reason reason) {}
 
     /**
      * {@code mods} with each one left out for not fitting {@code hostName}'s patch, and each one whose host module is
@@ -78,27 +93,39 @@ public final class HostModules {
             return new Result(mods, List.of());
         }
         String host = hostKey(hostName);
+        // The host module of each module ID that any copy needs replaced, found before any copy is placed.
+        Map<String, ForeignMod> replacements = new HashMap<>();
+        for (ForeignMod mod : mods) {
+            String id = mod.assessment().modId();
+            String resource = index.getProperty(host + "." + id);
+            if (resource == null
+                    || replacements.containsKey(id)
+                    || !(leftOutForTheHost(mod) || always(index, host, id))) {
+                continue;
+            }
+            extract(loader, resource, directory)
+                    .map(ModFileScanner::classify)
+                    .flatMap(file -> bridges.assess(file, side))
+                    .filter(found -> found.assessment().modId().equals(id))
+                    .ifPresent(found -> replacements.put(id, found));
+        }
         List<ForeignMod> result = new ArrayList<>();
         List<Replacement> replaced = new ArrayList<>();
+        Set<String> placed = new HashSet<>();
         for (ForeignMod mod : mods) {
-            String key = host + "." + mod.assessment().modId();
-            String resource = index.getProperty(key);
-            boolean leftOut = leftOutForTheHost(mod);
-            boolean always = Boolean.parseBoolean(index.getProperty(key + ".always"));
-            Optional<ForeignMod> replacement = resource == null || !(leftOut || always)
-                    ? Optional.empty()
-                    : extract(loader, resource, directory)
-                            .map(ModFileScanner::classify)
-                            .flatMap(file -> bridges.assess(file, side))
-                            .filter(found -> found.assessment()
-                                    .modId()
-                                    .equals(mod.assessment().modId()));
-            if (replacement.isPresent()) {
-                result.add(replacement.get());
-                replaced.add(new Replacement(mod.jar(), replacement.get().jar(), leftOut));
-            } else {
+            String id = mod.assessment().modId();
+            ForeignMod replacement = replacements.get(id);
+            if (replacement == null) {
                 result.add(mod);
+                continue;
             }
+            if (placed.add(id)) {
+                result.add(replacement);
+            }
+            Reason reason = leftOutForTheHost(mod)
+                    ? Reason.LEFT_OUT
+                    : always(index, host, id) ? Reason.ALWAYS : Reason.ANOTHER_COPY;
+            replaced.add(new Replacement(mod.jar(), replacement.jar(), reason));
         }
         return new Result(result, replaced);
     }
@@ -106,6 +133,10 @@ public final class HostModules {
     /** {@code NeoForge 26.2.0.93} becomes {@code neoforge-26.2.0.93}: the host's name as an index key. */
     static String hostKey(String hostName) {
         return hostName.strip().toLowerCase(Locale.ROOT).replace(' ', '-');
+    }
+
+    private static boolean always(Properties index, String host, String id) {
+        return Boolean.parseBoolean(index.getProperty(host + "." + id + ".always"));
     }
 
     private static boolean leftOutForTheHost(ForeignMod mod) {

@@ -12,10 +12,10 @@
   - 클라이언트 jar의 `assets/minecraft/textures/gui/title/mojangstudios.png`에서 직접 읽은 Mojang Studios 로고.
   - 바닐라 로딩 화면과 동일한 위치의 진행 막대.
 - 게임 계층의 `PlexusLoadingOverlay`가 인게임 화면에 그리는 것과 동일한 Plexus 표식을 표시합니다:
-  - 오른쪽 아래: 회전하는 금색 큐브(`plexus_cube.png`, 32 x 32 크기 24프레임)와 `Plexus Mod Loader` 명칭.
+  - 오른쪽 아래: 바깥 셰브런 세 개가 가운데 코어와 겹치지 않게 그 둘레를 도는 Plexus 로고(`plexus_cube.png`, 32 x 32 크기 120프레임, 60ms마다 한 프레임이라 한 바퀴에 7.2초)와 `Plexus Mod Loader` 명칭.
   - 진행 막대 아래: 각 로더별로 로드된 모드 수 집계(예: `Mods: Fabric 1 · Plexus 4`).
   - 왼쪽 아래: Plexus 모드 로더가 수행 중인 현재 작업 내용(예: `Found 5 mod files`, `Starting NeoForge`, `Starting Minecraft 26.2`).
-- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`를 사용하며, 그래픽 자산은 `tools/loading-screen/generate_plexus_assets.py`로 생성됩니다.
+- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/LogoArt.java`가 저장소 루트의 `logo.svg`·`site/static/img/favicon.svg`와 같은 모양으로 생성합니다.
 - 게임 실행 인수 `--width`/`--height`(기본값 854 x 480)와 `--gameDir`의 `options.txt`(`guiScale`, `darkMojangStudiosBackground`)를 읽어 게임 창 크기 및 화면 중앙 위치를 일치시킵니다.
 - Windows와 Linux에서 화면 픽셀 크기를 일치시키기 위해 `-Dsun.java2d.uiScale=1`을 적용합니다.
 - 키보드 포커스를 요청하지 않도록 설정하여, 나중에 그 위에 열리는 게임 창이 자연스럽게 포커스를 가져가도록 합니다.
@@ -30,7 +30,7 @@
 - `LoadingScreenPainter`: 로딩 화면 배경, 로고, 막대, 큐브 애니메이션, 텍스트를 렌더링하는 페인터입니다.
 - `LoadingScreenState`: 현재 표시할 이름, 상태 텍스트, 막대 아래 텍스트, 진행률(0~1)을 담는 레코드입니다.
 - `PixelLetters`: 게임 계층 `PlexusLoadingOverlay`와 동일한 5 x 7 픽셀 폰트 렌더러입니다.
-- `EarlyWindowArt`: 큐브 시트(`plexus_cube.png`), 아이콘(`plexus_icon.png`), 클라이언트 jar 내 로고를 로드하는 유틸리티입니다.
+- `EarlyWindowArt`: 로고 프레임 시트(`plexus_cube.png`), 아이콘(`plexus_icon.png`), 클라이언트 jar 내 로고를 로드하는 유틸리티입니다.
 
 ## 무엇을 하지 않는가
 - 게임 프로세스 내부에서 직접 창을 열거나 게임의 그래픽 컨텍스트(GLFW, SDL)를 제어하지 않습니다.

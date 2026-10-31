@@ -239,7 +239,7 @@ final class ForgeGameHost implements GameHost {
         }
         ClassLoader game = launch.gameLayer().modules().iterator().next().getClassLoader();
         try {
-            ForgeRegistryOpening.run(game, initialization);
+            ForgeRegistryOpening.run(game, ForgeRegistryAdditions.firingAfter(game, initialization));
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(
                     "Forge's registries could not be opened for other loaders' mods (" + e + ")", e);
