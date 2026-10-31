@@ -15,7 +15,7 @@
   - 오른쪽 아래: 바깥 셰브런 세 개가 가운데 코어와 겹치지 않게 그 둘레를 도는 Plexus 로고(`plexus_cube.png`, 32 x 32 크기 120프레임, 60ms마다 한 프레임이라 한 바퀴에 7.2초)와 `Plexus Mod Loader` 명칭.
   - 진행 막대 아래: 각 로더별로 로드된 모드 수 집계(예: `Mods: Fabric 1 · Plexus 4`).
   - 왼쪽 아래: Plexus 모드 로더가 수행 중인 현재 작업 내용(예: `Found 5 mod files`, `Starting NeoForge`, `Starting Minecraft 26.2`).
-- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/LogoArt.java`가 저장소 루트의 `logo.svg`·`site/static/img/favicon.svg`와 같은 모양으로 생성합니다.
+- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/LogoArt.java`가 저장소 루트의 `logo.svg`·`tools/logo/logo-tile.svg`와 같은 모양으로 생성합니다.
 - 게임 실행 인수 `--width`/`--height`(기본값 854 x 480)와 `--gameDir`의 `options.txt`(`guiScale`, `darkMojangStudiosBackground`)를 읽어 게임 창 크기 및 화면 중앙 위치를 일치시킵니다.
 - Windows와 Linux에서 화면 픽셀 크기를 일치시키기 위해 `-Dsun.java2d.uiScale=1`을 적용합니다.
 - 키보드 포커스를 요청하지 않도록 설정하여, 나중에 그 위에 열리는 게임 창이 자연스럽게 포커스를 가져가도록 합니다.

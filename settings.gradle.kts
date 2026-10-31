@@ -147,6 +147,8 @@ includeIfPresent(
     "test-mods:fabric-block-item",
     "test-mods:fabric-content-registries",
     "test-mods:fabric-data-generation",
+    "test-mods:fabric-datagen-run",
+    "test-mods:fabric-client-probe",
     "test-mods:fabric-oxidizable-blocks",
     "test-mods:fabric-resource-conditions",
     "test-mods:fabric-menu",

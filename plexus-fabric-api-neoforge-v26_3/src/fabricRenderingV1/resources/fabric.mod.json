@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-rendering-v1",
+  "name": "Fabric Rendering (v1)",
+  "version": "27.2.0+plexus.neoforge.26.3",
+  "environment": "client",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-rendering-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "entrypoints": {
+    "client": [
+      "net.fabricmc.fabric.impl.client.rendering.hud.HudStatusBarHeightRegistryImpl"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api-base": "*",
+    "fabric-lifecycle-events-v1": "*",
+    "minecraft": "26.3"
+  },
+  "description": "Hooks and registries for rendering-related things.",
+  "mixins": [
+    "fabric-rendering-v1.mixins.json"
+  ],
+  "accessWidener": "fabric-rendering-v1.classtweaker",
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.3",
+      "replaces": "27.2.0"
+    }
+  }
+}

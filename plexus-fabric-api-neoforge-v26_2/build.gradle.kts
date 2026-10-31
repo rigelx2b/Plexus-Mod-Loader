@@ -17,6 +17,8 @@ dependencies {
     compileOnly(libs.fabric.convention.tags.v2) { isTransitive = false }
     compileOnly(libs.fabric.recipe.api.v1) { isTransitive = false }
     compileOnly(libs.fabric.resource.conditions.api.v1) { isTransitive = false }
+    // Indigo's Mixin configuration plugin takes ASM's tree classes.
+    compileOnly(libs.asm.tree)
     compileOnly(libs.jspecify)
     compileOnly(libs.jetbrains.annotations)
     // NeoForge's event bus and FML (ModList, ModContainer) and their Dist, for the modules that use NeoForge's events.
@@ -59,6 +61,20 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-unchecked")
     options.compilerArgs.add("-Xlint:-rawtypes")
     options.compilerArgs.add("-Xlint:-overloads")
+    // The rendering module's ClientLevelMixin hands 'this' to a listener from a constructor injection, and the renderer
+    // API's MutableQuadView falls through switch cases, as Fabric API's do.
+    options.compilerArgs.add("-Xlint:-this-escape")
+    options.compilerArgs.add("-Xlint:-fallthrough")
+}
+
+// Fabric API's transitive access wideners, which Loom applies to the modules that depend on that module (the rendering
+// modules call DebugScreenEntries.register, which it makes accessible); at run time the original module applies them.
+val transitiveAccessWideners = configurations.create("transitiveAccessWideners") { isTransitive = false }
+dependencies { transitiveAccessWideners(libs.fabric.transitive.access.wideners.v1) }
+val transitiveAccessWidenerTweaker = tasks.register<Sync>("transitiveAccessWidenerTweaker") {
+    description = "Extracts the class tweaker of Fabric API's transitive access wideners, for compiling against it."
+    from({ zipTree(transitiveAccessWideners.singleFile) }) { include("*.classtweaker", "*.accesswidener") }
+    into(layout.buildDirectory.dir("transitive-access-wideners"))
 }
 
 // What Plexus Mod Loader's Fabric bridge carries (HostModules in plexus-runtime-impl): each jar under the host's key, and an
@@ -68,8 +84,8 @@ val hostKey = "neoforge-$neoForgeRelease"
 /**
  * One host module: its mod ID, the source set (src/<sourceSet>), the version its jar carries, whether the Fabric bridge
  * carries it (a module that is not shipped is only compiled), whether it replaces the original even when the original
- * fits NeoForge's patch (one that loads there but does not do what it does under Fabric Loader), and the source sets of
- * the host modules it depends on (listed before it).
+ * fits NeoForge's patch (one that loads there but does not do what it does under Fabric Loader), the source sets of the
+ * host modules it depends on (listed before it), and whether it compiles with Fabric API's transitive access wideners.
  */
 data class HostModule(
     val modId: String,
@@ -78,6 +94,7 @@ data class HostModule(
     val shipped: Boolean = true,
     val always: Boolean = false,
     val dependsOn: List<String> = emptyList(),
+    val transitiveAccessWideners: Boolean = false,
 )
 
 // Fabric API 0.161.0+26.2's module versions these jars stand in for (ADR-0031: same public API as that version).
@@ -104,11 +121,58 @@ val hostModules = listOf(
     // NeoForge's ServerPlayer.openMenu(MenuProvider) hands the vanilla body to openMenu(MenuProvider, Consumer), where
     // Fabric API's mixins do not fit; Forgified Fabric API opens extended menus through NeoForge's menu data instead.
     HostModule("fabric-menu-api-v1", "fabricMenuApiV1", "2.0.17+plexus.neoforge.26.2"),
+    // Client modules: NeoForge draws screens through ClientHooks.extractScreen and its ScreenEvent, loads sound streams
+    // through SoundInstance.getStream, and replaces FluidRenderer's HalfTransparentBlock check with
+    // BlockState.shouldDisplayFluidOverlay; Forgified Fabric API's modules run on those.
+    HostModule("fabric-screen-api-v1", "fabricScreenApiV1", "5.2.1+plexus.neoforge.26.2"),
+    HostModule("fabric-sound-api-v1", "fabricSoundApiV1", "2.0.5+plexus.neoforge.26.2"),
+    HostModule("fabric-rendering-fluids-v1", "fabricRenderingFluidsV1", "6.0.4+plexus.neoforge.26.2"),
+    // The client's rendering modules: NeoForge draws the HUD through its GUI layers, registers picture-in-picture
+    // renderers and block models through its own events and extensions, and gives the vanilla methods Fabric API's
+    // mixins wrap (BlockStateModel.collectParts, hasMaterialFlag, SectionCompiler.compile) other parameters.
+    HostModule("fabric-rendering-v1", "fabricRenderingV1", "25.3.3+plexus.neoforge.26.2", transitiveAccessWideners = true),
+    HostModule(
+        "fabric-renderer-api-v1",
+        "fabricRendererApiV1",
+        "14.1.4+plexus.neoforge.26.2",
+        dependsOn = listOf("fabricRenderingV1"),
+        transitiveAccessWideners = true,
+    ),
+    // The original is left out only because it needs the renderer API (PLEXUS-COMPAT-114) and loads once that is
+    // replaced, but it renders every block of the level (SectionCompilerMixin) without NeoForge's level-aware face
+    // culling, light emission, dynamic tints and baked vertex colours, which Forgified Fabric API's build keeps.
+    HostModule(
+        "fabric-renderer-indigo",
+        "fabricRendererIndigo",
+        "9.1.4+plexus.neoforge.26.2",
+        always = true,
+        dependsOn = listOf("fabricRenderingV1", "fabricRendererApiV1"),
+    ),
+    HostModule(
+        "fabric-model-loading-api-v1",
+        "fabricModelLoadingApiV1",
+        "8.0.17+plexus.neoforge.26.2",
+        dependsOn = listOf("fabricRenderingV1", "fabricRendererApiV1"),
+    ),
 )
 
 val hostModuleJars = hostModules.map { module ->
     val sourceSet = sourceSets.create(module.sourceSet)
     configurations.named(sourceSet.compileOnlyConfigurationName) { extendsFrom(configurations.compileOnly.get()) }
+    // The transitive lines of the class tweakers of the host modules it depends on, which Loom applies to a dependent
+    // too (the renderer API's code calls the interfaces the rendering module injects).
+    val dependencyTweakers = files(module.dependsOn.map { fileTree("src/$it/resources") { include("*.classtweaker") } })
+    val transitiveTweaker = tasks.register("${module.sourceSet}TransitiveClassTweaker") {
+        description = "The transitive class tweaker lines of the host modules ${module.modId} depends on."
+        val output = layout.buildDirectory.file("transitive-class-tweakers/${module.sourceSet}.classtweaker")
+        inputs.files(dependencyTweakers)
+        outputs.file(output)
+        doLast {
+            val lines = dependencyTweakers.files.sorted().flatMap { it.readLines() }
+                .filter { it.trimStart().startsWith("transitive-") }
+            output.get().asFile.writeText((listOf("classTweaker\tv1\tofficial") + lines).joinToString("\n", postfix = "\n"))
+        }
+    }
     // The patched game with the module's class tweaker applied, as Fabric's build tools compile a mod (Loom).
     val tweaked = tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.ClassTweakedJarTask>(
         "${module.sourceSet}CompileGame",
@@ -117,6 +181,14 @@ val hostModuleJars = hostModules.map { module ->
         inputJar.fileProvider(provider { patchedGame.singleFile })
         dependsOn(installNeoForgeClient)
         classTweakers.from(fileTree("src/${module.sourceSet}/resources") { include("*.classtweaker") })
+        if (module.dependsOn.isNotEmpty()) {
+            classTweakers.from(transitiveTweaker)
+        }
+        if (module.transitiveAccessWideners) {
+            classTweakers.from(
+                fileTree(layout.buildDirectory.dir("transitive-access-wideners")).builtBy(transitiveAccessWidenerTweaker),
+            )
+        }
         outputJar = layout.buildDirectory.file("compile-game/${module.sourceSet}.jar")
     }
     sourceSet.compileClasspath = files(tweaked.flatMap { it.outputJar }) + sourceSet.compileClasspath

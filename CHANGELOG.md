@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.8.0 — 2026-11-01
+
+### Highlights
+
+- Next to NeoForge 26.2 and 26.3, Fabric mods now get Fabric API's client side too: rendering, the HUD, block and item models, screens, sounds and fluid rendering run on Plexus Mod Loader's own builds of those modules, so far fewer Fabric mods are left out on a NeoForge client.
+- Next to MinecraftForge, Lithium and Fabric API's data generation module load again, and the mods that need them.
+- Fabric API's data generation (`-Dfabric-api.datagen`) works on Plexus Mod Loader: tags, loot tables, translations and recipes are written as under Fabric Loader.
+
+### 주요 변경
+
+- NeoForge 26.2·26.3 옆에서 Fabric 모드가 Fabric API의 클라이언트 기능도 씁니다. 렌더링, HUD, 블록·아이템 모델, 화면, 소리, 유체 렌더링을 Plexus 모드 로더가 직접 구현한 모듈이 맡아, NeoForge 클라이언트에서 빠지는 Fabric 모드가 크게 줄었습니다.
+- MinecraftForge 옆에서 Lithium과 Fabric API의 데이터 생성 모듈, 그리고 그것이 필요한 모드가 다시 로드됩니다.
+- Fabric API의 데이터 생성(`-Dfabric-api.datagen`)이 Plexus 모드 로더에서 Fabric Loader처럼 태그, 전리품 테이블, 번역, 레시피를 씁니다.
+
+### Added
+
+- Next to NeoForge 26.2.0.93 and 26.3.0.98 on the client, Fabric API's `fabric-rendering-v1`, `fabric-renderer-api-v1`, `fabric-renderer-indigo` and `fabric-model-loading-api-v1` run as Plexus Mod Loader's own builds on NeoForge's hooks (ADR-0031), from Forgified Fabric API's code (with Fabric API 26.3's changes merged in for 26.3). HUD elements go through NeoForge's GUI layers, picture-in-picture renderers and model plugins through its events, and Indigo keeps NeoForge's face culling, light emission, dynamic tints and vertex colours. Indigo is replaced even though the original would load, on code evidence; nothing was checked by eye in a game window.
+- Next to NeoForge 26.2.0.93 and 26.3.0.98 on the client, Fabric API's `fabric-screen-api-v1`, `fabric-sound-api-v1` and `fabric-rendering-fluids-v1` run as Plexus Mod Loader's own builds: screen events come from NeoForge's `ScreenEvent`, custom audio streams from NeoForge's `SoundInstance.getStream`, and the fluid overlay check from NeoForge's `BlockState.shouldDisplayFluidOverlay`. A new client test (`neoForgeFabricClientProbe`) checks a tooltip line, screen events, an extended menu screen with its opening data, the water render handler and a streamed sound against the same run without NeoForge.
+- No Fabric API module is left out on a NeoForge client any more. Of the real-mod set, 60 foreign mods load on the NeoForge client on 26.2 and 26.3 (50 in 1.7.1; headless client check `corpusFabricNeoForgeClientMixins`); only Continuity (both) and FancyMenu's Fabric build (26.3) stay out.
+- Build: `fabricDatagenRun` runs real Fabric API data generation at a dedicated server start and reads the written files back (26.2, 26.3); `fabricClientProbe` and `neoForgeFabricClientProbe` open a window and check Fabric API's client hooks.
+
+### Fixed
+
+- Next to NeoForge on the client: `fabric-data-attachment-api-v1` loads. NeoForge's `ClientPacketListener.handleRespawn` calls its `startWaitingForNewLevel` overload with two more parameters, which bounded one of the module's injections; a slice boundary call that the host's patch gave more trailing parameters now moves to the patched call (`PLEXUS-COMPAT-226`).
+- Next to MinecraftForge 26.3: `fabric-data-generation-api-v1` loads. Fabric's tag removals use Forge's own removal list of `TagBuilder`, and the loot sub-providers' vanilla-namespace filters run where Forge iterates its known blocks and entity types.
+- Next to MinecraftForge 26.2 and 26.3: Lithium loads. Its mixin of vanilla's anonymous `CompoundTag$1` follows the class to `CompoundTag$2` (Forge adds its own anonymous class first), and its block change hook runs in Forge's `Level.markAndNotifyBlock`, where Forge moved the code. `corpusFabricForge`: 86 foreign mods load, 80 are left out on 26.2 and 26.3 (85 / 81 and 84 / 82 before).
+- Next to MinecraftForge: Balm's crop moisture mixin reads Forge's `BlockState.isFertile` answer. Balm itself still needs `fabric-biome-api-v1`, which Forge's patch keeps out.
 ## 1.7.1 — 2026-11-01
 
 ### Highlights

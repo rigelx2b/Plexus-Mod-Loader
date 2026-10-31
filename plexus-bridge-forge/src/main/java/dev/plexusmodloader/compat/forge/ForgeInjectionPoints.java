@@ -259,6 +259,41 @@ final class ForgeInjectionPoints {
                         "lambda$createWorldLookup$0",
                         WORLD_REGISTRIES,
                         WORLD_AND_DIMENSION_REGISTRIES,
-                        InjectionPointReplacement.Placement.FIELD_THEN_HOST_ENTRIES));
+                        InjectionPointReplacement.Placement.FIELD_THEN_HOST_ENTRIES),
+                // Forge 26.3-66.1.0: BlockLootSubProvider.run() iterates BuiltInRegistries.BLOCK.iterator() in vanilla
+                // to check that every block with a loot table got one; Forge iterates getKnownBlocks().iterator()
+                // (Iterable.iterator()), at the same place, whose default returns the blocks of the minecraft
+                // namespace. Fabric API 26.3's data generation narrows the vanilla iterator to the minecraft namespace
+                // for VanillaBlockLoot (@ModifyExpressionValue); on Forge's iterator it narrows the same blocks.
+                new InjectionPointReplacement(
+                        "net/minecraft/data/loot/BlockLootSubProvider",
+                        "run",
+                        "Lnet/minecraft/core/DefaultedRegistry;iterator()Ljava/util/Iterator;",
+                        "Ljava/lang/Iterable;iterator()Ljava/util/Iterator;"),
+                // Forge 26.3-66.1.0: EntityLootSubProvider.run() streams the entity types' holders with
+                // LootTableSubProvider$Context.listContextElements(Registries.ENTITY_TYPE) in vanilla; Forge streams
+                // getKnownEntityTypes() (all entity types, also for VanillaEntityLoot) mapped back to their holders
+                // with EntityType.builtInRegistryHolder (Stream.map), at the same place, before the same forEach.
+                // Fabric API 26.3's data generation filters that stream of holders to the minecraft namespace for
+                // VanillaEntityLoot (@ModifyExpressionValue).
+                new InjectionPointReplacement(
+                        "net/minecraft/data/loot/EntityLootSubProvider",
+                        "run",
+                        "Lnet/minecraft/data/loot/LootTableSubProvider$Context;listContextElements("
+                                + "Lnet/minecraft/resources/ResourceKey;)Ljava/util/stream/Stream;",
+                        "Ljava/util/stream/Stream;map(Ljava/util/function/Function;)Ljava/util/stream/Stream;"),
+                // CropBlock.getGrowthSpeed (Forge 26.2-65.1.5, 26.3-66.1.0): vanilla reads the soil's
+                // FarmlandBlock.MOISTURE with BlockState.getValueOrElse(MOISTURE, 0) and counts it as watered when
+                // above 0; Forge asks BlockState.isFertile(BlockGetter, BlockPos) at the same place, whose default
+                // (IForgeBlock.isFertile) is exactly "farmland with MOISTURE above 0". Balm's crop mixin wraps the
+                // vanilla read to count its custom farm blocks as watered (HostFertileSoil).
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/CropBlock",
+                        "getGrowthSpeed",
+                        "Lnet/minecraft/world/level/block/state/BlockState;getValueOrElse("
+                                + "Lnet/minecraft/world/level/block/state/properties/Property;Ljava/lang/Comparable;)"
+                                + "Ljava/lang/Comparable;",
+                        "Lnet/minecraft/world/level/block/state/BlockState;isFertile("
+                                + "Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Z"));
     }
 }

@@ -26,6 +26,9 @@ fabricTagApiV1 = "2.1.4+515ac5339e"
 fabricConventionTagsV2 = "4.7.1+1f023a9e9e"
 fabricRecipeApiV1 = "9.0.22+11e1c9a39e"
 fabricResourceConditionsApiV1 = "6.1.0+10e9a28b9e"
+fabricTransitiveAccessWidenersV1 = "8.1.4+67c847259e"
+# The same module as Fabric API 0.165.0+26.3 nests it, for the NeoForge 26.3 host modules.
+fabricTransitiveAccessWidenersV1Mc263 = "8.1.17+e2f63d3e5d"
 jspecify = "1.0.0"
 jetbrainsAnnotations = "26.0.2"
 # Quilt Loader (Apache-2.0): its public API and version classes are packed into the Fabric bridge jar (ADR-0027).
@@ -88,6 +91,8 @@ fabric-tag-api-v1 = { module = "net.fabricmc.fabric-api:fabric-tag-api-v1", vers
 fabric-convention-tags-v2 = { module = "net.fabricmc.fabric-api:fabric-convention-tags-v2", version.ref = "fabricConventionTagsV2" }
 fabric-recipe-api-v1 = { module = "net.fabricmc.fabric-api:fabric-recipe-api-v1", version.ref = "fabricRecipeApiV1" }
 fabric-resource-conditions-api-v1 = { module = "net.fabricmc.fabric-api:fabric-resource-conditions-api-v1", version.ref = "fabricResourceConditionsApiV1" }
+fabric-transitive-access-wideners-v1 = { module = "net.fabricmc.fabric-api:fabric-transitive-access-wideners-v1", version.ref = "fabricTransitiveAccessWidenersV1" }
+fabric-transitive-access-wideners-v1-mc263 = { module = "net.fabricmc.fabric-api:fabric-transitive-access-wideners-v1", version.ref = "fabricTransitiveAccessWidenersV1Mc263" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 jetbrains-annotations = { module = "org.jetbrains:annotations", version.ref = "jetbrainsAnnotations" }
 sponge-mixin = { module = "net.fabricmc:sponge-mixin", version.ref = "mixin" }

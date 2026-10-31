@@ -190,9 +190,17 @@ final class HostPatchAdjustments {
     /**
      * A {@code @Slice} in one handler's injector whose target call on a receiver field the patch moved before the
      * other call's receiver field {@code toField}: the slice's boundary becomes {@code to = @At(value = "FIELD",
-     * target = toField, opcode = GETFIELD)}.
+     * target = toField, opcode = GETFIELD)}. Or, when {@code toField} is {@code null}, a slice boundary call {@code
+     * boundary} that the patch gave more trailing parameters: the boundary becomes {@code replacement}, the same call
+     * with the patched descriptor.
      */
-    private record SliceRetarget(String handler, String descriptor, String toField) {}
+    private record SliceRetarget(
+            String handler, String descriptor, String toField, String boundary, String replacement) {
+
+        SliceRetarget(String handler, String descriptor, String toField) {
+            this(handler, descriptor, toField, null, null);
+        }
+    }
 
     /**
      * A {@code @Redirect} handler ({@code handler} {@code descriptor}) of a unary call {@code (P0)P0} that mutates its
@@ -390,7 +398,8 @@ final class HostPatchAdjustments {
             Map.of(),
             List.of(),
             HostAddedMembers.NONE,
-            HostRenamedLocals.NONE);
+            HostRenamedLocals.NONE,
+            HostRenumberedClasses.NONE);
 
     /** Every mixin class of the checked configurations (internal names). */
     private final Set<String> mixins;
@@ -420,6 +429,9 @@ final class HostPatchAdjustments {
     /** {@code @Local} captures of locals the patch renamed ({@link HostRenamedLocals}). */
     private final HostRenamedLocals locals;
 
+    /** Mixin targets the patch renumbered ({@link HostRenumberedClasses}). */
+    private final HostRenumberedClasses renumbered;
+
     private HostPatchAdjustments(
             Set<String> mixins,
             Map<String, List<Retarget>> retargets,
@@ -440,7 +452,8 @@ final class HostPatchAdjustments {
             Map<String, List<ReplacedCall>> replacedCalls,
             List<Finding> findings,
             HostAddedMembers members,
-            HostRenamedLocals locals) {
+            HostRenamedLocals locals,
+            HostRenumberedClasses renumbered) {
         this.mixins = mixins;
         this.retargets = retargets;
         this.methodRetargets = methodRetargets;
@@ -461,6 +474,7 @@ final class HostPatchAdjustments {
         this.findings = findings;
         this.members = members;
         this.locals = locals;
+        this.renumbered = renumbered;
     }
 
     List<Finding> findings() {
@@ -507,6 +521,7 @@ final class HostPatchAdjustments {
         List<Finding> findings = new ArrayList<>();
         HostAddedMembers.Planner members = new HostAddedMembers.Planner(host, classes);
         HostRenamedLocals.Planner locals = new HostRenamedLocals.Planner(host, classes);
+        HostRenumberedClasses.Planner renumbering = new HostRenumberedClasses.Planner(classes);
         // Types that left-out mixins would have given the game (their interfaces; accessor mixins themselves), and the
         // mixins that stay, for the injections that use those types (ADR-0026 39) and for coupled state (ADR-0026 32).
         Map<String, String> leftOutTypes = new LinkedHashMap<>();
@@ -529,6 +544,20 @@ final class HostPatchAdjustments {
                     }
                     mixins.add(mixin.getValue());
                     ClassModel model = ClassFile.of().parse(bytes);
+                    Map<String, String> renumbered = renumbering.check(model);
+                    if (!renumbered.isEmpty()) {
+                        model = ClassFile.of().parse(HostRenumberedClasses.retarget(bytes, renumbered));
+                        for (Map.Entry<String, String> target : renumbered.entrySet()) {
+                            findings.add(Finding.adapted(
+                                    modId,
+                                    config,
+                                    mixin.getValue(),
+                                    "it targets " + target.getKey() + ", which " + host.hostName()
+                                            + "'s patch names " + target.getValue()
+                                            + " (it adds an anonymous class before it); the mixin applies to "
+                                            + target.getValue() + ", the same class as vanilla's " + target.getKey()));
+                        }
+                    }
                     targets.addAll(mixinTargets(model));
                     Optional<String> missing = missingMember(model, host, classes);
                     if (missing.isPresent()) {
@@ -732,7 +761,8 @@ final class HostPatchAdjustments {
                 Map.copyOf(replacedCalls),
                 List.copyOf(findings),
                 members.build(),
-                locals.build());
+                locals.build(),
+                renumbering.build());
     }
 
     /** A mixin that stays in its configuration, with the injections already known not to run. */
@@ -761,6 +791,7 @@ final class HostPatchAdjustments {
         if (!mixins.contains(internalName)) {
             return bytes;
         }
+        bytes = renumbered.apply(internalName, bytes);
         bytes = members.apply(internalName, bytes);
         List<Retarget> own = retargets.getOrDefault(internalName, List.of());
         List<MethodRetarget> ownMethods = methodRetargets.getOrDefault(internalName, List.of());
@@ -974,6 +1005,10 @@ final class HostPatchAdjustments {
                                 present.replacement());
                         return;
                     }
+                    if (HostBlockChangeNotify.covers(present.replaced(), present.replacement())) {
+                        HostBlockChangeNotify.bridgeMethod(builder, model, method);
+                        return;
+                    }
                     if (HostThreadDump.covers(present.replaced(), present.replacement())) {
                         HostThreadDump.bridgeMethod(builder, model, method);
                         return;
@@ -997,7 +1032,9 @@ final class HostPatchAdjustments {
                             handlers,
                             methodHandlers,
                             sliceHandlers);
-                    if (HostEffectRemoval.covers(present.replaced(), present.replacement())) {
+                    if (HostFertileSoil.covers(present.replaced(), present.replacement())) {
+                        HostFertileSoil.bridgeMethod(builder, model, method, wrapOperation);
+                    } else if (HostEffectRemoval.covers(present.replaced(), present.replacement())) {
                         HostEffectRemoval.bridgeMethod(builder, model, method, wrapOperation);
                     } else {
                         HostReplacedCalls.bridgeMethod(
@@ -2231,7 +2268,9 @@ final class HostPatchAdjustments {
             }
             if (element.name().equalsString("slice")) {
                 for (SliceRetarget retarget : sliceRetargets) {
-                    value = retargetSlice(value, retarget.toField());
+                    value = retarget.toField() != null
+                            ? retargetSlice(value, retarget.toField())
+                            : retarget(value, retarget.boundary(), retarget.replacement());
                 }
             }
             elements.add(AnnotationElement.of(element.name().stringValue(), value));
@@ -2783,6 +2822,30 @@ final class HostPatchAdjustments {
                         && CHECKED_POINTS.contains(boundary[0])
                         && before.stream().anyMatch(method -> contains(method, boundary[1]))
                         && after.stream().noneMatch(method -> contains(method, boundary[1]))) {
+                    // NeoForge's ClientPacketListener.handleRespawn calls its startWaitingForNewLevel overload with
+                    // two more trailing parameters where vanilla calls the three-parameter one.
+                    Optional<String> extended = boundary[0].startsWith("INVOKE")
+                                    && boundary[2] == null
+                                    && before.size() == 1
+                                    && after.size() == 1
+                            ? extendedCall(before.getFirst(), after.getFirst(), boundary[1])
+                            : Optional.empty();
+                    if (extended.isPresent()) {
+                        return sliceWithExtendedBoundary(
+                                mixin,
+                                handler,
+                                type,
+                                injector,
+                                targetName,
+                                vanilla,
+                                patched,
+                                host,
+                                hostOwned,
+                                patchedClasses,
+                                where,
+                                boundary,
+                                extended.get());
+                    }
                     return Optional.of(new Injection(
                             where + " in a slice bounded at " + boundary[0] + " " + boundary[1] + ": "
                                     + host.hostName() + "'s patch removed that "
@@ -2892,6 +2955,19 @@ final class HostPatchAdjustments {
                                     where + " at " + point[1] + ": " + host.hostName() + " calls "
                                             + replacement.replacement() + " there; the wrap runs on that call with the"
                                             + " host's arguments and result",
+                                    new ReplacedCall(
+                                            handler.methodName().stringValue(),
+                                            handler.methodType().stringValue(),
+                                            point[1],
+                                            replacement.replacement())));
+                        }
+                        if (HostFertileSoil.fits(
+                                handler, type, targetName, method, point[1], replacement.replacement())) {
+                            return Optional.of(Injection.replacedCall(
+                                    where + " at " + point[1] + ": " + host.hostName() + " asks "
+                                            + replacement.replacement() + " there (by default, farmland with moisture"
+                                            + " above 0); the wrap runs on that call with 1 or 0 as the moisture and"
+                                            + " decides by its result above 0, as vanilla does",
                                     new ReplacedCall(
                                             handler.methodName().stringValue(),
                                             handler.methodType().stringValue(),
@@ -3185,6 +3261,18 @@ final class HostPatchAdjustments {
                         appendedArguments(handler, type, injector, where, point, points, before, after, host);
                 if (moved.isPresent()) {
                     return moved;
+                }
+                if (HostBlockChangeNotify.fits(handler, type, injector, targetName, name, point[1], vanilla, patched)) {
+                    return Optional.of(Injection.replacedCall(
+                            where + " at " + point[1] + ": " + host.hostName() + " moved the part of setBlock after"
+                                    + " LevelChunk.setBlockState, unchanged, into " + HostBlockChangeNotify.REPLACEMENT
+                                    + ", which setBlock calls with its chunk, the old state and its own parameters; a"
+                                    + " generated @Inject at that call there runs the handler with the same values",
+                            new ReplacedCall(
+                                    handler.methodName().stringValue(),
+                                    handler.methodType().stringValue(),
+                                    HostBlockChangeNotify.REPLACED,
+                                    HostBlockChangeNotify.REPLACEMENT)));
                 }
                 if (HostThreadDump.fits(handler, type, targetName, name, point[1], patched)) {
                     return Optional.of(Injection.replacedCall(
@@ -3996,6 +4084,123 @@ final class HostPatchAdjustments {
     }
 
     /**
+     * The call the patched method makes in place of the slice boundary call {@code target} of the vanilla method: the
+     * same owner and name with the vanilla parameters followed by more, the only such call, where the vanilla method
+     * makes {@code target} once.
+     */
+    private static Optional<String> extendedCall(MethodModel vanilla, MethodModel patched, String target) {
+        if (!target.startsWith("L")
+                || target.indexOf(';') < 0
+                || vanilla.code().isEmpty()
+                || patched.code().isEmpty()) {
+            return Optional.empty();
+        }
+        String owner = target.substring(1, target.indexOf(';'));
+        String rest = target.substring(target.indexOf(';') + 1);
+        int open = rest.indexOf('(');
+        int close = rest.indexOf(')');
+        if (open <= 0 || close < open) {
+            return Optional.empty();
+        }
+        String name = rest.substring(0, open);
+        String parameters = rest.substring(open + 1, close);
+        String returned = rest.substring(close + 1);
+        long inVanilla = vanilla.code().get().elementList().stream()
+                .filter(element -> matches(element, target))
+                .count();
+        List<String> candidates = patched.code().get().elementList().stream()
+                .filter(element -> element instanceof InvokeInstruction)
+                .map(element -> (InvokeInstruction) element)
+                .filter(call -> call.owner().asInternalName().equals(owner)
+                        && call.name().equalsString(name))
+                .map(call -> call.typeSymbol().descriptorString())
+                .filter(descriptor -> descriptor.endsWith(")" + returned)
+                        && descriptor.startsWith("(" + parameters)
+                        && descriptor.indexOf(')') > parameters.length() + 1)
+                .toList();
+        if (inVanilla != 1 || candidates.size() != 1) {
+            return Optional.empty();
+        }
+        return Optional.of("L" + owner + ";" + name + candidates.getFirst());
+    }
+
+    /**
+     * An injection whose slice boundary call the patch replaced with the same call taking more trailing parameters
+     * ({@link #extendedCall}): its slice moves to the patched call when the injection points are inside the moved slice
+     * of the patched method and the injection fits otherwise.
+     */
+    private static Optional<Injection> sliceWithExtendedBoundary(
+            ClassModel mixin,
+            MethodModel handler,
+            String type,
+            Annotation injector,
+            String targetName,
+            ClassModel vanilla,
+            ClassModel patched,
+            HostedLaunch host,
+            Predicate<String> hostOwned,
+            Function<String, Optional<ClassModel>> patchedClasses,
+            String where,
+            String[] boundary,
+            String replacement) {
+        SliceRetarget retarget = new SliceRetarget(
+                handler.methodName().stringValue(), handler.methodType().stringValue(), null, boundary[1], replacement);
+        Annotation moved = adjust(injector, List.of(), List.of(), List.of(retarget));
+        List<String[]> points = new ArrayList<>();
+        List<String[]> boundaries = new ArrayList<>();
+        List<String> selectors = new ArrayList<>();
+        for (AnnotationElement element : moved.elements()) {
+            if (element.name().equalsString("at")) {
+                points(element.value(), points);
+            } else if (element.name().equalsString("slice")) {
+                slicePoints(element.value(), boundaries);
+            } else if (element.name().equalsString("method")) {
+                strings(element.value(), selectors);
+            }
+        }
+        String start = boundaries.stream()
+                .filter(bound -> bound[3].equals("from"))
+                .map(bound -> bound[1])
+                .findFirst()
+                .orElse(null);
+        String end = boundaries.stream()
+                .filter(bound -> bound[3].equals("to"))
+                .map(bound -> bound[1])
+                .findFirst()
+                .orElse(null);
+        String name = selectors.size() == 1 ? selectors.getFirst().replaceFirst("^L[^;]+;", "") : null;
+        String descriptor = name != null && name.contains("(") ? name.substring(name.indexOf('(')) : null;
+        name = name == null || descriptor == null ? name : name.substring(0, name.indexOf('('));
+        List<MethodModel> after = name == null ? List.of() : methods(patched, name, descriptor);
+        boolean pointsInside = after.size() == 1
+                && boundaries.size() <= 2
+                && points.stream()
+                        .filter(point -> point[1] != null && CHECKED_POINTS.contains(point[0]))
+                        .allMatch(point -> inSlice(after.getFirst(), point[1], start, end));
+        String reason = where + " in a slice bounded at " + boundary[0] + " " + boundary[1] + ": " + host.hostName()
+                + " calls " + replacement + " there, the same call with more trailing parameters";
+        if (!pointsInside) {
+            return Optional.of(new Injection(
+                    reason + ", but the injection point is not inside the slice it bounds; this injection does not run",
+                    null));
+        }
+        Optional<Injection> rest =
+                injection(mixin, handler, type, moved, targetName, vanilla, patched, host, hostOwned, patchedClasses);
+        if (rest.isEmpty()) {
+            return Optional.of(Injection.sliceRetarget(
+                    reason + "; the slice " + (boundary[3].equals("from") ? "starts" : "ends") + " at it", retarget));
+        }
+        if (rest.get().doesNotRun()) {
+            return rest;
+        }
+        return Optional.of(new Injection(
+                reason + ", and the injection needs another change ("
+                        + rest.get().reason()
+                        + ") that Plexus Mod Loader does not combine with it; this injection does not run",
+                null));
+    }
+
+    /**
      * An injection with one slice (at most one {@code from} and one {@code to}, without ordinals) whose point the vanilla
      * method has inside the slice and the patched method has only outside it: Mixin then finds nothing. As Mixin does,
      * the slice starts at the first {@code from} instruction and ends at the last {@code to} instruction. When the slice
@@ -4315,10 +4520,25 @@ final class HostPatchAdjustments {
             this.patchedBytes = patchedBytes;
         }
 
+        /** Patched names of anonymous classes the patch numbered differently, to vanilla's ({@link HostRenumberedClasses}). */
+        private final Map<String, String> renumbered = new HashMap<>();
+
+        /** The vanilla class that stands for {@code name} in the patched game: vanilla's class of that name, or the one
+         * the patch renumbered to it. */
         Optional<ClassModel> vanilla(String name) {
+            return vanillaAsNamed(renumbered.getOrDefault(name, name));
+        }
+
+        /** Vanilla's class of exactly that name. */
+        Optional<ClassModel> vanillaAsNamed(String name) {
             return vanilla.computeIfAbsent(
                     name,
                     key -> vanillaBytes.apply(key).map(bytes -> ClassFile.of().parse(bytes)));
+        }
+
+        /** From now on, {@link #vanilla} answers for patched class {@code patchedName} with vanilla's {@code vanillaName}. */
+        void renumber(String patchedName, String vanillaName) {
+            renumbered.put(patchedName, vanillaName);
         }
 
         Optional<ClassModel> patched(String name) {
