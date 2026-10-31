@@ -330,11 +330,15 @@ final class ForgeGameHost implements GameHost {
 
     /**
      * The title screen's mod counts above Forge's branding ({@link ForgeTitleBranding}), where Forge's patch replaced
-     * the vanilla version text.
+     * the vanilla version text, and the client's first frame after Forge's configs ({@link
+     * ForgeConfigsBeforeFirstFrame}).
      */
     @Override
     public List<TransformRuleDefinition> transformRules() {
-        return List.of(ForgeTitleBranding.rule(request.gameVersion()));
+        ForgeConfigsBeforeFirstFrame.install(request.log());
+        return List.of(
+                ForgeTitleBranding.rule(request.gameVersion()),
+                ForgeConfigsBeforeFirstFrame.rule(request.gameVersion()));
     }
 
     @Override
