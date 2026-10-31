@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.7.1 — 2026-11-01
+
+### Highlights
+
+- With MinecraftForge, the game no longer stops on its first start with mods that read their settings while the loading screen is drawn, such as Shoulder Surfing Reloaded.
+
+### 주요 변경
+
+- MinecraftForge에서 Shoulder Surfing Reloaded처럼 로딩 화면을 그리는 동안 설정을 읽는 모드가 있으면 처음 시작할 때 게임이 멈추던 문제를 고쳤습니다.
+
+### Fixed
+
+- With MinecraftForge on the client: the game no longer stops on a new installation with Shoulder Surfing Reloaded (`IllegalStateException: Cannot get config value before config is loaded`). Forge loads its mods' client and common configs on a worker thread once the first resource reload starts, while the game goes on to draw its first loading frame, and that mod reads a client config value in every frame. The first frame now waits until Forge has loaded the configs (`CONFIG_LOAD`, at most 20 seconds, or until Forge's loading fails); Plexus Mod Loader's early window stays open meanwhile. It waited 160 to 620 ms in the runs that checked it.
+
 ## 1.7.0 — 2026-11-01
 
 ### Highlights

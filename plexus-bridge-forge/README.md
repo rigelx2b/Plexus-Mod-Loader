@@ -42,6 +42,7 @@ Forge와 NeoForge는 고유한 클래스로더 구조(ModLauncher 및 FML 모듈
 | `dev.plexusmodloader.compat.forge.ForeignModIndex` | 타 로더의 모드 메타데이터를 FML SPI 형식으로 변환 |
 | `dev.plexusmodloader.compat.forge.EarlyScreenArt` | 클라이언트에서 Forge·NeoForge 초기 로딩 창의 애니메이션(모루·여우)과 로고·아이콘을 Plexus 큐브(`earlyscreen/*.png`)로 바꿈. 원본 이미지 크기가 확인한 값과 같을 때만 모듈 리더의 `find`·`open`이 `<게임 폴더>/.plexus/early-screen`의 사본을 돌려주며, Plexus 모드 로더 자체 초기 창이 뜨지 않을 때만(macOS, `-Dplexus.earlyWindow=off`) 적용됨 |
 | `dev.plexusmodloader.compat.forge.ForgeEarlyWindowOff` | Plexus 모드 로더 자체 초기 창이 뜰 때 MinecraftForge의 `fmlearlydisplay` 모듈에서 `ImmediateWindowProvider` 서비스를 제거하여 FML이 자체 초기 창을 띄우지 않고 비활성화 경로(`DummyProvider`, `fml.toml`의 `earlyWindowControl = false`와 동일)를 타도록 함 |
+| `dev.plexusmodloader.compat.forge.ForgeConfigsBeforeFirstFrame` | MinecraftForge 클라이언트에서 규칙 `plexus:forge_configs_before_first_frame`으로 `Minecraft` 생성자의 `ImmediateWindowHandler.loadingOverlay` 호출을 가로채, Forge가 모드의 클라이언트·공통 설정을 읽는 `CONFIG_LOAD`를 끝낼 때까지(로딩 실패 또는 20초까지) 첫 프레임을 늦춥니다. 매 프레임 설정을 읽는 모드(Shoulder Surfing Reloaded)가 새 설치에서 멈추던 문제를 막습니다. |
 | `dev.plexusmodloader.compat.forge.EarlyWindowTitle` | 초기 로딩 창 제목을 `Minecraft* Plexus <버전>`으로 바꿈(`DisplayWindow`의 제목 상수가 정확히 한 번일 때만, 상수 풀 문자열만 고쳐 코드·스택 맵은 그대로) |
 
 ---
