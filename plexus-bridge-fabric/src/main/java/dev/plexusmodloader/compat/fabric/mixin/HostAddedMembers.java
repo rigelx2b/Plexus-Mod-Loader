@@ -59,6 +59,11 @@ import java.util.Set;
  *       {@code "fabric:remove"}, Forge for {@code "remove"}). Mixin keeps the two fields apart, so the code only looks
  *       the same; one getter then answers for both: the mixin's overwrites the patched one and returns the patched list
  *       followed by the mixin's ({@code PLEXUS-COMPAT-212}). The mixin's field takes a name of its own.
+ *   <li>The patch added a method that works on a list field of its own exactly as the mixin's method works on an
+ *       {@code @Unique} list field of the mixin, both lists final and set only by the constructors to a new empty list
+ *       (Fabric API 26.3's data generation and Forge 26.3 both add {@code TagBuilder.remove(TagEntry)}, adding to {@code
+ *       removals} and {@code removeEntries}): the patched method stays, and the mixin's other methods read the patch's
+ *       list where they read their own, so both loaders see one list ({@code PLEXUS-COMPAT-212}).
  *   <li>A non-public {@code @Unique} method of the mixin has the name and descriptor of a default method an interface
  *       the patch added gives the target (Fabric API's entity events add {@code self()} to {@code LivingEntity}, and Forge's
  *       {@code IForgeLivingEntity} has a default {@code self()}). Mixin renames a unique method only when the class
@@ -89,23 +94,37 @@ final class HostAddedMembers {
      * joinedField}, the mixin's getter of that {@code @Unique} list field, which overwrites the patched getter of the
      * target's field of the same name and returns both lists.
      */
-    private record Change(String name, String descriptor, String joinedField, String target, boolean renamed) {
+    private record Change(
+            String name, String descriptor, String joinedField, String target, boolean renamed, String hostField) {
 
         Change(String name, String descriptor) {
-            this(name, descriptor, null, null, false);
+            this(name, descriptor, null, null, false, null);
         }
 
         Change(String name, String descriptor, String joinedField, String target) {
-            this(name, descriptor, joinedField, target, false);
+            this(name, descriptor, joinedField, target, false, null);
         }
 
         /** An {@code @Unique} method that takes the name {@link #UNIQUE_METHOD_PREFIX} + its name. */
         static Change renamed(String name, String descriptor) {
-            return new Change(name, descriptor, null, null, true);
+            return new Change(name, descriptor, null, null, true, null);
+        }
+
+        /**
+         * A method the patched class has with the same code on its own list field {@code hostField}, where the mixin's
+         * works on its {@code @Unique} list {@code uniqueField}: the patched method stays, and the mixin reads {@code
+         * hostField} wherever it read {@code uniqueField}.
+         */
+        static Change aliased(String name, String descriptor, String uniqueField, String hostField, String target) {
+            return new Change(name, descriptor, uniqueField, target, false, hostField);
         }
 
         boolean joined() {
-            return joinedField != null;
+            return joinedField != null && hostField == null;
+        }
+
+        boolean aliased() {
+            return hostField != null;
         }
     }
 
@@ -114,6 +133,9 @@ final class HostAddedMembers {
 
     /** The prefix of the name the mixin's own field takes when its getter answers for the patched field too. */
     static final String JOINED_FIELD_PREFIX = "plexus$joined$";
+
+    /** The prefix of the name the mixin's own field takes when the mixin reads the patched field in its place. */
+    static final String ALIASED_FIELD_PREFIX = "plexus$aliased$";
 
     private final Map<String, List<Change>> changes;
 
@@ -301,6 +323,25 @@ final class HostAddedMembers {
                             false));
                     continue;
                 }
+                Optional<String> hostField = unique.flatMap(field ->
+                        aliasedField(mixin, method, mixinName, own, targetName, field, vanilla.get(), patched.get()));
+                if (hostField.isPresent()) {
+                    ownChanges.add(Change.aliased(name, descriptor, unique.get(), hostField.get(), targetName));
+                    findings.add(new Finding(
+                            modId,
+                            config,
+                            mixinName,
+                            "its method " + member + " works on the mixin's own @Unique list " + unique.get() + ", and "
+                                    + host.hostName() + "'s patch added it to " + targetName
+                                    + " with the same code on its own list " + hostField.get()
+                                    + " (both start empty and are set only by the constructor); " + targetName
+                                    + " keeps its method and the mixin reads " + hostField.get() + " where it read "
+                                    + unique.get() + ", so both loaders see one list",
+                            false,
+                            "PLEXUS-COMPAT-212",
+                            false));
+                    continue;
+                }
                 if (unique.isEmpty() && sameCode(method, mixinName, own, targetName)) {
                     ownChanges.add(new Change(name, descriptor));
                     findings.add(new Finding(
@@ -402,9 +443,14 @@ final class HostAddedMembers {
         ClassModel model = classFile.parse(bytes);
         Map<String, String> renamed = new HashMap<>();
         Set<String> renamedMethods = new HashSet<>();
+        Map<String, Change> aliasedFields = new HashMap<>();
         for (Change change : own) {
             if (change.joined()) {
                 renamed.put(change.joinedField(), JOINED_FIELD_PREFIX + change.joinedField());
+            }
+            if (change.aliased()) {
+                renamed.put(change.joinedField(), ALIASED_FIELD_PREFIX + change.joinedField());
+                aliasedFields.put(change.joinedField(), change);
             }
             if (change.renamed()) {
                 renamedMethods.add(change.name() + change.descriptor());
@@ -413,6 +459,13 @@ final class HostAddedMembers {
         ClassDesc self = model.thisClass().asSymbol();
         CodeTransform renameFields = (code, element) -> {
             if (element instanceof FieldInstruction field
+                    && field.opcode() == Opcode.GETFIELD
+                    && field.owner().asSymbol().equals(self)
+                    && aliasedFields.containsKey(field.name().stringValue())) {
+                // Outside the constructor the mixin only reads its list (checked) and reads the patched one instead.
+                Change alias = aliasedFields.get(field.name().stringValue());
+                code.getfield(ClassDesc.ofInternalName(alias.target()), alias.hostField(), field.typeSymbol());
+            } else if (element instanceof FieldInstruction field
                     && field.owner().asSymbol().equals(self)
                     && renamed.containsKey(field.name().stringValue())) {
                 code.fieldAccess(field.opcode(), self, renamed.get(field.name().stringValue()), field.typeSymbol());
@@ -428,6 +481,15 @@ final class HostAddedMembers {
                         call.isInterface());
             } else {
                 code.with(element);
+            }
+        };
+        CodeTransform renameOnly = (code, element) -> {
+            if (element instanceof FieldInstruction field
+                    && field.owner().asSymbol().equals(self)
+                    && renamed.containsKey(field.name().stringValue())) {
+                code.fieldAccess(field.opcode(), self, renamed.get(field.name().stringValue()), field.typeSymbol());
+            } else {
+                renameFields.accept(code, element);
             }
         };
         return classFile.transformClass(model, (builder, element) -> {
@@ -463,6 +525,11 @@ final class HostAddedMembers {
                 }
                 if (change.isPresent()) {
                     joinedGetter(builder, method, self, change.get());
+                    return;
+                }
+                if (method.methodName().equalsString("<init>")) {
+                    // The constructor keeps initialising the mixin's own list, renamed and no longer read.
+                    builder.transformMethod(method, MethodTransform.transformingCode(renameOnly));
                     return;
                 }
                 builder.transformMethod(method, MethodTransform.transformingCode(renameFields));
@@ -567,6 +634,136 @@ final class HostAddedMembers {
                         && isMember(get.owner().asInternalName(), get.name().stringValue(), mixinName, field)
                         && mixinCode.getLast() instanceof ReturnInstruction;
         return ownGetter && mixinGetter;
+    }
+
+    /**
+     * The patched target's own list field that the patched {@code own} works on exactly as the mixin's {@code method}
+     * works on its {@code @Unique} list {@code field}, when the mixin can read that field in place of its own without a
+     * change of meaning: Fabric API 26.3's data generation and MinecraftForge 26.3 both add {@code
+     * TagBuilder.remove(TagEntry)}, which adds the entry to a list ({@code removals}, {@code removeEntries}) and returns
+     * the builder. Both methods have the same instructions but for that field (and a cast of {@code this} to the target,
+     * which is a no-op there); both fields are final {@code List}s that only the constructors set, each to a new empty
+     * {@code ArrayList}; the patch's field is its own (not vanilla's). The patched method then serves the mixin's callers,
+     * and the mixin's other methods see the same entries when they read the patched list.
+     */
+    private static Optional<String> aliasedField(
+            ClassModel mixin,
+            MethodModel method,
+            String mixinName,
+            MethodModel own,
+            String targetName,
+            String field,
+            ClassModel vanilla,
+            ClassModel patched) {
+        String list = CD_LIST.descriptorString();
+        if (method.flags().has(java.lang.reflect.AccessFlag.STATIC)
+                || own.flags().has(java.lang.reflect.AccessFlag.STATIC)
+                || method.code().isEmpty()
+                || own.code().isEmpty()
+                || !method.code().get().exceptionHandlers().isEmpty()
+                || !own.code().get().exceptionHandlers().isEmpty()) {
+            return Optional.empty();
+        }
+        boolean finalUniqueList = mixin.fields().stream()
+                .anyMatch(declared -> declared.fieldName().equalsString(field)
+                        && declared.fieldType().equalsString(list)
+                        && declared.flags().has(java.lang.reflect.AccessFlag.FINAL)
+                        && HostPatchAdjustments.has(declared.attributes(), UNIQUE));
+        if (!finalUniqueList || !onlyNewListsInConstructors(mixin.methods(), mixinName, field)) {
+            return Optional.empty();
+        }
+        List<Instruction> mixinCode = withoutCastsOfThis(instructions(method), targetName);
+        List<Instruction> ownCode = instructions(own);
+        if (mixinCode.size() != ownCode.size()) {
+            return Optional.empty();
+        }
+        String hostField = null;
+        for (int index = 0; index < mixinCode.size(); index++) {
+            Instruction mine = mixinCode.get(index);
+            Instruction theirs = ownCode.get(index);
+            if (mine instanceof FieldInstruction read
+                    && read.owner().asInternalName().equals(mixinName)
+                    && read.name().equalsString(field)) {
+                if (read.opcode() != Opcode.GETFIELD
+                        || !(theirs instanceof FieldInstruction other)
+                        || other.opcode() != Opcode.GETFIELD
+                        || !other.owner().asInternalName().equals(targetName)
+                        || !other.type().equalsString(list)
+                        || (hostField != null && !other.name().equalsString(hostField))) {
+                    return Optional.empty();
+                }
+                hostField = other.name().stringValue();
+                continue;
+            }
+            if (!sameInstruction(mine, theirs, mixinName, targetName)) {
+                return Optional.empty();
+            }
+        }
+        if (hostField == null) {
+            return Optional.empty();
+        }
+        String found = hostField;
+        boolean patchesOwnList = patched.fields().stream()
+                        .anyMatch(declared -> declared.fieldName().equalsString(found)
+                                && declared.fieldType().equalsString(list)
+                                && declared.flags().has(java.lang.reflect.AccessFlag.FINAL))
+                && vanilla.fields().stream()
+                        .noneMatch(declared -> declared.fieldName().equalsString(found))
+                && mixin.fields().stream()
+                        .noneMatch(declared -> declared.fieldName().equalsString(found));
+        if (!patchesOwnList || !onlyNewListsInConstructors(patched.methods(), targetName, found)) {
+            return Optional.empty();
+        }
+        return Optional.of(found);
+    }
+
+    /**
+     * Whether {@code owner.field} is written at least once in {@code methods}, and every write is in a constructor and
+     * stores a new empty {@code ArrayList} ({@code new ArrayList<>()} right before it).
+     */
+    private static boolean onlyNewListsInConstructors(List<MethodModel> methods, String owner, String field) {
+        boolean written = false;
+        for (MethodModel method : methods) {
+            List<Instruction> code = instructions(method);
+            for (int index = 0; index < code.size(); index++) {
+                if (!(code.get(index) instanceof FieldInstruction put)
+                        || (put.opcode() != Opcode.PUTFIELD && put.opcode() != Opcode.PUTSTATIC)
+                        || !put.owner().asInternalName().equals(owner)
+                        || !put.name().equalsString(field)) {
+                    continue;
+                }
+                boolean newList = put.opcode() == Opcode.PUTFIELD
+                        && method.methodName().equalsString("<init>")
+                        && index > 0
+                        && code.get(index - 1) instanceof InvokeInstruction init
+                        && init.opcode() == Opcode.INVOKESPECIAL
+                        && init.owner().asInternalName().equals("java/util/ArrayList")
+                        && init.name().equalsString("<init>")
+                        && init.type().equalsString("()V");
+                if (!newList) {
+                    return false;
+                }
+                written = true;
+            }
+        }
+        return written;
+    }
+
+    /** {@code code} without a {@code checkcast} of {@code this} ({@code aload_0}) to the target class, a no-op there. */
+    private static List<Instruction> withoutCastsOfThis(List<Instruction> code, String targetName) {
+        List<Instruction> kept = new ArrayList<>();
+        for (int index = 0; index < code.size(); index++) {
+            Instruction instruction = code.get(index);
+            if (instruction instanceof TypeCheckInstruction check
+                    && check.opcode() == Opcode.CHECKCAST
+                    && check.type().asInternalName().equals(targetName)
+                    && index > 0
+                    && isThis(code.get(index - 1))) {
+                continue;
+            }
+            kept.add(instruction);
+        }
+        return kept;
     }
 
     /** Members Mixin itself places: shadows, overwrites, injectors, {@code @Unique} (renamed or dropped by Mixin). */

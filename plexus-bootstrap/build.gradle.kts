@@ -1234,9 +1234,12 @@ val corpusScenarios = listOf(
             // FluidType hooks), and Puzzles Lib, which uses its classes, with it (88 -> 86 loaded).
             // 2026-10-29: the link check reads Forge's patched game first (ADR-0031), and fabric-biome-api-v1 writes
             // ChunkGenerator.featuresPerStep as a Supplier, which Forge made a ClearableLazy (86 -> 85 loaded).
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 85 loaded, 81 not loaded"),
+            // 2026-11-01: Lithium runs: its CompoundTag$1 mixin applies to CompoundTag$2 (Forge adds an anonymous class
+            // before vanilla's) and its Level.setBlock injection runs in Forge's markAndNotifyBlock (85 -> 86 loaded).
+            // Balm's crop moisture wrap runs on Forge's isFertile, but Balm still needs fabric-biome-api-v1 (111).
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 86 loaded, 80 not loaded"),
             corpusCounts(
-                "PLEXUS-COMPAT-224 4 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury, balm, fabric-content-registries-v0, lithium",
+                "PLEXUS-COMPAT-224 2 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury, fabric-content-registries-v0",
                 "mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge ",
             ),
             "share Fabric's Mixin",
@@ -1250,6 +1253,13 @@ val corpusScenarios = listOf(
             "All 1 required tests passed",
             worldsSavedLine,
         )
+        if (minecraft == "26.3") {
+            // Fabric API 26.3's TagBuilder.remove(TagEntry) and Forge 26.3's have the same code on their own lists: Forge's
+            // stays, and Fabric's getRemovals() reads Forge's removeEntries, so both see the removal (212).
+            expectedOutput.add(
+                "[plexus_host_patch_probe] fabric-data-generation-api-v1: TagBuilder implements FabricTagBuilder: true; after removeElement(minecraft:apple), getRemovals() = [minecraft:apple] and the host's removal list = [minecraft:apple]",
+            )
+        }
         // Nothing runs half-applied: a mixin failure in the game would be one the check before the launch missed.
         unexpectedOutput.addAll("PLEXUS-COMPAT-225", "Critical injection failure")
     },
@@ -1858,6 +1868,58 @@ val fabricApiEvents = if (minecraft == "26.2") {
     emptyList()
 }
 
+// Real Fabric API data generation (-Dfabric-api.datagen): the dedicated server start runs fabric-datagen-run's
+// fabric-datagen entrypoint instead of the server. Its providers write an item tag, a chest loot table, an English
+// translation and a shapeless recipe with its advancement; the task reads the files back. Not next to NeoForge: its
+// patched net.minecraft.server.Main checks the EULA before it creates DedicatedServerSettings, where Fabric API starts
+// data generation, and Plexus Mod Loader never accepts the EULA.
+if (minecraft == "26.2" || minecraft == "26.3") {
+    val datagenMods = files(corpusRoot.map { it.dir("fabric").asFileTree.matching { include("fabric-api-*.jar") } }) +
+        modJars(":test-mods:fabric-datagen-run")
+    val name = "fabricDatagenRun"
+    val output = layout.buildDirectory.dir("plexus/datagen-run/$minecraft")
+    run {
+        scenarios.gameTest(name, datagenMods) {
+            dependsOn(modCorpus)
+            description = "Runs real Fabric API's data generation (fabric-api.datagen) at a dedicated server start."
+            launchTarget.set("dedicated_server")
+            gameArgumentOverrides.set(listOf<String>())
+            val outputPath = output.get().asFile
+            systemProperty("fabric-api.datagen", "true")
+            systemProperty("fabric-api.datagen.output-dir", outputPath.absolutePath)
+            systemProperty("fabric-api.datagen.modid", "fabric_datagen_run")
+            doFirst { outputPath.deleteRecursively() }
+            expectedOutput.set(listOf("[fabric_datagen_run] onInitializeDataGenerator"))
+            unexpectedOutput.addAll(
+                "PLEXUS-COMPAT-225",
+                "Failed to run data generation",
+                "You need to agree to the EULA",
+                "Critical injection failure",
+            )
+            doLast {
+                val generated = outputPath.walkTopDown().filter { it.isFile }
+                    .associate { it.relativeTo(outputPath).invariantSeparatorsPath to it.readText() }
+                generated.keys.sorted().forEach { println("$name: generated $it") }
+                val wanted = mapOf(
+                    "data/fabric_datagen_run/tags/item/sample.json" to "minecraft:stick",
+                    "data/fabric_datagen_run/loot_table/chests/sample.json" to "minecraft:diamond",
+                    "assets/fabric_datagen_run/lang/en_us.json" to "\"fabric_datagen_run.sample\": \"Sample\"",
+                    "data/fabric_datagen_run/recipe/ladder.json" to "minecraft:ladder",
+                    "data/fabric_datagen_run/advancement/recipes/misc/ladder.json" to "has_stick",
+                )
+                for ((path, text) in wanted) {
+                    val content = generated[path]
+                        ?: throw GradleException("$name: data generation did not write $path (wrote ${generated.keys.sorted()})")
+                    if (text !in content) {
+                        throw GradleException("$name: $path does not hold $text:\n$content")
+                    }
+                }
+                println("$name: data generation wrote the tag, loot table, translation, recipe and advancement")
+            }
+        }
+    }
+}
+
 // Diagnosis aid, not part of any check: the game test server with every jar of -PmodProbeDir=<folder>, such as a
 // subset of the corpus while looking for the mod that breaks a run.
 // -PmodProbeTarget=dedicated_server starts net.minecraft.server.Main instead, which stops at the EULA check.
@@ -2122,14 +2184,15 @@ scenarios.gameTest(
         "Mixin audit: ",
         " Mixin configuration(s) loaded through FML's class loader, 0 failed",
     ))
-    if (minecraft == "26.2") {
-        // Mixins that a left-out or failing mixin would take down with it (ADR-0026 39): Fabric API's guiRendererReady
-        // casts to the interface of GuiRendererMixin, which NeoForge's GuiRenderer cannot take, and its wrap of
-        // RenderPipeline.Snippet's constructor, which NeoForge gave another parameter, would make Mixin drop Iris's
-        // PipelineBuilderMixin on the same class. The audit fails on code that casts to a missing mixin type.
+    // Fabric API's client rendering modules run as Plexus Mod Loader's builds on NeoForge's hooks (ADR-0031): the
+    // originals' mixins do not fit NeoForge's patch (its GUI layers, picture-in-picture renderers, block model
+    // extensions), and Indigo, which renders every block of the level, would miss NeoForge's block extensions.
+    if (minecraft == "26.2" || minecraft == "26.3") {
         expectedOutput.addAll(
-            "its handler guiRendererReady uses net/fabricmc/fabric/impl/client/rendering/GuiRendererExtensions",
-            "at NEW Lcom/mojang/blaze3d/pipeline/RenderPipeline\$Snippet;: NeoForge 26.2.0.93's patch calls the constructor",
+            "does not fit the host's patch (PLEXUS-COMPAT-224); Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031): fabric-rendering-v1-",
+            "does not fit the host's patch (PLEXUS-COMPAT-224); Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031): fabric-renderer-api-v1-",
+            "does not fit the host's patch (PLEXUS-COMPAT-224); Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031): fabric-model-loading-api-v1-",
+            "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs its build on the host's hooks instead (ADR-0031): fabric-renderer-indigo-",
         )
     }
 }
@@ -2220,6 +2283,57 @@ clientWorldReload("corpusFabricNeoForgeClient") {
         // One build of Cloth Config, NeoForge's: with both, its example config was registered twice and the client
         // stopped (ADR-0026 37).
         "loads its own build of it as cloth_config (the same ID as NeoForge spells it)",
+        "joined the game",
+        "[neoforge_client_session] 200 client ticks in the world; save and quit",
+        "[neoforge_client_session] left the saved world; stopping the client",
+    )
+}
+
+// Fabric API's client hooks in a client world with fabric-client-probe (opens a window, run it alone after the headless
+// checks): an item tooltip line, screen init and extract events, an extended menu that the integrated server opens for
+// the player with its opening data and screen, the water fluid render handler and a streamed sound's audio stream.
+// Alone (fabricClientProbe) and next to NeoForge (neoForgeFabricClientProbe), where Plexus Mod Loader runs its builds of
+// the item, menu, screen, sound and fluid rendering modules (ADR-0031); both print the same lines.
+val fabricApiJar = corpusRoot.map { it.dir("fabric").asFileTree.matching { include("fabric-api-*.jar") } }
+val clientProbeLines = listOf(
+    "[fabric_client_probe] tooltip of minecraft:stick has the probe's line: true",
+    "[fabric_client_probe] FluidRenderingRegistry has a handler for minecraft:water: true",
+    "[fabric_client_probe] client made the extended menu with opening data 42 and opened its screen: true",
+    "[fabric_client_probe] ScreenEvents.AFTER_INIT ran: true, afterExtract ran: true",
+    "[fabric_client_probe] streamed sound asked FabricSoundInstance.getAudioStream: true",
+)
+clientWorldReload("fabricClientProbe") {
+    description = "Checks Fabric API's client hooks in a client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    devModJars.from(modJars(":test-mods:fabric-client-probe", ":test-mods:fabric-client-session"))
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_fabric_client_probe")
+    runDirectory.set(layout.buildDirectory.dir("plexus/fabric-client-probe-$minecraft"))
+    timeoutSeconds.set(300)
+    expectedOutput.addAll(clientProbeLines)
+    expectedOutput.addAll(
+        "joined the game",
+        "[fabric_client_session] 200 client ticks in the world; save and quit",
+        "[fabric_client_session] left the saved world; stopping the client",
+    )
+}
+clientWorldReload("neoForgeFabricClientProbe") {
+    description = "Checks Fabric API's client hooks in a NeoForge client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    javaAgents.from(plexusAgentJar)
+    devModJars.from(modJars(":test-mods:fabric-client-probe", ":test-mods:neoforge-client-session"))
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_neoforge_fabric_client_probe")
+    runDirectory.set(layout.buildDirectory.dir("plexus/neoforge-fabric-client-probe-$minecraft"))
+    timeoutSeconds.set(400)
+    expectedOutput.addAll(clientProbeLines)
+    expectedOutput.addAll(
+        "Fabric or Quilt mod(s) run together; one Mixin serves both (ADR-0026 30)",
+        "runs its build on the host's hooks instead (ADR-0031): fabric-screen-api-v1-",
+        "runs its build on the host's hooks instead (ADR-0031): fabric-sound-api-v1-",
+        "runs its build on the host's hooks instead (ADR-0031): fabric-rendering-fluids-v1-",
+        "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-",
+        "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-",
         "joined the game",
         "[neoforge_client_session] 200 client ticks in the world; save and quit",
         "[neoforge_client_session] left the saved world; stopping the client",

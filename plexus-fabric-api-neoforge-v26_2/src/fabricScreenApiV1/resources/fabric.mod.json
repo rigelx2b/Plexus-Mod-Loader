@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-screen-api-v1",
+  "name": "Fabric Screen API (v1)",
+  "version": "5.2.1+plexus.neoforge.26.2",
+  "environment": "client",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-screen-api-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "fabric-api-base": "*",
+    "minecraft": "26.2"
+  },
+  "description": "Adds screen related hooks.",
+  "mixins": [
+    "fabric-screen-api-v1.mixins.json"
+  ],
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.2",
+      "replaces": "5.2.1"
+    }
+  },
+  "entrypoints": {
+    "client": [
+      "net.fabricmc.fabric.impl.client.screen.ScreenApiClientInit"
+    ]
+  }
+}

@@ -3963,6 +3963,84 @@ class HostPatchAdjustmentsTest {
     }
 
     /**
+     * A slice boundary call that the patch replaced with the same call taking more trailing parameters (Fabric API's
+     * {@code ClientPacketListenerMixin.copyAttachmentsOnClientRespawn}: NeoForge's {@code handleRespawn} calls its
+     * five-parameter {@code startWaitingForNewLevel}): the slice moves to the patched call, and the mod is adapted.
+     */
+    @Test
+    void aSliceBoundaryCallThePatchGaveMoreParametersMovesTheSlice() throws Exception {
+        ClassDesc at = ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;");
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("run"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofArray(AnnotationValue.ofAnnotation(Annotation.of(
+                                at,
+                                AnnotationElement.ofString("value", "INVOKE"),
+                                AnnotationElement.ofString("target", "Lt/Target;after()V"))))),
+                AnnotationElement.of(
+                        "slice",
+                        AnnotationValue.ofArray(AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Slice;"),
+                                AnnotationElement.of(
+                                        "from",
+                                        AnnotationValue.ofAnnotation(Annotation.of(
+                                                at,
+                                                AnnotationElement.ofString("value", "INVOKE"),
+                                                AnnotationElement.ofString("target", "Lt/Target;wait(I)V")))))))));
+        byte[] mixin = mixin("m.SliceMixin", List.of(new Handler("inSlice", inject)));
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"SliceMixin\"]}", "m/SliceMixin.class", mixin));
+        MethodTypeDesc run = MethodTypeDesc.of(CD_void);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "run",
+                                run,
+                                0,
+                                code -> code.aload(0)
+                                        .iconst_1()
+                                        .invokevirtual(TARGET, "wait", MethodTypeDesc.of(CD_void, CD_int))
+                                        .aload(0)
+                                        .invokevirtual(TARGET, "after", run)
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "run",
+                                run,
+                                0,
+                                code -> code.aload(0)
+                                        .iconst_1()
+                                        .aconst_null()
+                                        .invokevirtual(TARGET, "wait", MethodTypeDesc.of(CD_void, CD_int, CD_Object))
+                                        .aload(0)
+                                        .invokevirtual(TARGET, "after", run)
+                                        .return_()));
+
+        HostPatchAdjustments adjustments = plan(
+                GameSide.CLIENT,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        HostPatchAdjustments.Finding finding = adjustments.findings().getFirst();
+        assertFalse(finding.incompatible(), finding.toString());
+        assertEquals("PLEXUS-COMPAT-226", finding.code());
+        String annotations =
+                annotationsOf(ClassFile.of().parse(adjustments.apply("m.SliceMixin", mixin)).methods().stream()
+                        .filter(method -> method.methodName().equalsString("inSlice"))
+                        .findFirst()
+                        .orElseThrow());
+        assertTrue(annotations.contains("Lt/Target;wait(ILjava/lang/Object;)V"), annotations);
+        assertFalse(annotations.contains("Lt/Target;wait(I)V"), annotations);
+    }
+
+    /**
      * The slice's boundary is still there, but the patch moved the injection point before it, out of the slice (Fabric
      * API's {@code LevelChunkMixin.onRemoveBlockEntity}: Forge's {@code getBlockEntity} removes the entry before {@code
      * createBlockEntity}). Mixin finds nothing in the slice, so the mod is incompatible.

@@ -298,6 +298,41 @@ class ForgeInjectionPointsTest {
         assertEquals(Placement.SAME_PLACE, setTarget.placement());
     }
 
+    /**
+     * Forge 26.3-66.1.0's loot sub providers iterate {@code getKnownBlocks().iterator()} and {@code
+     * getKnownEntityTypes().map(EntityType::builtInRegistryHolder)} where vanilla iterates the block registry and the
+     * context's entity type holders; Fabric API 26.3's data generation narrows those values for the vanilla providers.
+     * Forge 26.2-65.1.5 and 26.3-66.1.0 ask {@code BlockState.isFertile} where vanilla reads the farmland's moisture in
+     * {@code CropBlock.getGrowthSpeed}; Balm's crop mixin wraps that read.
+     */
+    @Test
+    void lootIterationsAndSoilMoistureFollowForgesPatch() {
+        List<InjectionPointReplacement> points = ForgeInjectionPoints.all();
+
+        InjectionPointReplacement blocks = point(points, "DefaultedRegistry;iterator(");
+        assertEquals("net/minecraft/data/loot/BlockLootSubProvider", blocks.targetClass());
+        assertEquals("run", blocks.method());
+        assertEquals("Ljava/lang/Iterable;iterator()Ljava/util/Iterator;", blocks.replacement());
+        assertEquals(Placement.SAME_PLACE, blocks.placement());
+
+        InjectionPointReplacement entities = point(points, "LootTableSubProvider$Context;listContextElements(");
+        assertEquals("net/minecraft/data/loot/EntityLootSubProvider", entities.targetClass());
+        assertEquals("run", entities.method());
+        assertEquals(
+                "Ljava/util/stream/Stream;map(Ljava/util/function/Function;)Ljava/util/stream/Stream;",
+                entities.replacement());
+        assertEquals(Placement.SAME_PLACE, entities.placement());
+
+        InjectionPointReplacement moisture = point(points, "BlockState;getValueOrElse(");
+        assertEquals("net/minecraft/world/level/block/CropBlock", moisture.targetClass());
+        assertEquals("getGrowthSpeed", moisture.method());
+        assertEquals(
+                "Lnet/minecraft/world/level/block/state/BlockState;isFertile("
+                        + "Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Z",
+                moisture.replacement());
+        assertEquals(Placement.SAME_PLACE, moisture.placement());
+    }
+
     @Test
     void neoForgePointsFollowLanguageAndConfigurationPatches() {
         List<InjectionPointReplacement> points = NeoForgeInjectionPoints.all();

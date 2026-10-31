@@ -17,8 +17,7 @@ import java.util.Base64;
 import javax.imageio.ImageIO;
 
 /**
- * The Plexus Mod Loader logo on its dark tile (the website's favicon, {@code site/static/img/favicon.svg}) drawn for the
- * launcher profile, and the logo without a background ({@link #mark}) for the installer's window and tray icons and
+ * The Plexus Mod Loader logo on its dark tile ({@code tools/logo/logo-tile.svg}) drawn for the launcher profile, and the logo without a background ({@link #mark}) for the installer's window and tray icons and
  * beside its title: three chevrons around a cut hexagonal core, in the logo's 512 x 512 coordinates.
  */
 final class ProfileIcon {

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-sound-api-v1",
+  "name": "Fabric Sound API (v1)",
+  "version": "2.0.5+plexus.neoforge.26.2",
+  "environment": "client",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-sound-api-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "26.2"
+  },
+  "description": "Hooks for modifying Minecraft's sound system.",
+  "mixins": [
+    {
+      "config": "fabric-sound-api-v1.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "accessWidener": "fabric-sound-api-v1.classtweaker",
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.2",
+      "replaces": "2.0.5"
+    }
+  }
+}

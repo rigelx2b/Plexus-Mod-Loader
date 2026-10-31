@@ -1,0 +1,134 @@
+/*
+ * Copyright (c) 2016, 2017, 2018, 2019 FabricMC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+// Source: Sinytra Forgified Fabric API, branch 26.2.x, commit 40f8ce0,
+// fabric-renderer-api-v1/src/client/java/net/fabricmc/fabric/mixin/client/renderer/block/model/SimpleModelWrapperMixin.java
+// (Fabric API's file as Forgified Fabric API changed it for NeoForge).
+// Plexus Mod Loader (ADR-0031): reformatted; no other change.
+package net.fabricmc.fabric.mixin.client.renderer.block.model;
+
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.sugar.Local;
+import com.llamalad7.mixinextras.sugar.ref.LocalRef;
+import java.util.function.Predicate;
+import net.fabricmc.fabric.api.client.renderer.v1.mesh.QuadAtlas;
+import net.fabricmc.fabric.api.client.renderer.v1.mesh.QuadEmitter;
+import net.fabricmc.fabric.api.client.renderer.v1.model.MeshQuadCollection;
+import net.fabricmc.fabric.api.util.TriState;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.resources.model.ModelBaker;
+import net.minecraft.client.resources.model.SimpleModelWrapper;
+import net.minecraft.client.resources.model.geometry.QuadCollection;
+import net.minecraft.core.Direction;
+import net.minecraft.resources.Identifier;
+import org.jspecify.annotations.Nullable;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+@Mixin(SimpleModelWrapper.class)
+abstract class SimpleModelWrapperMixin implements BlockStateModelPart {
+    @Shadow
+    @Final
+    private QuadCollection quads;
+
+    @Shadow
+    @Final
+    private boolean useAmbientOcclusion;
+
+    @Unique
+    private static final ScopedValue<ModelBaker> MODEL_BAKERY = ScopedValue.newInstance();
+
+    @WrapOperation(
+            method =
+                    "bake(Lnet/minecraft/client/resources/model/ModelBaker;Lnet/minecraft/client/resources/model/ResolvedModel;Lnet/minecraft/client/renderer/block/dispatch/ModelState;)Lnet/minecraft/client/renderer/block/dispatch/BlockStateModelPart;",
+            at =
+                    @At(
+                            value = "INVOKE",
+                            target =
+                                    "Lnet/minecraft/client/resources/model/SimpleModelWrapper;findNonBlockSprites(Lnet/minecraft/client/resources/model/geometry/QuadCollection;)Lcom/google/common/collect/Multimap;"))
+    private static @Nullable Multimap<Identifier, Identifier> storeModelBakery(
+            QuadCollection geometry,
+            Operation<Multimap<Identifier, Identifier>> original,
+            @Local(argsOnly = true) ModelBaker modelBakery) {
+        return ScopedValue.where(MODEL_BAKERY, modelBakery).call(() -> original.call(geometry));
+    }
+
+    @Inject(
+            method = "findNonBlockSprites",
+            at =
+                    @At(
+                            value = "INVOKE",
+                            target =
+                                    "Lnet/minecraft/client/resources/model/geometry/QuadCollection;getAll()Ljava/util/List;"))
+    private static void analyzeMesh(
+            QuadCollection geometry,
+            CallbackInfoReturnable<Multimap<Identifier, Identifier>> cir,
+            @Local(name = "forbiddenSprites") LocalRef<Multimap<Identifier, Identifier>> forbiddenSpritesRef) {
+        // This can also be called from ModelBakery.MissingModels, but it's maybe not necessary to hook there?
+        if (!MODEL_BAKERY.isBound()) {
+            return;
+        }
+
+        ModelBaker modelBakery = MODEL_BAKERY.get();
+
+        if (geometry instanceof MeshQuadCollection meshQuadCollection) {
+            meshQuadCollection.getMesh().forEach(quad -> {
+                if (quad.atlas() != QuadAtlas.BLOCK) {
+                    Multimap<Identifier, Identifier> forbiddenSprites = forbiddenSpritesRef.get();
+
+                    if (forbiddenSprites == null) {
+                        forbiddenSprites = HashMultimap.create();
+                        forbiddenSpritesRef.set(forbiddenSprites);
+                    }
+
+                    TextureAtlasSprite sprite =
+                            modelBakery.materials().spriteFinder(quad.atlas()).find(quad);
+                    forbiddenSprites.put(
+                            sprite.atlasLocation(), sprite.contents().name());
+                }
+            });
+        }
+    }
+
+    @Override
+    public void emitQuads(QuadEmitter emitter, Predicate<@Nullable Direction> cullTest) {
+        if (quads instanceof MeshQuadCollection meshQuadCollection) {
+            if (useAmbientOcclusion) {
+                meshQuadCollection.getMesh().outputTo(emitter);
+            } else {
+                emitter.pushTransform(quad -> {
+                    if (quad.ambientOcclusion() == TriState.DEFAULT) {
+                        quad.ambientOcclusion(TriState.FALSE);
+                    }
+
+                    return true;
+                });
+                meshQuadCollection.getMesh().outputTo(emitter);
+                emitter.popTransform();
+            }
+        } else {
+            BlockStateModelPart.super.emitQuads(emitter, cullTest);
+        }
+    }
+}

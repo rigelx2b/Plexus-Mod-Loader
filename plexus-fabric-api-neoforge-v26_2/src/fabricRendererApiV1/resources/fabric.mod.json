@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-renderer-api-v1",
+  "name": "Fabric Renderer API (v1)",
+  "version": "14.1.4+plexus.neoforge.26.2",
+  "environment": "client",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-renderer-api-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "entrypoints": {
+    "client": [
+      "net.fabricmc.fabric.impl.client.renderer.DebugOverlayClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "26.2",
+    "fabric-api-base": "*",
+    "fabric-rendering-v1": "*",
+    "fabric-transitive-access-wideners-v1": "*"
+  },
+  "suggests": {
+    "fabric-particles-v1": "*"
+  },
+  "description": "Defines rendering extensions for dynamic/fancy block and item models.",
+  "mixins": [
+    "fabric-renderer-api-v1.mixins.json"
+  ],
+  "accessWidener": "fabric-renderer-api-v1.classtweaker",
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.2",
+      "replaces": "14.1.4"
+    }
+  }
+}
