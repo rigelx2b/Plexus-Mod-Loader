@@ -1,43 +1,45 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-game-v26_2 — Minecraft 26.2 Game Implementation Layer
 
-`plexus-game-v26_2`는 Minecraft 26.2 버전에 직접 바인딩되어, `plexus-game-api`의 Native API 선언을 실제 마인크래프트 게임 엔진 객체로 인스턴스화하고 바이트코드 훅(Hook)과 커스텀 렌더링 UI를 실행하는 게임 레이어 모듈입니다.
+`plexus-game-v26_2` is a game layer module directly bound to Minecraft 26.2 that instantiates Native API declarations from `plexus-game-api` into actual Minecraft game engine objects, and executes bytecode hooks and custom rendering UI.
 
 ---
 
-## 1. 주요 역할 및 구성 요소
+## 1. Key Responsibilities and Components
 
-### 1) Native API 객체 인스턴스화
-- `ContentInstaller`: 모드가 선언한 `PlexusBlock`, `PlexusItem`을 마인크래프트 원본 레지스트리(`BuiltInRegistries`)에 직접 등록.
-- `Views`: 마인크래프트 바닐라 `ServerLevel`, `Entity`, `ServerPlayer` 객체를 안전한 `WorldView`, `PlayerView` 불변 인터페이스로 래핑.
-- `commands.CommandInstaller`: 바닐라 Brigadier 커맨드 디스패처에 플랫폼 중립적 커맨드 트리 등록.
+### 1) Native API Object Instantiation
+- `ContentInstaller`: Directly registers `PlexusBlock` and `PlexusItem` declared by mods into the original Minecraft registries (`BuiltInRegistries`).
+- `Views`: Wraps vanilla Minecraft `ServerLevel`, `Entity`, and `ServerPlayer` objects into safe, immutable `WorldView` and `PlayerView` interfaces.
+- `commands.CommandInstaller`: Registers platform-neutral command trees into the vanilla Brigadier command dispatcher.
 
-### 2) 인게임 훅 (Runtime Hooks)
-- `LifecycleHooks`: 서버 틱, 레벨 로드/언로드, 엔티티 스폰 및 플레이어 리스폰 이벤트 가로채기.
-- `InteractionHooks`: 블록 파괴, 아이템 사용, 엔티티 우클릭 상호작용 콜백 처리.
-- `HostPayloadHooks`: Forge/NeoForge와 Fabric의 커스텀 네트워크 페이로드가 단일 네트워크 채널에서 충돌하지 않도록 디코딩 및 라우팅 조율.
+### 2) In-Game Hooks (Runtime Hooks)
+- `LifecycleHooks`: Intercepts server tick, level load/unload, entity spawn, and player respawn events.
+- `InteractionHooks`: Handles block breaking, item usage, and entity right-click interaction callbacks.
+- `HostPayloadHooks`: Coordinates decoding and routing so that custom network payloads from Forge/NeoForge and Fabric do not collide on a single network channel.
 
-### 3) 로딩 화면과 창 제목 (`PlexusLoadingOverlay`, `PlexusWindowTitle`)
-- 게임의 로딩 화면(`LoadingOverlay`)은 그대로 둡니다(Mojang 빨간 배경 또는 단색 로고 설정의 검은 배경, Mojang Studios 로고, 진행 막대, 페이드). `plexus:client_loading_overlay`가 `extractRenderState` 끝에서 Plexus 표시를 같은 페이드로 덧그립니다: 오른쪽 아래의 셰브런이 코어 둘레를 도는 Plexus 로고(`plexus_cube.png`, 32×32 프레임 120개, 한 바퀴 7.2초)와 `PLEXUS MOD LOADER`, 진행 막대 아래의 로더별 모드 수(`MODS: FABRIC 34 · NEOFORGE 53`).
-- 글자는 게임 글꼴이 아니라 5×7 픽셀 글자로 그립니다. MinecraftForge의 첫 로딩 화면은 게임이 글꼴을 읽기 전입니다.
-- MinecraftForge의 `ForgeLoadingOverlay`도 같은 화면을 그리므로 같은 표시가 붙습니다. Forge·NeoForge 초기 로딩 창의 큐브와 제목은 `plexus-bridge-forge`의 `EarlyScreenArt`, `EarlyWindowTitle`이 맡습니다.
-- `plexus:client_window_title`: 창 제목을 로더와 상관없이 `Minecraft* Plexus 26.2`(뒤의 ` - Singleplayer` 등은 게임 그대로)로 씁니다.
-
----
-
-## 2. 클래스로더 분리 원칙
-
-- 이 모듈의 클래스들은 컴파일 시 Minecraft 26.2 바닐라 코드에 의존하지만, **게임 클래스로더(`GameClassLoader`)**에 의해서만 로드됩니다.
-- 부트스트랩 클래스로더나 런타임 코어 모듈이 이 모듈의 클래스를 직접 정적으로 참조할 수 없으며, 버전 어댑터 계약을 통해서만 호출됩니다.
-- 클라이언트 하위 패키지(`client.*`)는 서버 환경에서 참조되지 않도록 분리되어 있습니다.
+### 3) Loading Screen and Window Title (`PlexusLoadingOverlay`, `PlexusWindowTitle`)
+- The game's loading screen (`LoadingOverlay`) is left intact (Mojang red background or black background under monochrome logo settings, Mojang Studios logo, progress bar, fade). `plexus:client_loading_overlay` overlays the Plexus indicators with the same fade at the end of `extractRenderState`: the Plexus logo in the lower right with chevrons orbiting the core (`plexus_cube.png`, 120 frames of 32×32, 7.2 seconds per rotation) and `PLEXUS MOD LOADER`, along with per-loader mod counts below the progress bar (`MODS: FABRIC 34 · NEOFORGE 53`).
+- Text is drawn using 5×7 pixel characters instead of the game font. MinecraftForge's initial loading screen occurs before the game loads fonts.
+- MinecraftForge's `ForgeLoadingOverlay` draws the same screen, so it receives the same indicators. The cube and title for the Forge and NeoForge early window are handled by `EarlyScreenArt` and `EarlyWindowTitle` in `plexus-bridge-forge`.
+- `plexus:client_window_title`: Sets the window title to `Minecraft* Plexus 26.2` regardless of the loader (subsequent suffixes such as ` - Singleplayer` remain as in the vanilla game).
 
 ---
 
-## 3. 검증 및 테스트 (Gradle Tasks)
+## 2. ClassLoader Separation Principles
+
+- While classes in this module depend on Minecraft 26.2 vanilla code at compile time, they are loaded exclusively by the **game classloader (`GameClassLoader`)**.
+- The bootstrap classloader and runtime core modules cannot directly statically reference classes in this module; they are invoked solely through version adapter contracts.
+- Client subpackages (`client.*`) are isolated to prevent them from being referenced in server environments.
+
+---
+
+## 3. Verification and Testing (Gradle Tasks)
 
 ```powershell
-# 변환 규칙 무결성 검증 (BuiltInRulesTest)
+# Transformation rule integrity verification (BuiltInRulesTest)
 .\gradlew.bat :plexus-game-v26_2:check
 
-# 26.2 게임 런타임 네이티브 API 통합 테스트
+# 26.2 game runtime Native API integration test
 .\gradlew.bat :plexus-bootstrap:nativeApiGameTests
 ```

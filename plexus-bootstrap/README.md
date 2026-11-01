@@ -1,67 +1,69 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-bootstrap — JVM Entrypoint & Execution Harness
 
-`plexus-bootstrap`는 Plexus Mod Loader의 최상위 **JVM 진입점**이자 개발 환경 실행 및 헤드리스 테스트를 총괄하는 부트스트랩 모듈입니다.
+`plexus-bootstrap` is the top-level **JVM entrypoint** for Plexus Mod Loader and the bootstrap module responsible for development environment execution and headless testing.
 
 ---
 
-## 1. 주요 역할 및 책임
+## 1. Key Roles and Responsibilities
 
-1. **JVM 메인 진입점 제공:**
-   - 마인크래프트 실행 시 최초로 호출되는 메인 클래스 `dev.plexusmodloader.bootstrap.PlexusLauncherMain`을 소유합니다.
-   - 시스템 속성을 읽어 실행 설정(`plexus-runtime-impl`의 `LaunchConfiguration`)을 만듭니다.
-2. **클래스로더 계층 초기화:**
-   - 마인크래프트 원본 jar와 모드 jar는 `plexus-runtime-impl`의 바이트코드 변환 클래스로더(`GameClassLoader`)가 정의합니다.
-   - 실제 모드 로딩 및 의존성 해석은 `plexus-runtime-impl`의 `PlexusRuntime`으로 위임합니다.
-3. **개발 환경 실행 작업 (Gradle Tasks):**
-   - IDE 및 터미널에서 클라이언트, 전용 서버, 게임 테스트 서버를 즉시 구동할 수 있는 Gradle 작업들을 제공합니다.
+1. **Provide the JVM main entrypoint:**
+   - Owns `dev.plexusmodloader.bootstrap.PlexusLauncherMain`, the main class invoked first when launching Minecraft.
+   - Reads system properties to construct the launch configuration (`LaunchConfiguration` in `plexus-runtime-impl`).
+2. **Initialize the classloader hierarchy:**
+   - The original Minecraft jar and mod jars are defined by the bytecode-transforming classloader (`GameClassLoader`) in `plexus-runtime-impl`.
+   - Delegates actual mod loading and dependency resolution to `PlexusRuntime` in `plexus-runtime-impl`.
+3. **Development environment execution tasks (Gradle Tasks):**
+   - Provides Gradle tasks to immediately run the client, dedicated server, and game test server from IDEs and terminals.
 
 ---
 
-## 2. 주요 클래스 및 진입점
+## 2. Key Classes and Entrypoints
 
 - **`dev.plexusmodloader.bootstrap.PlexusLauncherMain`**:
-  - `main(String[] args)`: JVM 시작점. 시스템 속성을 읽어 `new PlexusRuntime().launch(configuration, args)`를 호출합니다.
+  - `main(String[] args)`: JVM entrypoint. Reads system properties and calls `new PlexusRuntime().launch(configuration, args)`.
 - **`dev.plexusmodloader.runtime.LaunchConfiguration`** (`plexus-runtime-impl`):
-  - 실행 대상(클라이언트/서버/게임 테스트 서버), 게임 jar, 모드 폴더, 개발 모드 jar, 변환 덤프·캐시 폴더, 보고서 폴더 등을 담는 불변 실행 설정.
+  - Immutable launch configuration containing the launch target (client/server/game test server), game jar, mods directory, development mod jars, transformation dump/cache directories, report directory, etc.
 
-### 시스템 속성 (System Properties)
+### System Properties
 
-| 속성명 | 값 예시 | 설명 |
+| Property Name | Example Value | Description |
 | :--- | :--- | :--- |
-| `plexus.launchTarget` | `client`, `dedicated_server`, `game_test_server` | 실행할 게임 타겟 환경 |
-| `plexus.gameJar` | `/path/to/minecraft.jar` | 마인크래프트 바닐라 클라이언트/서버 jar 경로 |
-| `plexus.modsDir` | `/path/to/mods` | 사용자 모드가 위치한 디렉터리 |
-| `plexus.devModJars` | 쉼표로 구분된 경로 | 개발 중인 모드 jar 목록 |
-| `plexus.transformDumpDir` | `/path/to/dumps` | 바이트코드 변환 후 디컴파일/검사용 class 파일 덤프 디렉터리 |
-| `plexus.neoforge` | `on` / `off` | NeoForge 지원 활성화 여부 (기본값: on) |
-| `plexus.forge` | `auto` / `always` / `off` | Forge 지원 활성화 여부 (기본값: auto) |
+| `plexus.launchTarget` | `client`, `dedicated_server`, `game_test_server` | Target game environment to launch |
+| `plexus.gameJar` | `/path/to/minecraft.jar` | Path to the vanilla Minecraft client/server jar |
+| `plexus.modsDir` | `/path/to/mods` | Directory where user mods are located |
+| `plexus.devModJars` | Comma-separated paths | List of mod jars under development |
+| `plexus.transformDumpDir` | `/path/to/dumps` | Directory to dump class files for decompilation/inspection after bytecode transformation |
+| `plexus.neoforge` | `on` / `off` | Whether NeoForge support is enabled (default: on) |
+| `plexus.forge` | `auto` / `always` / `off` | Whether Forge support is enabled (default: auto) |
 
 ---
 
-## 3. 개발 및 테스트 작업 (Gradle Tasks)
+## 3. Development and Testing Tasks (Gradle Tasks)
 
 ```powershell
-# 1. 클라이언트 개발 실행 (Minecraft 26.2 개발 창 실행)
+# 1. Client development run (launches Minecraft 26.2 development window)
 .\gradlew.bat :plexus-bootstrap:runClient
 
-# 2. 전용 서버 개발 실행 (run/server/eula.txt 동의 필요)
+# 2. Dedicated server development run (requires run/server/eula.txt agreement)
 .\gradlew.bat :plexus-bootstrap:runServer
 
-# 3. 헤드리스 서버 부팅 스모크 테스트 (CI 및 빠른 검증용)
+# 3. Headless server boot smoke test (for CI and quick verification)
 .\gradlew.bat :plexus-bootstrap:serverBootSmokeTest
 
-# 4. 월드 생성, 엔티티 틱 및 저장 무결성 테스트
+# 4. World creation, entity tick, and save integrity test
 .\gradlew.bat :plexus-bootstrap:worldCreateSaveTest
 
-# 5. 게임 내 테스트 실행 (헤드리스)
+# 5. In-game test execution (headless)
 .\gradlew.bat :plexus-bootstrap:gameTests
 ```
 
-3~5번은 `examples/`와 `test-mods/`의 모드를 쓰는데, 이 공개 저장소에는 두 폴더가 없어서 메시지와 함께 멈춥니다.
+Tasks 3 through 5 use mods from `examples/` and `test-mods/`, but because neither folder exists in this public repository, they halt with a message.
 
 ---
 
-## 4. 의존성 구조
+## 4. Dependency Structure
 
-- **내부 프로젝트:** `plexus-runtime-impl`, 지원하는 모든 버전의 `plexus-version-adapter-v*`, `plexus-bridge-fabric`, `plexus-bridge-forge` (runtimeOnly)
-- **외부 라이브러리:** `slf4j-api` (로그 구현은 Minecraft가 가진 log4j를 씁니다)
+- **Internal projects:** `plexus-runtime-impl`, all supported versions of `plexus-version-adapter-v*`, `plexus-bridge-fabric`, `plexus-bridge-forge` (runtimeOnly)
+- **External libraries:** `slf4j-api` (the logging implementation uses the log4j bundled with Minecraft)

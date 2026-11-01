@@ -1,63 +1,65 @@
-# Plexus 모드 로더 모드 템플릿
+[English](README.md) | [한국어](README.ko.md)
 
-Plexus 모드를 새로 시작하기 위한 독립 Gradle 프로젝트입니다.
+# Plexus Mod Loader Mod Template
 
-## 새 모드 만들기
+A standalone Gradle project for starting a new Plexus Mod.
 
-모드 ID, 이름, Java 패키지, 엔트리포인트 클래스, 프로젝트 이름을 한 번에 바꾸는 방법이 두 가지입니다.
+## Creating a New Mod
 
-**Plexus 모드 로더 저장소 없이:** `https://www.plexusmc.net/maven/`에서 `plexus-mod-template-<버전>.zip`을 다운로드해 압축을 풀고, 그 폴더에서 실행합니다.
+There are two ways to change the mod ID, name, Java package, entrypoint class, and project name all at once.
+
+**Without the Plexus Mod Loader repository:** Download `plexus-mod-template-<version>.zip` from `https://www.plexusmc.net/maven/`, extract it, and run the following in that folder:
 
 ```powershell
 .\gradlew.bat initPlexusMod -PmodId=ruby_mod "-PmodName=Ruby Mod" "-PmodPackage=io.github.you.ruby"
 ```
 
-**Plexus 모드 로더 저장소에서:** 저장소 폴더에서 실행하면 저장소 옆(또는 `-PmodDir=<폴더>`)에 새 프로젝트가 생깁니다.
+**From the Plexus Mod Loader repository:** Running this from the repository folder creates a new project next to the repository (or in `-PmodDir=<folder>`).
 
 ```powershell
 .\gradlew.bat newPlexusMod -PmodId=ruby_mod "-PmodName=Ruby Mod" "-PmodPackage=io.github.you.ruby"
 ```
 
-`-PmodName`을 빼면 모드 ID에서 만들고, `-PmodPackage`를 빼면 `com.example.<모드 ID>`입니다. 폴더를 직접 복사해도 됩니다. 그때는 아래 "바꿀 곳"을 손으로 고칩니다.
+If `-PmodName` is omitted, it is generated from the mod ID; if `-PmodPackage` is omitted, it defaults to `com.example.<mod ID>`. You can also copy the folder directly. In that case, manually edit the items in "Where to Make Changes" below.
 
-## Plexus 모드 로더를 다운로드하는 곳
+## Where Plexus Mod Loader is Downloaded From
 
-`settings.gradle.kts`와 `dev.plexusmodloader.mod` 플러그인은 Plexus 모드 로더를 다음 순서로 찾습니다. 따로 준비할 것은 없습니다.
+`settings.gradle.kts` and the `dev.plexusmodloader.mod` plugin search for Plexus Mod Loader in the following order. No separate preparation is needed.
 
-1. 웹사이트의 공개 Maven 저장소 `https://www.plexusmc.net/maven/` (`dev.plexusmodloader` 그룹과 이전 그룹 `dev.polymodloader`만)
-2. Maven Local: Plexus 모드 로더 저장소에서 `.\gradlew.bat publishToMavenLocal`과 `.\gradlew.bat -p build-logic publishToMavenLocal`로 올린 로컬 빌드
-3. Gradle Plugin Portal, Maven Central(그 밖의 라이브러리)
+1. The website's public Maven repository `https://www.plexusmc.net/maven/` (only the `dev.plexusmodloader` group and the previous `dev.polymodloader` group)
+2. Maven Local: Local builds published from the Plexus Mod Loader repository via `.\gradlew.bat publishToMavenLocal` and `.\gradlew.bat -p build-logic publishToMavenLocal`
+3. Gradle Plugin Portal, Maven Central (other libraries)
 
-Gradle은 처음 찾은 곳의 것을 씁니다. 이미 공개된 버전을 로컬 빌드로 시험하려면 명령에 `-PplexusLocalSdk`를 붙여 Maven Local을 먼저 보게 합니다. 공개 저장소에 연결할 수 없으면 빌드가 실패하므로, 오프라인에서는 `--offline`을 씁니다.
+Gradle uses the artifact from the first location found. To test an already published version with a local build, append `-PplexusLocalSdk` to the command to check Maven Local first. If the public repository cannot be reached, the build will fail, so use `--offline` when offline.
 
-## 사용
+## Usage
 
 ```powershell
-.\gradlew.bat build                  # 컴파일 + plexus.mod.json 검증 + 리소스 생성·검사
-.\gradlew.bat worldCreateSaveTest    # 게임 테스트 서버에서 이 모드를 로드하고 월드 생성·저장 (헤드리스)
-.\gradlew.bat gameTests "-PplexusTests=my_mod:*"   # 이 모드의 게임 내 테스트 실행 (헤드리스)
-.\gradlew.bat runClient              # 클라이언트 실행 (run/client)
+.\gradlew.bat build                  # Compile + validate plexus.mod.json + generate and check resources
+.\gradlew.bat worldCreateSaveTest    # Load this mod on the game test server and create and save a world (headless)
+.\gradlew.bat gameTests "-PplexusTests=my_mod:*"   # Run in-game tests for this mod (headless)
+.\gradlew.bat runClient              # Run client (run/client)
 ```
 
-IntelliJ IDEA에서는 폴더를 Gradle 프로젝트로 열고, `.run/runClient` 실행 구성을 실행하거나 디버그합니다.
+In IntelliJ IDEA, open the folder as a Gradle project and run or debug the `.run/runClient` run configuration.
 
-## 리소스 파일
+## Resource Files
 
-`build.gradle.kts`의 `plexusResources`에 적은 블록·아이템은 아이템 정의, 모델, 블록 상태, 전리품, 영어 이름, 도구 태그를 빌드 때 만듭니다(`build/generated/plexus-resources/main`). 그래서 이 템플릿의 `ruby`와 `ruby_block`에는 JSON 파일이 없습니다. `src/main/resources`에 같은 경로의 파일을 직접 쓰면 그 파일이 쓰입니다.
+Blocks and items specified in `plexusResources` in `build.gradle.kts` have their item definitions, models, blockstates, loot tables, English names, and tool tags generated at build time (`build/generated/plexus-resources/main`). That is why `ruby` and `ruby_block` in this template do not have JSON files. If you directly write a file at the same path in `src/main/resources`, that file will be used instead.
 
-`build`는 `checkPlexusResources`로 대문자 파일 이름, 깨진 JSON, 없는 모델·텍스처, 빠뜨린 네임스페이스를 찾아 알려 줍니다. 결과는 `build/reports/plexus/resource-problems.txt`에 있습니다.
+`build` uses `checkPlexusResources` to find and report uppercase file names, malformed JSON, missing models and textures, and omitted namespaces. The results are in `build/reports/plexus/resource-problems.txt`.
 
-## 바꿀 곳
+## Where to Make Changes
 
-| 파일 | 내용 |
+| File | Description |
 |---|---|
-| `src/main/resources/poly.mod.json` | 모드 ID, 이름, 버전, 엔트리포인트, 의존성 |
-| `src/main/java/com/example/mymod/MyMod.java` | 엔트리포인트(`CommonModInitializer`). 아이템 1개, 블록 1개, 게임 테스트 2개 예시 |
-| `build.gradle.kts` | `plexusResources`(생성할 리소스), `worldCreateSaveTest`에서 확인할 로그 줄 |
-| `src/main/resources/assets/my_mod/` | 텍스처와 직접 쓰는 모델·번역. 데이터(레시피·전리품·태그)는 `data/my_mod/`에 둡니다 |
-| `settings.gradle.kts` | 프로젝트 이름 |
-| `gradle.properties` | `plexusMinecraft=<버전>`: 실행·테스트에 쓸 Minecraft 버전(없으면 Plexus 모드 로더 기본 버전) |
+| `src/main/resources/poly.mod.json` | Mod ID, name, version, entrypoints, dependencies |
+| `src/main/java/com/example/mymod/MyMod.java` | Entrypoint (`CommonModInitializer`). Examples of 1 item, 1 block, and 2 game tests |
+| `build.gradle.kts` | `plexusResources` (resources to generate), log lines to check in `worldCreateSaveTest` |
+| `src/main/resources/assets/my_mod/` | Textures and manually written models and translations. Place data (recipes, loot tables, tags) in `data/my_mod/` |
+| `settings.gradle.kts` | Project name |
+| `gradle.properties` | `plexusMinecraft=<version>`: Minecraft version to use for running and testing (if absent, Plexus Mod Loader default version) |
 
-`plexus.mod.json`의 `"minecraft"`는 모드가 도는 버전입니다. Native API만 쓰면 `26.*`나 `>=26.2 <27`처럼 적어 새 버전에서도 다시 빌드하지 않고 쓸 수 있습니다. 특정 버전의 게임 코드에 기대는 모드는 `26.2`처럼 정확히 적습니다.
+`"minecraft"` in `plexus.mod.json` is the version the mod runs on. If you only use the Native API, writing something like `26.*` or `>=26.2 <27` allows it to be used on newer versions without rebuilding. Mods that rely on game code of a specific version should specify it exactly, such as `26.2`.
 
-사용할 수 있는 API는 웹사이트의 API 레퍼런스(`https://www.plexusmc.net/docs/api-reference/`)에 있습니다(`docs/API_CATALOG.md`는 공개 저장소에 없습니다). IDE는 공개 API 모듈의 JavaDoc jar를 Maven 저장소에서 함께 다운로드합니다. 모든 API는 아직 `PREVIEW`입니다.
+Available APIs can be found in the API Reference on the website (`https://www.plexusmc.net/docs/api-reference/`) (`docs/API_CATALOG.md` is not present in the public repository). IDEs also download the JavaDoc jar for public API modules from the Maven repository. All APIs are currently `PREVIEW`.

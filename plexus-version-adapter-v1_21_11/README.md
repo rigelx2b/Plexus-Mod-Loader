@@ -1,45 +1,47 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-version-adapter-v1_21_11
 
-## 이 모듈이 하는 일
-Minecraft 1.21.11 전용 지식을 담습니다. 클라이언트/서버 진입점과 내장 변환 규칙(브랜드, 타이틀 화면 모드 수, 레지스트리·페이로드 처리, Native API 이벤트 훅 등 수십 개)이 있습니다.
+## What this module does
+Contains Minecraft 1.21.11-specific knowledge. It includes client/server entry points and dozens of built-in transformation rules (branding, title screen mod counts, registry and payload handling, Native API event hooks, etc.).
 
-## 무엇을 소유하는가
-`dev.plexusmodloader.game.version.v1_21_11.Minecraft1_21_11Adapter`와 `META-INF/services` 등록
+## What it owns
+`dev.plexusmodloader.game.version.v1_21_11.Minecraft1_21_11Adapter` and the `META-INF/services` registration
 
-## 무엇을 하지 않는가
-다른 버전을 지원하지 않습니다. 이 모듈 밖에 Minecraft 이름을 두지 않습니다.
+## What it does not do
+Does not support other versions. Does not place Minecraft names outside this module.
 
-## 의존성
-`plexus-version-adapter-api`. Minecraft jar에는 컴파일 의존하지 않습니다. 이름은 `javap`로 검증한 문자열입니다.
+## Dependencies
+`plexus-version-adapter-api`. Has no compile dependency on the Minecraft jar. Names are strings verified with `javap`.
 
-## 주요 진입점
+## Key entry points
 `Minecraft1_21_11Adapter`
 
-## 빌드·테스트
+## Build and test
 ```powershell
 .\gradlew.bat :plexus-bootstrap:serverBootSmokeTest
 ```
 
-실제 1.21.11에서 규칙 승인과 적용을 확인합니다(`serverBootSmokeTest -PplexusMinecraft=1.21.11`). 클라이언트는 아직 실행하지 않았습니다.
+Verifies rule approval and application on real 1.21.11 (`serverBootSmokeTest -PplexusMinecraft=1.21.11`). The client has not been run yet.
 
-## 대표 흐름
-`plexus:client_brand`(CLIENT)와 `plexus:server_brand`(양쪽)가 `"vanilla"`를 `"plexus"`로 바꿉니다. 실패 정책은 DISABLE_RULE입니다.
+## Representative flows
+`plexus:client_brand` (CLIENT) and `plexus:server_brand` (both) replace `"vanilla"` with `"plexus"`. The failure policy is DISABLE_RULE.
 
-`plexus:client_title_mod_counts`(CLIENT, DISABLE_RULE)는 타이틀 화면 `TitleScreen.extractRenderState`가 버전 글자를 그리는 유일한 `GuiGraphicsExtractor.text(Font, String, int, int, int)` 호출을 게임 계층의 `client.TitleScreenModCounts.onVersionText`로 바꿉니다(`RedirectCall`, ADR-0013). 훅은 그 줄을 그리고 그 위에 로더별 모드 수를 그립니다. MinecraftForge의 패치에는 이 호출이 없어서 Forge에서는 이 규칙이 꺼지고, `plexus-bridge-forge`의 `plexus:client_title_mod_counts_forge`가 대신 Forge 브랜딩 위에 그립니다.
+`plexus:client_title_mod_counts` (CLIENT, DISABLE_RULE) replaces the only `GuiGraphicsExtractor.text(Font, String, int, int, int)` call where the title screen's `TitleScreen.extractRenderState` draws the version text with `client.TitleScreenModCounts.onVersionText` in the game layer (`RedirectCall`, ADR-0013). The hook draws that line and draws the per-loader mod counts above it. MinecraftForge's patch lacks this call, so this rule is disabled on Forge, and `plexus:client_title_mod_counts_forge` in `plexus-bridge-forge` draws above the Forge branding instead.
 
-## 26.1과 다른 점
+## Differences from 26.1
 
-**실험 버전입니다**(ADR-0019). `plexus-version-adapter-v26_1`을 복사했습니다. 다시 매핑한 1.21.11 jar에서 `javap`로 찾아 대상을 바꾼 규칙은 다음과 같습니다.
+**This is an experimental version** (ADR-0019). Copied from `plexus-version-adapter-v26_1`. The rules whose targets were changed after locating them with `javap` in the remapped 1.21.11 jar are as follows:
 
 - `plexus:use_entity`: `Player.interactOn(Entity, InteractionHand)`
 - `plexus:client_hud`: `Gui.render`
 - `plexus:client_creative_tabs_hovered`·`_drawn`: `CreativeModeInventoryScreen.render`·`renderBg`
-- `plexus:client_title_mod_counts`: `TitleScreen.render`의 `GuiGraphics.drawString`
-- `plexus:client_world_painters`: `LevelRenderer.submitEntities`(`renderer.state.LevelRenderState`)
-- `plexus:client_shader_uniforms`: `GlRenderPass.setPipeline`(1.21.11의 `RenderPass`는 인터페이스)
+- `plexus:client_title_mod_counts`: `GuiGraphics.drawString` in `TitleScreen.render`
+- `plexus:client_world_painters`: `LevelRenderer.submitEntities` (`renderer.state.LevelRenderState`)
+- `plexus:client_shader_uniforms`: `GlRenderPass.setPipeline` (`RenderPass` is an interface in 1.21.11)
 - `plexus:client_fov`: `GameRenderer.getFov`
 
-`BuiltInRulesTest`(게임 계층 모듈)가 모든 규칙을 다시 매핑한 jar에 적용해 봅니다. `gameVersions()`는 `1.21.11`뿐입니다. 핫픽스는 없습니다.
+`BuiltInRulesTest` (game layer module) tests applying all rules to the remapped jar. `gameVersions()` contains only `1.21.11`. There are no hotfixes.
 
-## 알려진 제한
-원본 클라이언트 jar SHA-1은 `ba2df812…`입니다. 클라이언트 전용 규칙은 창 없이 변환 계획·사전조건·바이트코드 검증·훅 시그니처까지만 확인했습니다. Fabric 모드는 아직 1.21.11에서 막지 않습니다(intermediary 이름, ADR-0019).
+## Known limitations
+The original client jar SHA-1 is `ba2df812…`. For client-only rules, only the transformation plan, preconditions, bytecode verification, and hook signatures have been verified without a window. Fabric mods are not yet blocked on 1.21.11 (intermediary names, ADR-0019).

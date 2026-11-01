@@ -1,0 +1,63 @@
+[English](README.md) | [한국어](README.ko.md)
+
+# plexus-fabric-api-neoforge-v26_3 — NeoForge 26.3용 Fabric API 호스트 모듈
+
+Plexus Mod Loader의 Mixin 브리지로도 NeoForge 옆에서 원래대로 실행할 수 없는 Fabric API 모듈을 위해, `NeoForge 26.3.0.98`의 훅 위에서 동작하는 자체 Fabric API 구현체("호스트 모듈", `ADR-0031`)를 빌드합니다. 26.2판은 [`plexus-fabric-api-neoforge-v26_2`](../plexus-fabric-api-neoforge-v26_2/README.md)입니다.
+
+## 이 모듈이 하는 일
+- Fabric API `0.165.0+26.3`의 같은 모듈과 공개 API가 같은 열일곱 모듈을 빌드합니다: `fabric-block-api-v1`(`3.1.0+plexus.neoforge.26.3`), `fabric-biome-api-v1`(`20.1.1+plexus.neoforge.26.3`, `always`), `fabric-item-api-v1`(`14.8.0+plexus.neoforge.26.3`), `fabric-registry-sync-v0`(`8.0.4+plexus.neoforge.26.3`), `fabric-object-builder-api-v1`(`24.1.12+plexus.neoforge.26.3`, 원본이 로드돼도 대체하는 `always`), `fabric-content-registries-v0`(`15.0.6+plexus.neoforge.26.3`), `fabric-resource-conditions-api-v1`(`6.2.0+plexus.neoforge.26.3`), `fabric-data-generation-api-v1`(`27.4.2+plexus.neoforge.26.3`), `fabric-menu-api-v1`(`2.0.30+plexus.neoforge.26.3`), `fabric-entity-events-v1`(`6.0.4+plexus.neoforge.26.3`), 클라이언트 모듈 `fabric-screen-api-v1`(`5.2.4+plexus.neoforge.26.3`), `fabric-sound-api-v1`(`2.0.7+plexus.neoforge.26.3`), `fabric-rendering-fluids-v1`(`6.0.6+plexus.neoforge.26.3`), `fabric-rendering-v1`(`27.2.0+plexus.neoforge.26.3`), `fabric-renderer-api-v1`(`17.0.17+plexus.neoforge.26.3`), `fabric-renderer-indigo`(`9.1.25+plexus.neoforge.26.3`, `always`), `fabric-model-loading-api-v1`(`8.0.37+plexus.neoforge.26.3`).
+- Sinytra Forgified Fabric API에는 26.3 브랜치가 없습니다. 그래서 소스는 26.2 호스트 모듈(FFAPI `26.2.x` 커밋 `40f8ce0` + Plexus Mod Loader 변경)에 Fabric API의 `0.161.0+26.2`→`0.165.0+26.3` 변경을 3방향 병합으로 더한 것입니다(같은 palantir 형식으로 맞춘 뒤 병합). 각 파일의 헤더가 출처와 변경을 적습니다. 26.3에 새로 생긴 파일은 Fabric API `0.165.0+26.3`에서 가져왔습니다.
+- 26.2판과 다른 점:
+  - registry-sync: NeoForge 26.3은 `DataPackRegistryEvent.NewRegistry` 대신 `NewDatapackRegistryEvent`(world·reloadable 레지스트리를 따로 받음)를 씁니다. `DynamicRegistriesImpl`이 26.3 공개 API(`getAllDynamicRegistries`, `getWorldRegistries`, `getReloadableRegistries`, `registerReloadable`)를 이 이벤트와 게임의 레지스트리 목록(NeoForge 패치가 모든 로더의 레지스트리로 채움) 위에서 구현합니다. 새 `NewDatapackRegistryEventAccessor`가 이벤트를 만들고 처리합니다. `FabricRegistryInit`의 `onInitialize`는 내장 레지스트리에 속성(`SYNCED`, 새 `SAVE_DATA_VALIDATED`)만 줍니다. 동기화는 NeoForge가 합니다. 26.3의 저장 데이터 검사(`MinecraftServerMixin`, 클라이언트 `WorldOpenFlowsMixin` 등)는 그대로 둡니다. 게임의 레지스트리 목록을 Fabric 사본으로 바꾸는 `ReloadableServerRegistriesMixin`·`RegistriesDatapackGeneratorMixin`은 NeoForge 옆에서는 게임 목록이 이미 모든 레지스트리를 담으므로 넣지 않습니다.
+  - biome: Forgified Fabric API의 것이 아니라 Fabric API 자체 소스로부터 만든 Plexus Mod Loader의 NeoForge용 빌드입니다(MinecraftForge 호스트 모듈의 `ForgeBiomeInfo`와 같은 접근). 원본 모듈은 `ChunkGenerator.featuresPerStep`에 Guava의 메모이제이션 `Supplier`를 쓰지만 NeoForge는 거기에 `Lazy`를 두고 바이옴 수정자 실행 시 캐스팅하므로(`ClassCastException`), NeoForge의 `ChunkGenerator.refreshFeaturesPerStep()`에 맞췄습니다. 또한 Fabric API가 바이옴을 수정한 뒤 `NeoForgeBiomeInfo`가 바이옴의 `ModifiableBiomeInfo`를 Fabric API가 수정한 상태를 원본으로 갖는 새 `ModifiableBiomeInfo`로 교체하여(`BiomeAccessor` mixin이 필드 설정) NeoForge 자체 수정자가 그 위에서 시작하게 합니다.
+  - item: 툴팁 순서 API가 `TooltipProvider.Getter`를 받습니다. NeoForge 26.3의 `TooltipAppender.createComponentAppender(type, getter)`로 등록합니다. 새 블록 변환 API(`BlockTransformerEvents`, `BlockTransformerHelper`)와 `FishingHookMixin`은 원본 그대로입니다(NeoForge 26.3 패치에 맞음). `FirstPersonHandsAndItemsMixin`(26.2의 `ItemInHandRendererMixin`)은 FFAPI처럼 넣지 않습니다. `ResourceUtil`은 NeoForge 모드의 데이터 팩도 모드 출처로 봅니다(FFAPI의 조건).
+  - content-registries: Fabric API 26.3은 퇴비·연료·박피·경작·평탄화·장식 항아리·양조·주민 음식 API를 이 모듈에서 뺐으므로 26.2판의 그 부분(FFAPI의 퇴비·연료 데이터맵 연결, `TillableBlockRegistry` 리스너)도 빠집니다. 26.3에서 클래스 트위커가 없어지고 `EntityMixin`이 `EntityFluidExtension`을 직접 구현합니다. 산화 단계·밀랍 블록은 item 모듈의 블록 변환기(`BlockTransformerHelperImpl`)로 도끼 벗기기도 등록하므로 item 소스 세트에 대해 컴파일합니다. NeoForge 26.3에 맞춘 것: `EntityFluidInteraction`이 흐름을 `FluidType`별 `CurrentAccumulator`(필드 `currentAccumulators`)에 모으므로 `ContentRegistriesImpl`과 새 `EntityFluidInteractionCurrentAccumulatorAccessor`가 그것을 읽고, `EntityFluidInteraction.update`가 `boolean`을 돌려주므로 `EntityMixin`의 감싸기를 맞춥니다. NeoForge 26.3의 `DataMapHooks`는 산화 단계와 밀랍 블록을 데이터맵에서만 찾습니다(26.2는 게임의 맵으로 돌아감). 그래서 `DataMapModifications`가 Fabric 모드가 등록한 쌍을 `OXIDIZABLES`·`WAXABLES` 데이터맵 값으로 돌려주고, 새 `DataMapHooksMixin`이 NeoForge가 역방향 맵(번개, `WeatheringCopper.getFirst`)을 다시 만든 뒤 그 쌍을 더합니다.
+  - resource-conditions: 26.2에는 호스트 모듈이 없습니다(원본이 다리로 실행됨). 26.3판은 Fabric API `0.165.0+26.3`의 모듈 그대로이고 `SimpleJsonResourceReloadListenerMixin`만 FFAPI의 것입니다. Fabric API 26.3은 JSON 데이터의 조건을 바닐라 26.3의 `prepare` 안 `Codec.parse`에서 검사하고(처리기가 `this.lister`를 읽는 인스턴스 메서드) 저장 람다 `lambda$prepare$0`에서 건너뛰는데, NeoForge 26.3의 `prepare`는 그 대신 static `scanDirectory`(맵을 돌려줌)를 부르고 거기서 조건부 코덱으로 파싱합니다. 그래서 FFAPI처럼 `scanDirectory`의 파싱을 감싸고 조건이 맞지 않으면 NeoForge의 건너뛰기 값 `DataResult.success(Optional.empty())`를 돌려줍니다. 26.3은 레시피를 레지스트리로 읽으므로 FFAPI의 `scanDirectoryWithModifier` 대상은 뺍니다. 레지스트리 경로(`RegistryLoadTaskPendingRegistrationMixin`)는 원본처럼 `NeoForgeInjectionPoints` 규칙으로 NeoForge의 조건부 코덱 호출 앞에서 실행됩니다.
+  - data-generation: 26.2 호스트 모듈에 Fabric API 26.3 변경을 병합했습니다. 26.3의 새 공개 인터페이스 `FabricTagBuilder`가 NeoForge `ITagBuilderExtension`을 상속하며 제거 목록은 NeoForge `TagBuilder`의 것입니다(새 `TagBuilderMixin`은 인터페이스만 더함). `withConditions`는 NeoForge의 조건 인자를 받는 `RecipeOutput.accept`를 구현합니다. Fabric API 26.3이 더한 `BlockLootSubProviderMixin.onlyVanillaBlocks`·`EntityLootSubProviderMixin.onlyVanillaEntities`(바닐라 전리품 생성기가 `minecraft` 네임스페이스만 보게 함)는 NeoForge 26.3 패치에서 그 호출이 없어 빼고 FFAPI의 빈 mixin을 둡니다. NeoForge 26.3의 `run`은 `getKnownBlocks`·`getKnownEntityTypes`를 돌고, `VanillaBlockLoot`·`VanillaEntityLoot`가 이미 `minecraft` 네임스페이스만 돌려줍니다.
+  - menu: 26.2판과 같습니다(NeoForge 26.3의 `openMenu`·`IContainerFactory`·`IMenuProviderExtension`이 26.2와 같음). Fabric API 26.3에서 바뀐 것은 `ExtendedMenuType`의 JavaDoc 예제뿐이라 그 파일만 26.3 파일에 FFAPI의 코드 변경을 다시 적용했습니다.
+  - entity-events: 26.2에는 호스트 모듈이 없습니다(원본이 다리로 실행됨). 26.3판은 Fabric API `0.165.0+26.3`의 모듈 그대로이고, `ServerPlayerMixin`의 `redirectSleepDirection`·`hasNoMonstersNearby`만 NeoForge 26.3이 `startSleepInBed`의 검사를 옮긴 `lambda$startSleepInBed$0(BlockState, BedRule, BlockPos, boolean)`을 대상으로 삼고 그 매개변수를 받습니다(Fabric 26.3의 처리기는 `startSleepInBed`의 `(AbstractBedBlock, BlockState, BedRule, BlockPos)`를 받아 다리가 옮길 수 없었음). 엘리트라 mixin이 ASM 상수를 쓰므로 `asm`에 대해 컴파일합니다.
+  - screen·sound·rendering-fluids: 26.2판과 같은 코드입니다. Fabric API 26.2→26.3에서 이 세 모듈은 문서(JavaDoc 예제, `fabricloader` 요구 버전)만 바뀌어, 바뀐 파일은 Fabric API `0.165.0+26.3`의 것을 그대로 받았습니다. NeoForge 26.3.0.98의 `ClientHooks.extractScreen`, `SoundInstance.getStream`, `FluidRenderer.tesselate`의 `shouldDisplayFluidOverlay`와 지역 변수 `faceState`가 26.2와 같음을 `javap`로 확인했습니다.
+  - rendering·renderer-api·indigo·model-loading: 26.2 호스트 모듈에 Fabric API 26.3 변경을 3방향 병합했습니다(model-loading은 코드가 같고 `fabric.mod.json`만 바뀜). 손으로 푼 것: rendering `GameRendererMixin`(FFAPI처럼 `guiRendererReady`를 뺌), `GuiRendererMixin`(화면 속 화면 풀을 다시 뺌), `RenderPipelineBuilderMixin`(26.2판의 `@WrapMethod` 유지, 26.3의 `withSnippet` 콜백 받음), class tweaker의 패키지 이름 변경(`com/mojang/blaze3d/pipeline`→`com/mojang/renderpearl/api/pipeline`), renderer-api `SubmitNodeStorageMixin`(26.3 시그니처). Fabric API 26.3의 새 `block.particle.LevelExtractorMixin`은 넣지 않습니다. NeoForge 26.3의 `LevelExtractor.getViewBlockingState`는 자기 `getViewBlockingStateAndPos`만 부르며, FFAPI가 26.2에서 `ScreenEffectRendererMixin`을 뺀 것과 같은 이유입니다. `HudElementRegistryImpl`은 26.3의 새 `INFO_BAR_FOREGROUND`를 NeoForge `CONTEXTUAL_INFO_BAR`에 잇습니다. rendering·renderer-api는 Fabric API 26.3의 `fabric-transitive-access-wideners-v1`(`8.1.17+e2f63d3e5d`) class tweaker를 적용해 컴파일합니다.  - object-builder: Fabric API 26.3은 `PoiTypes.register` 접근 확대를 `fabric-transitive-access-wideners-v1`로 옮겼습니다. 이 빌드는 그 모듈에 대해 컴파일하지 않으므로 자기 class tweaker에 그 줄을 남깁니다.
+- 라이선스는 `Apache License 2.0`이며, jar는 `LICENSE_fabric-api`를 담습니다.
+
+## 무엇을 소유하는가
+- 소스 세트 `src/fabricBlockApiV1`, `src/fabricBiomeApiV1`, `src/fabricItemApiV1`, `src/fabricRegistrySyncV0`, `src/fabricObjectBuilderApiV1`, `src/fabricContentRegistriesV0`, `src/fabricResourceConditionsApiV1`, `src/fabricDataGenerationApiV1`, `src/fabricMenuApiV1`, `src/fabricEntityEventsV1`, `src/fabricScreenApiV1`, `src/fabricSoundApiV1`, `src/fabricRenderingFluidsV1`, `src/fabricRenderingV1`, `src/fabricRendererApiV1`, `src/fabricRendererIndigo`, `src/fabricModelLoadingApiV1`과 각 모듈의 `fabric.mod.json`, Mixin 설정, class tweaker.
+- `fabric.mod.json`의 `custom` 필드 `plexusmodloader:host-module` (`host` `neoforge`, `minecraft` `26.3`, `replaces` 각 모듈 버전).
+- 빌드 산출물 jar(`META-INF/plexusmodloader/host-modules/neoforge-26.3.0.98/`)와 이 모듈의 색인. `plexus-bridge-fabric`이 26.2판의 색인과 합쳐 jar에 하나로 둡니다(`hostModuleIndex` 작업).
+- `plexus-bridge-fabric`에 산출물을 전달하는 소모성 구성 `hostModuleElements`.
+
+## 무엇을 하지 않는가
+- NeoForge가 없거나 NeoForge 26.3.0.98이 아닌 릴리스에서는 아무것도 하지 않습니다.
+- MinecraftForge를 위한 것이 아닙니다.
+- Forgified Fabric API를 다운로드하거나 요구하지 않습니다.
+
+## 의존성
+- Minecraft `26.3` (`plexusCompileMinecraft=26.3`).
+- `installNeoForgeClient` 작업이 NeoForge `26.3.0.98` 자체 설치 프로그램(SHA-1 `c3d8feb159c1abeb89af6e10e1be7b6e080d0eb9` 검사)으로 만든 패치된 클라이언트 jar(`~/.gradle/caches/plexus-neoforge/26.3.0.98/client`, 첫 사용 시 네트워크 필요).
+- `compileOnly`: NeoForge `26.3.0.98` universal jar, FML 12 loader, NeoForge 이벤트 버스, mergetool API, Fabric Loader, Mixin, MixinExtras, `fabric-api-base`, `fabric-resource-loader-v1`, `fabric-lifecycle-events-v1`, jspecify, JetBrains annotations. object-builder는 registry-sync 소스 세트에, content-registries는 item 소스 세트에, data-generation은 registry-sync·resource-conditions 소스 세트에 대해 컴파일합니다. data-generation은 Fabric API의 tag·convention-tags·recipe·resource-conditions 모듈 jar(26.2판)에도 대해 컴파일합니다.
+
+## 주요 진입점
+- 각 모듈의 공개 API(`net.fabricmc.fabric.api.block.v1`, `net.fabricmc.fabric.api.biome.v1`, `net.fabricmc.fabric.api.item.v1`, `net.fabricmc.fabric.api.event.registry`, `net.fabricmc.fabric.api.object.builder.v1`, `net.fabricmc.fabric.api.registry`).
+- NeoForge 연결: `RegistryManagerMixin`, `NewDatapackRegistryEventAccessor`, `GameDataMixin`, `CommonHooksAccessor`, `ItemTooltipHandlerMixin`, `IItemExtensionMixin`, `IBlockExtensionMixin`, `IBlockStateExtensionMixin`, `BaseRegistryMixin`, `DataMapHooksMixin`, `NeoForgeBiomeInfo`, `BiomeAccessor`, `FluidMixin`.
+- 진입점: `FabricRegistryInit`(`main`), `ContentRegistriesImpl`(`main`), `ResourceConditionsImpl`(`main`), `ClientItemEventHooks`(`client`).
+
+## 빌드·테스트
+```powershell
+.\gradlew.bat :plexus-fabric-api-neoforge-v26_3:assemble
+.\gradlew.bat -PplexusMinecraft=26.3 :plexus-bootstrap:fabricApiGameTest :plexus-bootstrap:neoForgeFabricApiGameTest
+.\gradlew.bat -PplexusMinecraft=26.3 :plexus-bootstrap:corpusFabricNeoForge
+```
+- 26.3의 `fabricApiGameTest`(Fabric 단독)와 `neoForgeFabricApiGameTest`(NeoForge 옆)는 테스트 모드 `fabric-block-item`, `fabric-dynamic-registry`, `fabric-object-builder`, `fabric-oxidizable-blocks`, `fabric-resource-conditions`, `fabric-data-generation`, `fabric-menu`, `fabric-entity-events`가 같은 30줄을 내는지 봅니다. `neoForgeFabricApiGameTest`는 이제 `fabric-biome-modification`과 4개의 바이옴 줄(네더 황무지 생성 설정의 `minecraft:patch_cactus_desert: true`, 26.3의 평탄화된 네더 생성기, 평원 기본 온도 `1.25`, 클라이언트에 전송된 평원 온도 `1.25`)을 포함합니다. 26.3에서는 `fabric-api-events`를 쓰지 않습니다(26.2용으로 쓰였음).
+
+## 대표 흐름
+`plexus-fabric-api-neoforge-v26_2`와 같습니다. 호스트 키가 `neoforge-26.3.0.98`입니다.
+
+## 알려진 제한
+- `NeoForge 26.3.0.98` 전용입니다. 새 NeoForge 릴리스가 나오면 다시 빌드하고 검증해야 합니다.
+- content-registries는 `FluidBehavior`를 가진 Fabric 유체 태그마다 NeoForge `FluidType`(`FabricFluidType`: `canSwim`, `canDrownIn`, `supportsBoating`, `move`를 `FluidBehavior`에 위임; `NeoForgeFluidTypes`; `Fluid.getFluidType` 머리의 `FluidMixin`)을 부여합니다. 물·용암 태그는 NeoForge 자체 타입에 매핑합니다.
+- 클라이언트의 `fabric-lifecycle-events-v1`은 2026-11-01부터 `NeoForgeInjectionPoints`의 `handleUpdateTags` 규칙으로 로드됩니다(태그 로드 이벤트가 NeoForge가 검색 트리를 다시 만드는 `CreativeModeTabs.allTabs()` 앞에서 실행). 창에서는 확인하지 않았습니다.
+- data-generation은 태그 제공자만 게임 테스트로 확인합니다. NeoForge 옆에서의 실제 데이터 생성 실행(`-Dfabric-api.datagen`)은 NeoForge의 서버 `Main`이 EULA를 먼저 확인하므로 검증할 수 없습니다(26.2판과 같음). Fabric 단독의 실제 데이터 생성(태그, 전리품, 번역, 레시피와 발전 과제)은 `fabricDatagenRun`이 확인합니다.
+- menu는 게임 테스트에서 서버 쪽을, 창 작업 `neoForgeFabricClientProbe`(테스트 모드 `fabric-client-probe`)에서 클라이언트가 NeoForge의 열기 패킷으로 메뉴를 만들고(열기 데이터 42) 화면을 여는 것을 확인합니다. 같은 작업이 아이템 툴팁 줄, 화면 이벤트, 물 유체 처리기, 스트리밍 사운드도 Fabric 단독(`fabricClientProbe`)과 같은 줄로 확인합니다.
+- 렌더링 결과(HUD 요소, 화면 속 화면, FRAPI 메시, Indigo의 조명, 모델 플러그인)는 눈으로 보지 않았고 테스트 모드도 없습니다. indigo의 `always`는 코드 비교에 근거합니다(26.2판 README). NeoForge용 Sodium의 FRAPI 연결은 26.2판과 같이 적용되지 않습니다.
+- 26.3 게임 테스트 서버의 네더는 평탄화되어 피처가 배치되지 않습니다.
+- FFAPI의 26.3판이 없어, 26.3에서 바뀐 부분은 Plexus Mod Loader가 직접 맞췄습니다. 창(클라이언트)에서 저장 데이터 검사 화면은 확인하지 않았습니다(툴팁 줄은 `neoForgeFabricClientProbe`가 확인).

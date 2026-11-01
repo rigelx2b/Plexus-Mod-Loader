@@ -32,7 +32,7 @@ public final class LoadingScreenModLines {
         List<String> lines = new ArrayList<>(3);
         lines.add(countsLine(counts));
         if (counts.hostIncompatibleMods() > 0) {
-            lines.add(counts.hostIncompatibleMods() + " not loaded: Plexus Mod Loader can't run them yet");
+            lines.add(counts.hostIncompatibleMods() + " not loaded: not yet supported by Plexus Mod Loader");
         }
         if (!counts.leftOutMods().isEmpty()) {
             lines.add(leftOutLine(counts.leftOutMods(), maxLetters));

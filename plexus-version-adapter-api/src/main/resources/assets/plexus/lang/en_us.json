@@ -4,11 +4,11 @@
   "plexus.title.mod_count.quilt": "Quilt mods: %s",
   "plexus.title.mod_count.forge": "Forge mods: %s",
   "plexus.title.mod_count.neoforge": "NeoForge mods: %s",
-  "plexus.title.mod_count.host_incompatible": "Not loaded, Plexus Mod Loader can't run them yet: %s",
+  "plexus.title.mod_count.host_incompatible": "Not yet supported by Plexus Mod Loader: %s",
   "plexus.title.mod_count.bundled": " (+%s included)",
   "plexus.title.mod_count.left_out": "Not loaded: %s (see logs/latest.log)",
   "plexus.notice.not_loaded.title": "Some mods were not loaded",
-  "plexus.notice.not_loaded.host_incompatible": "Plexus Mod Loader can't run these yet: %s",
+  "plexus.notice.not_loaded.host_incompatible": "Not yet supported by Plexus Mod Loader: %s",
   "plexus.notice.not_loaded.left_out": "Missing a required mod, blocked or unreadable: %s",
   "plexus.notice.not_loaded.details": "The reason for each mod is in logs/latest.log."
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Summary
+
+Reworded the in-game messages displayed to players when mods are not loaded across English and Korean localizations.
+
+### Improvements & Fixes
+
+- The title screen line, notice dialog, and loading screen now say "Not yet supported by Plexus Mod Loader" instead of "can't run them yet", alongside refreshed Korean wording.
+
 ## 1.10.0 — 2026-11-01
 
 ### Highlights

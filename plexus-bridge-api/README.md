@@ -1,33 +1,35 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-bridge-api — Cross-Loader Compatibility SPI
 
-`plexus-bridge-api`는 Fabric, Forge, NeoForge, Quilt 등 다양한 서드파티 모드로더를 통합하기 위한 **크로스 로더 브릿지 서비스 제공자 인터페이스(SPI)** 및 진단 데이터 모델을 정의하는 모듈입니다.
+`plexus-bridge-api` is the module that defines the **cross-loader bridge service provider interface (SPI)** and diagnostic data models for integrating various third-party mod loaders such as Fabric, Forge, NeoForge, and Quilt.
 
 ---
 
-## 1. 주요 인터페이스 및 계약
+## 1. Key Interfaces and Contracts
 
-### `ModLoaderBridge` (핵심 SPI)
-각 로더 브릿지(`plexus-bridge-fabric`, `plexus-bridge-forge`)가 구현하는 인터페이스입니다.
-- **`assess(metadata, side, ModJarContents)`**: 메타데이터(와 메타데이터가 가리키는 jar 안의 파일)를 사전 분석하여 호환성 진단 결과(`BridgeAssessment`)를 반환합니다.
-- **`runtimePackages()`**: 해당 로더의 런타임 API 패키지 목록을 보고합니다 (미사용 시 은닉 처리 대상).
-- **`gameHost(GameHost.Request, modJars)`**: 게임을 직접 패치하고 시작하는 호스트 로더(Forge/NeoForge)의 `GameHost`를 만듭니다.
-- **`hostIncompatibilities(...)`**: 호스트가 패치한 게임에서 그대로 실행할 수 없는 이 브릿지의 모드를 이유와 함께 알려 줍니다(`PLEXUS-COMPAT-224`).
+### `ModLoaderBridge` (Core SPI)
+The interface implemented by each loader bridge (`plexus-bridge-fabric`, `plexus-bridge-forge`).
+- **`assess(metadata, side, ModJarContents)`**: Pre-analyzes metadata (and files within the jar referenced by the metadata) and returns compatibility diagnostic results (`BridgeAssessment`).
+- **`runtimePackages()`**: Reports the list of runtime API packages for the loader (subject to being hidden when unused).
+- **`gameHost(GameHost.Request, modJars)`**: Creates the `GameHost` for a host loader (Forge/NeoForge) that directly patches and launches the game.
+- **`hostIncompatibilities(...)`**: Reports mods from this bridge that cannot run as-is on the host-patched game, along with the reasons (`PLEXUS-COMPAT-224`).
 
 ### `InjectionPointReplacement`
-Forge나 NeoForge의 바이트코드 패치로 인해 이동하거나 변경된 바닐라 메서드 주입점을 런타임에 대체하기 위한 불변 데이터 모델입니다.
-- `targetClass`: 대상 바닐라 클래스 (예: `net/minecraft/locale/Language`)
-- `method`: 대상 메서드 명 (예: `loadDefault`)
-- `replaced`: 패치가 없앤 원래 주입 대상(호출 또는 필드)
-- `replacement`: 그 자리를 대신하는 대상
-- `placement`: 대체 방식(`SAME_PLACE`, `AFTER_TRUE_RESULT`, `IN_METHOD`, `HOST_COVERS`, `HOST_NEUTRAL_ARGUMENT` 등). `HOST_COVERS`는 호스트의 자기 코드가 주입 처리기 하나의 일을 이미 해서 그 처리기만 덜어내고 모드를 로드하는 규칙(`replaced`는 `<mixin 내부 이름>#<처리기>`)이고, `HOST_NEUTRAL_ARGUMENT`는 호스트가 인자를 하나 더한 오버로드로 바꾼 호출의 `@Redirect`를 호스트가 중립 값을 넘길 때만 실행하는 규칙입니다(`replacement`는 `<호출>#<owner>;<필드>`).
+An immutable data model for replacing at runtime vanilla method injection points that have moved or changed due to Forge or NeoForge bytecode patches.
+- `targetClass`: Target vanilla class (e.g., `net/minecraft/locale/Language`)
+- `method`: Target method name (e.g., `loadDefault`)
+- `replaced`: Original injection target removed by the patch (invocation or field)
+- `replacement`: Target that replaces it
+- `placement`: Replacement strategy (`SAME_PLACE`, `AFTER_TRUE_RESULT`, `IN_METHOD`, `HOST_COVERS`, `HOST_NEUTRAL_ARGUMENT`, etc.). `HOST_COVERS` is a rule where the host's own code already performs the work of a single injection handler, so only that handler is stripped out and the mod is loaded (`replaced` is `<internal mixin name>#<handler>`), and `HOST_NEUTRAL_ARGUMENT` is a rule where a `@Redirect` on an invocation that the host replaced with an overload adding an argument is executed only when the host passes a neutral value (`replacement` is `<invocation>#<owner>;<field>`).
 
-### 진단 데이터 모델
-- **`CompatibilityStatus`**: `VERIFIED`(테스트 계획 통과), `PARTIAL`(알려진 기능 제한), `EXPERIMENTAL`(일부 실험만 확인한 경로), `BLOCKED`(실행 불가, 로드 안 함), `UNTESTED`(평가 안 함). 앞의 셋은 로드합니다.
-- **`CompatibilityFinding`**: 구조화된 오류 코드(`PLEXUS-COMPAT-...`)와 구체적인 충돌 사유를 캡슐화.
+### Diagnostic Data Models
+- **`CompatibilityStatus`**: `VERIFIED` (passed test plan), `PARTIAL` (known feature limitations), `EXPERIMENTAL` (path verified only through limited experiments), `BLOCKED` (unrunnable, not loaded), `UNTESTED` (not evaluated). The first three are loaded.
+- **`CompatibilityFinding`**: Encapsulates a structured error code (`PLEXUS-COMPAT-...`) and the specific conflict reason.
 
 ---
 
-## 2. 검증 및 빌드
+## 2. Verification and Build
 
 ```powershell
 .\gradlew.bat :plexus-bridge-api:check

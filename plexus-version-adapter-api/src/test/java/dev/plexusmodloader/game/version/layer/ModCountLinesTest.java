@@ -79,13 +79,13 @@ class ModCountLinesTest {
         LoadedModCounts counts = new LoadedModCounts(0, 3, 0, 0, 40).withHostIncompatibleMods(12);
 
         assertEquals(
-                List.of("Fabric mods: 3", "NeoForge mods: 40", "Not loaded, Plexus Mod Loader can't run them yet: 12"),
+                List.of("Fabric mods: 3", "NeoForge mods: 40", "Not yet supported by Plexus Mod Loader: 12"),
                 ModCountLines.lines(counts, bundled("en_us")::get));
         assertEquals(
-                List.of("Fabric 모드: 3개", "NeoForge 모드: 40개", "Plexus Mod Loader가 아직 실행하지 못해 빠진 모드: 12개"),
+                List.of("Fabric 모드: 3개", "NeoForge 모드: 40개", "Plexus Mod Loader가 아직 지원하지 않는 모드: 12개"),
                 ModCountLines.lines(counts, bundled("ko_kr")::get));
         assertEquals(
-                List.of("Not loaded, Plexus Mod Loader can't run them yet: 1"),
+                List.of("Not yet supported by Plexus Mod Loader: 1"),
                 ModCountLines.lines(LoadedModCounts.NONE.withHostIncompatibleMods(1), key -> null));
     }
 
@@ -154,11 +154,11 @@ class ModCountLinesTest {
         assertEquals(
                 List.of(
                         "Fabric mods: 2",
-                        "Not loaded, Plexus Mod Loader can't run them yet: 1",
+                        "Not yet supported by Plexus Mod Loader: 1",
                         "Not loaded: 2 (see logs/latest.log)"),
                 ModCountLines.lines(counts, bundled("en_us")::get));
         assertEquals(
-                "로드되지 않은 모드: 2개 (logs/latest.log 참고)",
+                "로드되지 않은 모드: 2개 (logs/latest.log 확인)",
                 ModCountLines.lines(counts, bundled("ko_kr")::get).getLast());
         assertEquals(
                 List.of("Not loaded: 1 (see logs/latest.log)"),
