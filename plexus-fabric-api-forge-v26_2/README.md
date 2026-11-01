@@ -3,8 +3,8 @@
 Plexus Mod Loader의 Mixin 브리지로도 MinecraftForge 옆에서 원래대로 실행할 수 없는 Fabric API 모듈을 위해, `MinecraftForge 26.2-65.1.5`의 훅 위에서 동작하는 자체 Fabric API 구현체("호스트 모듈", `ADR-0031`)를 빌드합니다. NeoForge용은 [`plexus-fabric-api-neoforge-v26_2`](../plexus-fabric-api-neoforge-v26_2/README.md), 26.3용은 [`plexus-fabric-api-forge-v26_3`](../plexus-fabric-api-forge-v26_3/README.md)입니다.
 
 ## 이 모듈이 하는 일
-- Fabric API `0.161.0+26.2`의 같은 모듈과 공개 API가 같은 두 모듈을 빌드합니다: `fabric-biome-api-v1`(`18.0.6+plexus.forge.26.2`, 원본이 로드돼도 대체하는 `always`), `fabric-content-registries-v0`(`11.3.2+plexus.forge.26.2`).
-- 소스는 Fabric API 자신의 소스(`FabricMC`, https://github.com/FabricMC/fabric)입니다. Forgified Fabric API 같은 중간 포팅을 거치지 않고, 각 파일의 헤더가 Fabric API 원본과 바꾼 점을 적습니다.
+- Fabric API `0.161.0+26.2`의 같은 모듈과 공개 API가 같은 세 모듈을 빌드합니다: `fabric-biome-api-v1`(`18.0.6+plexus.forge.26.2`, 원본이 로드돼도 대체하는 `always`), `fabric-content-registries-v0`(`11.3.2+plexus.forge.26.2`), `fabric-rendering-fluids-v1`(`6.0.4+plexus.forge.26.2`, `always`).
+- 소스는 Fabric API 자신의 소스(`FabricMC`, https://github.com/FabricMC/fabric)입니다. Forgified Fabric API 같은 중간 포팅을 거치지 않고, 각 파일의 헤더가 Fabric API 원본과 바꾼 점을 적습니다. 예외로 `fabric-rendering-fluids-v1`은 Forgified Fabric API의 빌드(NeoForge용으로 이미 싣는 것과 같은 코드)에서 가져옵니다.
 - `fabric-biome-api-v1`: 원본의 mixin은 Forge 패치에 맞지만 코드가 맞지 않아 대체합니다.
   - 원본은 `ChunkGenerator.featuresPerStep`을 `Supplier`로 써서 넣는데, Forge는 이 필드를 `ClearableLazy`로 바꿨습니다(패치된 게임 jar를 먼저 읽는 링크 검사가 원본을 `PLEXUS-COMPAT-112`로 뺍니다). 이 빌드는 필드를 쓰지 않고 Forge가 더한 `ChunkGenerator.refreshFeaturesPerStep()`을 부릅니다.
   - Forge의 `Biome`은 생성·스폰 설정을 `ModifiableBiomeInfo`에서 읽고, 코덱(`DIRECT_CODEC`, `NETWORK_CODEC`)은 그 정보의 원본에 든 기후와 효과를 씁니다. Fabric API는 `MinecraftServer` 생성자 안에서(Forge가 자기 수정자를 적용하기 전에) 생성·스폰 설정과 효과는 그 자리에서, 기후는 바이옴의 필드를 바꿔서 고칩니다. 그러면 코덱을 거치거나 클라이언트로 보내는 바이옴은 기후 변경을 잃습니다. `ForgeBiomeInfo`가 Fabric API가 고친 바이옴을 원본으로 하는 새 `ModifiableBiomeInfo`를 바이옴에 달아, Forge의 수정자가 그 위에서 시작하고 코덱이 Fabric API의 기후를 쓰게 합니다. 이것이 없으면 `forgeFabricApiGameTest`가 평원 온도로 1.25 대신 0.8을 읽습니다.
@@ -13,10 +13,11 @@ Plexus Mod Loader의 Mixin 브리지로도 MinecraftForge 옆에서 원래대로
   - 익사는 `ForgeFluidHooks`(Fabric `main` 진입점)가 Forge의 `LivingBreatheEvent`에 리스너를 달아 처리합니다. 눈이 익사하는 Fabric 유체에 잠겼을 때 숨을 못 쉬게 하되, 바닐라처럼 기포 기둥 안, 수중 호흡 가능 엔티티, 수중 호흡 효과, 무적 플레이어는 제외합니다.
   - `FluidMixin`이 Forge가 모르는 유체(예: Fabric 모드가 등록한 유체)의 `getFluidType()`을 물·용암·빈 `FluidType` 중 하나로 답하게 합니다. Forge의 기본 조회는 이런 유체에 `"Mod fluids must override getFluidType."`을 던집니다.
   - 26.2판의 `ForgeTillingHooks`(Fabric `main` 진입점)는 `TillableBlockRegistry`를 Forge의 `BlockToolModificationEvent`로 실행합니다. Forge의 `HoeItem`은 `TILLABLES`를 읽지 않고 `getToolModifiedState(HOE_TILL)`을 부르기 때문입니다.
+- `fabric-rendering-fluids-v1`: Forge(`26.2-65.1.5`, `javap`)가 `FluidRenderer.tesselate`의 바닐라 덮개 검사(`relativeBlock instanceof HalfTransparentBlock || instanceof LeavesBlock`)를 `BlockState.shouldDisplayFluidOverlay(BlockAndTintGetter, BlockPos, FluidState)`로 바꿨습니다(NeoForge의 것은 `BlockAndLightGetter`를 받음). 원본 `FluidRendererMixin`(`modifyNonOverlayCheck`, MixinExtras 표현식 `? instanceof HalfTransparentBlock`)은 Forge의 `FluidRenderer`에서 대상을 찾지 못해 첫 청크를 그릴 때 `PLEXUS-COMPAT-225`("Critical injection failure ... Scanned 0 target(s)")로 게임을 멈추고, 실행 전 검사는 표현식 주입 지점을 보지 않아 예견하지 못합니다. 이 빌드는 덮개 검사를 Forge의 `shouldDisplayFluidOverlay` 호출에 맞춥니다. `FluidRenderingRegistryImpl.isBlockTransparent(block, Forge의 답)`은 Fabric 모드가 그 블록을 등록하지 않았으면 Forge의 답을 둡니다.
 - 라이선스는 `Apache License 2.0`이며, 각 모듈의 jar는 `LICENSE-<모듈 ID>` 파일을 담습니다.
 
 ## 무엇을 소유하는가
-- 소스 세트 `src/fabricBiomeApiV1`, `src/fabricContentRegistriesV0`과 각 모듈의 `fabric.mod.json`, Mixin 설정, class tweaker.
+- 소스 세트 `src/fabricBiomeApiV1`, `src/fabricContentRegistriesV0`, `src/fabricRenderingFluidsV1`과 각 모듈의 `fabric.mod.json`, Mixin 설정, class tweaker.
 - `fabric.mod.json`의 `custom` 필드 `plexusmodloader:host-module` (`host` `minecraftforge`, `minecraft` `26.2`, `replaces` 각 모듈 버전).
 - 빌드 산출물 jar(`META-INF/plexusmodloader/host-modules/minecraftforge-26.2-65.1.5/`)와 이 모듈의 색인(`always` 표시 포함). `plexus-bridge-fabric`이 다른 호스트 모듈의 색인과 합쳐 jar에 하나로 둡니다(`hostModuleIndex` 작업).
 - `plexus-bridge-fabric`에 산출물을 전달하는 소모성 구성 `hostModuleElements`.
@@ -37,7 +38,8 @@ Plexus Mod Loader의 Mixin 브리지로도 MinecraftForge 옆에서 원래대로
 ## 주요 진입점
 - `fabric-biome-api-v1` 공개 API: `net.fabricmc.fabric.api.biome.v1`(`BiomeModifications`, `BiomeSelectors`, `NetherBiomes`, `TheEndBiomes` 등).
 - `fabric-content-registries-v0` 공개 API: `net.fabricmc.fabric.api.registry`(`FlammableBlockRegistry`, `StrippableBlockRegistry`, `TillableBlockRegistry`, `OxidizableBlocksRegistry` 등), `net.fabricmc.fabric.api.registry.fluid`.
-- Forge 연결: `ForgeBiomeInfo`(`BiomeAccessor`로 바이옴의 정보를 교체), 진입점 `ForgeFluidHooks`·`ForgeTillingHooks`(`main`), mixin `FluidMixin`.
+- `fabric-rendering-fluids-v1` 공개 API(클라이언트): `net.fabricmc.fabric.api.client.render.fluid.v1`.
+- Forge 연결: `ForgeBiomeInfo`(`BiomeAccessor`로 바이옴의 정보를 교체), 진입점 `ForgeFluidHooks`·`ForgeTillingHooks`(`main`), mixin `FluidMixin`, 클라이언트 mixin `FluidRendererMixin`(Forge의 `shouldDisplayFluidOverlay` 호출을 겨냥).
 - 패키징 및 색인 진입점: `hostModuleResources` 작업, 색인 파일 `META-INF/plexusmodloader/host-modules.properties`.
 
 ## 빌드·테스트
@@ -46,15 +48,17 @@ Plexus Mod Loader의 Mixin 브리지로도 MinecraftForge 옆에서 원래대로
 .\gradlew.bat -PplexusMinecraft=26.2 :plexus-bootstrap:fabricApiGameTest :plexus-bootstrap:forgeFabricApiGameTest
 .\gradlew.bat -PplexusMinecraft=26.2 :plexus-bootstrap:corpusFabricForge :plexus-bootstrap:corpusQuiltForge
 ```
-- `fabricApiGameTest`(Fabric 단독)와 `forgeFabricApiGameTest`(Forge 옆)는 테스트 모드 `fabric-biome-modification`(네더 황무지의 생성 설정과 단계별 피처에 선인장 패치, 평원 기본 온도와 클라이언트로 보내는 온도 1.25)과 `fabric-custom-fluid`(자기 유체 안의 돼지가 3틱 뒤 숨을 잃음)를 포함해 같은 줄을 내는지 봅니다. `forgeFabricApiGameTest`는 호스트 모듈 대체 로그와 `PLEXUS-COMPAT-225`·`Critical injection failure` 없음도 확인합니다.
+- `fabricApiGameTest`(Fabric 단독)와 `forgeFabricApiGameTest`(Forge 옆)는 테스트 모드 `fabric-biome-modification`(네더 황무지의 생성 설정과 단계별 피처에 선인장 패치, 평원 기본 온도와 클라이언트로 보내는 온도 1.25)과 `fabric-custom-fluid`(자기 유체 안의 돼지가 3틱 뒤 숨을 잃음)를 포함해 같은 줄을 내는지 봅니다. `forgeFabricApiGameTest`는 호스트 모듈 대체 로그(rendering-fluids의 줄 포함)와 `PLEXUS-COMPAT-225`·`Critical injection failure` 없음도 확인합니다.
+- 유체 줄은 수영·가라앉기·보트까지 확인합니다: 익사하는 돼지가 숨을 잃고, 갑옷 거치대는 물과 같게 가라앉고(0.14 / 물 0.14), 바닥의 보트는 오르지 않고(0.00 / 물 0.00), 수면의 보트는 물과 같게 움직입니다(0.03 / 물 0.03). 보트 검사 다리는 `HostPatchAdjustments`의 `FluidWrap` `BOAT_SUPPORT`가 `checkInWater()Z`와 `isUnderwater()` 서술자를 덮어 둡니다.
+- 창 작업 `forgeFluidClient`(`-Dplexus.forge=always`, Fabric API jar 전체)는 테스트 모드 `fabric-custom-fluid`의 클라이언트 진입점으로 눈이 유체 안인지, 공기가 가득 차 있지 않은지, 달리면서 수영하는지를 확인하고, rendering-fluids 호스트 모듈 줄과 "joined the game"도 기대합니다(26.2, 26.3 통과). `plexus-bridge-forge`의 `ForgeForeignPayloads`가 없으면 이 클라이언트는 월드에 들어갈 때 `ClassCastException`으로 멈춥니다.
 - `corpusFabricForge`, `corpusQuiltForge`: 실제 모드 묶음의 Fabric·Quilt 모드를 Forge 옆에서 실행하는 헤드리스 검증입니다.
 - `plexus-runtime-impl`의 단위 테스트 `HostModulesTest`로 대체 로직을 검증합니다.
 
 ## 대표 흐름
-`plexus-fabric-api-neoforge-v26_2`와 같습니다. 호스트 키가 `minecraftforge-26.2-65.1.5`이고, `fabric-biome-api-v1`은 `always` 표시라 원본이 로드돼도 호스트 모듈이 자리를 대신합니다. `fabric-content-registries-v0`은 `224`로 빠졌을 때 대체됩니다.
+`plexus-fabric-api-neoforge-v26_2`와 같습니다. 호스트 키가 `minecraftforge-26.2-65.1.5`이고, `fabric-biome-api-v1`과 `fabric-rendering-fluids-v1`은 `always` 표시라 원본이 로드돼도 호스트 모듈이 자리를 대신합니다. `fabric-content-registries-v0`은 `224`로 빠졌을 때 대체됩니다.
 
 ## 알려진 제한
 - `MinecraftForge 26.2-65.1.5` 전용입니다. 새 Forge 릴리스가 나오면 다시 빌드하고 검증해야 합니다.
-- 게임 테스트가 확인하는 것은 바이옴 수정과 Fabric 유체의 익사입니다. Fabric 유체의 수영, 보트, 유체 안 이동은 게임 안에서 확인하지 않았습니다.
-- content-registries의 클라이언트 mixin(`HudMixin`, `LocalPlayerMixin`)을 Forge 옆에서 실행해 보지 않았습니다. Forge의 게임 창 실행도 하지 않았습니다.
-- NeoForge도 Fabric 모드의 유체에 대해 같은 `getFluidType` 예외를 던집니다(바이트코드로 확인). NeoForge 호스트 모듈은 아직 이를 고치지 않았습니다.
+- 게임 테스트는 바이옴 수정과 Fabric 유체의 익사·수영·보트·유체 안 이동을 확인합니다(`forgeFabricApiGameTest`).
+- content-registries의 클라이언트 mixin(`HudMixin`, `LocalPlayerMixin`)과 Forge 클라이언트 창은 `forgeFluidClient`로 실행했고, Fabric API 전체를 넣은 클라이언트가 월드에 들어갑니다(2026-11-01, 26.2, 26.3). `LocalPlayerMixin`은 Forge가 `LocalPlayer.shouldStopSwimSprinting`에서 `isInWater()` 대신 `isInWaterOrSwimmable()`을 부르는 탓에 `224`였으며 `ForgeInjectionPoints` 규칙으로 옮겼습니다.
+- Fabric API 전체를 넣은 Forge 클라이언트에서 `fabric-data-generation-api-v1`, `fabric-object-builder-api-v1`, `fabric-renderer-api-v1`, `fabric-screen-api-v1`은 아직 `224`로 빠집니다(이번 호스트 모듈 이전부터). 그 때문에 `fabric-renderer-api-v1`을 중첩한 Sodium도 Forge 옆 클라이언트에서 빠집니다(`PLEXUS-COMPAT-111`; `forgeSodiumClient` 실패).

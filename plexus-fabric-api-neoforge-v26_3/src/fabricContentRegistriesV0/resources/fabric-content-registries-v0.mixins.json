@@ -25,6 +25,7 @@
     "fluid.EntityFluidInteractionMixin",
     "fluid.EntityMixin",
     "fluid.FloatGoalMixin",
+    "fluid.FluidMixin",
     "fluid.LivingEntityAccessor",
     "fluid.LivingEntityMixin",
     "fluid.SwimMixin"

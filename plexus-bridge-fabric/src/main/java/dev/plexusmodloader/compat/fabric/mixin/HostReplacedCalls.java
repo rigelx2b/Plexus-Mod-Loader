@@ -412,7 +412,8 @@ final class HostReplacedCalls {
             for (AnnotationElement element : nested.annotation().elements()) {
                 if (element.name().equalsString("target")
                         && element.value() instanceof AnnotationValue.OfString target
-                        && target.stringValue().equals(replaced)) {
+                        && HostPatchAdjustments.targetNotation(target.stringValue())
+                                .equals(replaced)) {
                     elements.add(AnnotationElement.ofString("target", replacement));
                 } else {
                     elements.add(element);

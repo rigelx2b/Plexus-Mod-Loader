@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-rendering-fluids-v1",
+  "name": "Fabric Rendering Fluids (v1)",
+  "version": "6.0.4+plexus.forge.26.2",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-rendering-fluids-v1/icon.png",
+  "contact": {
+    "sources": "https://github.com/Sinytra/ForgifiedFabricAPI"
+  },
+  "authors": [
+    "FabricMC",
+    "Sinytra"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "fabric-api-base": "*",
+    "minecraft": "26.2"
+  },
+  "description": "Hooks for registering fluid renders.",
+  "mixins": [
+    {
+      "config": "fabric-rendering-fluids-v1.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "minecraftforge",
+      "minecraft": "26.2",
+      "replaces": "6.0.4"
+    }
+  },
+  "accessWidener": "fabric-rendering-fluids-v1.classtweaker"
+}

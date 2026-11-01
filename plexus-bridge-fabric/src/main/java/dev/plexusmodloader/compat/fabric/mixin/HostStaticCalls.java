@@ -24,12 +24,16 @@ import java.util.Optional;
 
 /**
  * A {@code @WrapOperation} of an instance call that the host's patch replaced, at the same place, with a static call
- * taking the receiver first, then arguments of its own, then the vanilla arguments, with the same result ({@link
+ * taking the receiver first, then arguments of its own (maybe none), then the vanilla arguments, with the same result ({@link
  * dev.plexusmodloader.compat.bridge.InjectionPointReplacement.Placement#SAME_PLACE}): NeoForge 26.3.0.98's {@code
  * Gui.extractRenderState} calls {@code ClientHooks.extractScreen(screen, screenLayers, graphics, mouseX, mouseY,
  * partialTick)} where vanilla calls {@code screen.extractRenderStateWithTooltipAndSubtitles(graphics, mouseX, mouseY,
  * partialTick)}; NeoForge's helper draws its screen layers and posts its screen render events around that very call.
- * FancyMenu's {@code MixinFabricGameRenderer} wraps the vanilla call to draw before and after the screen.
+ * FancyMenu's {@code MixinFabricGameRenderer} wraps the vanilla call to draw before and after the screen. MinecraftForge
+ * 26.2-65.1.5 and 26.3-66.1.0 call {@code ForgeHooksClient.onScreenKeyPressed(screen, event)} where vanilla calls {@code
+ * screen.keyPressed(event)} (no arguments of its own; the same for key release, typed characters and mouse drags) and
+ * {@code ForgeEventFactoryClient.onScreenMouseClicked(screen, mouseX, mouseY, event, doubleClick)} where vanilla calls
+ * {@code screen.mouseClicked(event, doubleClick)}; Fabric API's screen events wrap the vanilla calls.
  *
  * <p>The bridge ({@link #bridgeMethod}) wraps the host's call and calls the handler with the receiver, the vanilla
  * arguments and an {@link InsertedArguments}, which makes the host's call when the handler makes the wrapped one, with
@@ -52,8 +56,8 @@ final class HostStaticCalls {
     private HostStaticCalls() {}
 
     /**
-     * Whether {@code replacement} takes the receiver of the instance call {@code replaced} first, at least one argument
-     * of its own, then {@code replaced}'s arguments, and returns the same type, on another owner.
+     * Whether {@code replacement} takes the receiver of the instance call {@code replaced} first, arguments of its own
+     * (maybe none), then {@code replaced}'s arguments, and returns the same type, on another owner.
      */
     static boolean covers(String replaced, String replacement) {
         Optional<Call> vanilla = Call.parse(replaced);
@@ -66,7 +70,7 @@ final class HostStaticCalls {
         MethodTypeDesc vanillaType = vanilla.get().type();
         MethodTypeDesc hostType = host.get().type();
         int own = hostType.parameterCount() - 1 - vanillaType.parameterCount();
-        return own > 0
+        return own >= 0
                 && hostType.returnType().equals(vanillaType.returnType())
                 && hostType.parameterType(0)
                         .descriptorString()

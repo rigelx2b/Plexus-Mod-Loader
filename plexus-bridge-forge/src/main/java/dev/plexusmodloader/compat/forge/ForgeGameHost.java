@@ -238,6 +238,11 @@ final class ForgeGameHost implements GameHost {
             }
             throw e;
         }
+        if (request.sharedMixin()) {
+            // Other loaders' custom payloads next to Forge's (ADR-0026 40).
+            ForgeForeignPayloads.install(
+                    launch.gameLayer().modules().iterator().next().getClassLoader());
+        }
     }
 
     @Override

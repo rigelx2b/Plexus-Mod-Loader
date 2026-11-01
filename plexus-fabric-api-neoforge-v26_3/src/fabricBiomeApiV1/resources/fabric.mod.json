@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "fabric-biome-api-v1",
+  "name": "Fabric Biome API (v1)",
+  "version": "20.1.1+plexus.neoforge.26.3",
+  "environment": "*",
+  "license": "Apache-2.0",
+  "icon": "assets/fabric-biome-api-v1/icon.png",
+  "contact": {
+    "homepage": "https://fabricmc.net",
+    "irc": "irc://irc.esper.net:6667/fabric",
+    "issues": "https://github.com/FabricMC/fabric/issues",
+    "sources": "https://github.com/FabricMC/fabric"
+  },
+  "authors": [
+    "FabricMC"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "26.3"
+  },
+  "description": "Hooks for adding biomes to the default world generator.",
+  "mixins": [
+    "fabric-biome-api-v1.mixins.json"
+  ],
+  "accessWidener": "fabric-biome-api-v1.classtweaker",
+  "custom": {
+    "fabric-api:module-lifecycle": "stable",
+    "plexusmodloader:host-module": {
+      "host": "neoforge",
+      "minecraft": "26.3",
+      "replaces": "20.1.1"
+    }
+  }
+}

@@ -126,6 +126,69 @@ class HostFluidAndItemWrapsTest {
         assertTrue(calls.contains(PrecomputedCall.class.getName().replace('.', '/') + ".<init>"), calls.toString());
         assertTrue(calls.contains("m/BoatMixin.customFluidSupport"), calls.toString());
         assertFalse(hasAnnotation(method(applied, "customFluidSupport"), WRAP_OPERATION));
+        // Both of Forge's methods, each with its own descriptor: isUnderwater returns the boat's status.
+        String annotations = bridge.findAttribute(java.lang.classfile.Attributes.runtimeVisibleAnnotations())
+                .orElseThrow()
+                .annotations()
+                .toString();
+        assertTrue(annotations.contains("checkInWater()Z"), annotations);
+        assertTrue(
+                annotations.contains("isUnderwater()Lnet/minecraft/world/entity/vehicle/boat/AbstractBoat$Status;"),
+                annotations);
+    }
+
+    /**
+     * fabric-item-api-v1's client MultiPlayerGameModeMixin redirects vanilla's same-item check in sameDestroyTarget, which
+     * Forge turned into {@code !destroyingItem.shouldCauseBlockBreakReset(mainHand)}: the bridge wraps Forge's call and
+     * calls the handler with vanilla's arguments.
+     */
+    @Test
+    void blockBreakResetBridgeAnswersForgesOppositeQuestion() throws IOException {
+        ClassDesc gameMode = ClassDesc.of("net.minecraft.client.multiplayer.MultiPlayerGameMode");
+        String same = "Lnet/minecraft/world/item/ItemStack;isSameItemSameComponents("
+                + "Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;)Z";
+        String reset = "Lnet/minecraft/world/item/ItemStack;shouldCauseBlockBreakReset("
+                + "Lnet/minecraft/world/item/ItemStack;)Z";
+        MethodTypeDesc stacks = MethodTypeDesc.of(CD_boolean, ITEM_STACK, ITEM_STACK);
+        byte[] mixin = mixin(
+                "m/GameModeMixin",
+                gameMode,
+                builder -> builder.withMethod(
+                        "fabricItemContinueBlockBreakingInject", stacks, ClassFile.ACC_PRIVATE, method -> {
+                            method.with(RuntimeVisibleAnnotationsAttribute.of(
+                                    injector(REDIRECT, "sameDestroyTarget", same)));
+                            method.withCode(code -> code.iconst_1().ireturn());
+                        }));
+        HostPatchAdjustments adjustments = plan(
+                gameMode,
+                "sameDestroyTarget",
+                MethodTypeDesc.of(CD_boolean, ClassDesc.of("net.minecraft.core.BlockPos")),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .invokestatic(ITEM_STACK, "isSameItemSameComponents", stacks)
+                        .ireturn(),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .invokevirtual(
+                                ITEM_STACK, "shouldCauseBlockBreakReset", MethodTypeDesc.of(CD_boolean, ITEM_STACK))
+                        .ireturn(),
+                "m/GameModeMixin",
+                mixin,
+                new InjectionPointReplacement(
+                        "net/minecraft/client/multiplayer/MultiPlayerGameMode", "sameDestroyTarget", same, reset));
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.GameModeMixin", mixin));
+        MethodModel bridge = method(applied, "plexus$hostCall$fabricItemContinueBlockBreakingInject");
+        assertEquals(
+                "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;"
+                        + "Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;)Z",
+                bridge.methodType().stringValue());
+        List<String> calls = calls(bridge);
+        assertTrue(calls.contains("com/llamalad7/mixinextras/injector/wrapoperation/Operation.call"), calls.toString());
+        assertTrue(calls.contains("m/GameModeMixin.fabricItemContinueBlockBreakingInject"), calls.toString());
+        assertFalse(hasAnnotation(method(applied, "fabricItemContinueBlockBreakingInject"), REDIRECT));
     }
 
     @Test
@@ -682,6 +745,340 @@ class HostFluidAndItemWrapsTest {
         } else {
             code.ireturn();
         }
+    }
+
+    // Forge client bridges of Fabric API's screen, object builder, data generation and renderer modules.
+
+    private static final ClassDesc SCREEN = ClassDesc.of("net.minecraft.client.gui.screens.Screen");
+    private static final ClassDesc KEY_EVENT = ClassDesc.of("net.minecraft.client.input.KeyEvent");
+    private static final ClassDesc GUI = ClassDesc.of("net.minecraft.client.gui.Gui");
+    private static final ClassDesc GRAPHICS = ClassDesc.of("net.minecraft.client.gui.GuiGraphicsExtractor");
+    private static final ClassDesc RENDERER = ClassDesc.of("net.minecraft.client.renderer.block.ModelBlockRenderer");
+    private static final ClassDesc MODEL_DATA = ClassDesc.of("net.minecraftforge.client.model.data.ModelData");
+
+    /**
+     * A handler that makes the wrapped call once with its own parameters (receiver and {@code arguments}, each boxed),
+     * as Fabric API's screen wraps do, and returns its result ({@code result} the call's type).
+     */
+    private static void callsOnce(CodeBuilder code, int receiverSlot, List<ClassDesc> arguments, ClassDesc result) {
+        int operationSlot = receiverSlot + 1;
+        for (ClassDesc argument : arguments) {
+            operationSlot +=
+                    argument.equals(CD_long) || argument.descriptorString().equals("D") ? 2 : 1;
+        }
+        code.aload(operationSlot);
+        code.loadConstant(arguments.size() + 1);
+        code.anewarray(CD_Object);
+        code.dup();
+        code.iconst_0();
+        code.aload(receiverSlot);
+        code.aastore();
+        int slot = receiverSlot + 1;
+        for (int index = 0; index < arguments.size(); index++) {
+            code.dup();
+            code.loadConstant(index + 1);
+            HostReplacedCalls.loadBoxed(code, arguments.get(index), slot);
+            code.aastore();
+            slot += arguments.get(index).equals(CD_long)
+                            || arguments.get(index).descriptorString().equals("D")
+                    ? 2
+                    : 1;
+        }
+        code.invokeinterface(OPERATION, "call", MethodTypeDesc.of(CD_Object, CD_Object.arrayType()));
+        if (result.equals(CD_void)) {
+            code.pop();
+            code.return_();
+        } else {
+            code.checkcast(CD_Boolean);
+            code.invokevirtual(CD_Boolean, "booleanValue", MethodTypeDesc.of(CD_boolean));
+            code.ireturn();
+        }
+    }
+
+    /**
+     * Forge 26.2-65.1.5 and 26.3-66.1.0 call {@code ForgeHooksClient.onScreenKeyPressed(screen, event)} where vanilla
+     * calls {@code screen.keyPressed(event)}: no arguments of their own, the screen first. The wrap runs on Forge's call.
+     */
+    @Test
+    void staticHelperWithoutArgumentsOfItsOwnCarriesTheWrap() throws IOException {
+        ClassDesc keyboard = ClassDesc.of("net.minecraft.client.KeyboardHandler");
+        ClassDesc hooks = ClassDesc.of("net.minecraftforge.client.ForgeHooksClient");
+        String vanilla = "Lnet/minecraft/client/gui/screens/Screen;keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z";
+        String host = "Lnet/minecraftforge/client/ForgeHooksClient;onScreenKeyPressed("
+                + "Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/KeyEvent;)Z";
+        byte[] mixin = mixin(
+                "m/KeyboardMixin",
+                keyboard,
+                builder -> builder.withMethod(
+                        "invokeKeyPressedEvents",
+                        MethodTypeDesc.of(CD_boolean, SCREEN, KEY_EVENT, OPERATION),
+                        ClassFile.ACC_PRIVATE,
+                        method -> {
+                            method.with(RuntimeVisibleAnnotationsAttribute.of(
+                                    injector(WRAP_OPERATION, "keyPress", vanilla)));
+                            method.withCode(code -> callsOnce(code, 1, List.of(KEY_EVENT), CD_boolean));
+                        }));
+        HostPatchAdjustments adjustments = plan(
+                keyboard,
+                "keyPress",
+                MethodTypeDesc.of(CD_void),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .invokevirtual(SCREEN, "keyPressed", MethodTypeDesc.of(CD_boolean, KEY_EVENT))
+                        .pop()
+                        .return_(),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .invokestatic(hooks, "onScreenKeyPressed", MethodTypeDesc.of(CD_boolean, SCREEN, KEY_EVENT))
+                        .pop()
+                        .return_(),
+                "m/KeyboardMixin",
+                mixin,
+                new InjectionPointReplacement("net/minecraft/client/KeyboardHandler", "keyPress", vanilla, host));
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.KeyboardMixin", mixin));
+        List<String> calls = calls(method(applied, HostStaticCalls.PREFIX + "invokeKeyPressedEvents"));
+        assertTrue(
+                calls.contains("dev/plexusmodloader/compat/fabric/mixin/InsertedArguments.<init>"), calls.toString());
+        assertTrue(calls.contains("m/KeyboardMixin.invokeKeyPressedEvents"), calls.toString());
+        assertFalse(hasAnnotation(method(applied, "invokeKeyPressedEvents"), WRAP_OPERATION));
+    }
+
+    /**
+     * Forge's {@code Gui.extractRenderState} calls {@code this.drawScreen(graphics, x, y, partialTick)} where vanilla
+     * calls {@code screen.extractRenderStateWithTooltipAndSubtitles(graphics, x, y, partialTick)}: the wrap runs on
+     * Forge's call, with the screen from {@code Gui.screen()} and an operation that makes Forge's call.
+     */
+    @Test
+    void targetCallBridgeHandsTheHandlerTheReceiverFromTheTarget() throws IOException {
+        String vanilla = "Lnet/minecraft/client/gui/screens/Screen;extractRenderStateWithTooltipAndSubtitles("
+                + "Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V";
+        String host = "Lnet/minecraft/client/gui/Gui;drawScreen(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V";
+        MethodTypeDesc draw =
+                MethodTypeDesc.of(CD_void, GRAPHICS, CD_int, CD_int, java.lang.constant.ConstantDescs.CD_float);
+        byte[] mixin = mixin(
+                "m/GuiMixin",
+                GUI,
+                builder -> builder.withMethod(
+                        "onExtractGui",
+                        MethodTypeDesc.of(
+                                CD_void,
+                                SCREEN,
+                                GRAPHICS,
+                                CD_int,
+                                CD_int,
+                                java.lang.constant.ConstantDescs.CD_float,
+                                OPERATION),
+                        ClassFile.ACC_PRIVATE,
+                        method -> {
+                            method.with(RuntimeVisibleAnnotationsAttribute.of(
+                                    injector(WRAP_OPERATION, "extractRenderState", vanilla)));
+                            method.withCode(code -> callsOnce(
+                                    code,
+                                    1,
+                                    List.of(GRAPHICS, CD_int, CD_int, java.lang.constant.ConstantDescs.CD_float),
+                                    CD_void));
+                        }));
+        byte[] vanillaClass = ClassFile.of()
+                .build(
+                        GUI,
+                        builder -> builder.withMethod(
+                                "extractRenderState",
+                                MethodTypeDesc.of(CD_void),
+                                ClassFile.ACC_PUBLIC,
+                                method -> method.withCode(code -> code.aconst_null()
+                                        .aconst_null()
+                                        .iconst_0()
+                                        .iconst_0()
+                                        .fconst_0()
+                                        .invokevirtual(SCREEN, "extractRenderStateWithTooltipAndSubtitles", draw)
+                                        .return_())));
+        byte[] patchedClass = ClassFile.of()
+                .build(
+                        GUI,
+                        builder -> builder.withMethod(
+                                        "extractRenderState",
+                                        MethodTypeDesc.of(CD_void),
+                                        ClassFile.ACC_PUBLIC,
+                                        method -> method.withCode(code -> code.aload(0)
+                                                .aconst_null()
+                                                .iconst_0()
+                                                .iconst_0()
+                                                .fconst_0()
+                                                .invokevirtual(GUI, "drawScreen", draw)
+                                                .return_()))
+                                .withMethod(
+                                        "screen",
+                                        MethodTypeDesc.of(SCREEN),
+                                        ClassFile.ACC_PUBLIC,
+                                        method -> method.withCode(
+                                                code -> code.aconst_null().areturn())));
+        HostPatchAdjustments adjustments = plan(
+                GUI,
+                vanillaClass,
+                patchedClass,
+                "m/GuiMixin",
+                mixin,
+                List.of(new InjectionPointReplacement(
+                        "net/minecraft/client/gui/Gui", "extractRenderState", vanilla, host)));
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.GuiMixin", mixin));
+        MethodModel bridge = method(applied, HostTargetCalls.PREFIX + "onExtractGui");
+        List<String> calls = calls(bridge);
+        assertEquals(
+                List.of(
+                        "net/minecraft/client/gui/Gui.screen",
+                        "dev/plexusmodloader/compat/fabric/mixin/ReplacedReceiver.<init>",
+                        "m/GuiMixin.onExtractGui"),
+                calls);
+        assertTrue(hasAnnotation(bridge, WRAP_OPERATION));
+        assertFalse(hasAnnotation(method(applied, "onExtractGui"), WRAP_OPERATION));
+    }
+
+    /** The operation a target call bridge hands over makes the host's call with the target in the receiver's place. */
+    @Test
+    void replacedReceiverCallsTheHostWithTheTarget() {
+        List<Object> seen = new ArrayList<>();
+        ReplacedReceiver operation = new ReplacedReceiver(
+                arguments -> {
+                    seen.addAll(List.of(arguments));
+                    return null;
+                },
+                "the gui");
+
+        operation.call("the screen", "graphics", 1);
+
+        assertEquals(List.of("the gui", "graphics", 1), seen);
+    }
+
+    /**
+     * Forge's {@code SectionCompiler.compile} calls {@code tesselateBlock(..., seed, modelData)} where vanilla calls it
+     * without the {@code ModelData}: the redirect runs, through a wrap of Forge's call, only when Forge passes {@code
+     * ModelData.EMPTY}; with other data Forge's call runs.
+     */
+    @Test
+    void neutralArgumentBridgeRunsTheRedirectOnlyForTheNeutralValue() throws IOException {
+        ClassDesc compiler = ClassDesc.of("net.minecraft.client.renderer.chunk.SectionCompiler");
+        String vanilla = "Lnet/minecraft/client/renderer/block/ModelBlockRenderer;tesselateBlock(Ljava/lang/Object;J)V";
+        String hostCall = "Lnet/minecraft/client/renderer/block/ModelBlockRenderer;tesselateBlock(Ljava/lang/Object;J"
+                + "Lnet/minecraftforge/client/model/data/ModelData;)V";
+        byte[] mixin = mixin(
+                "m/CompilerMixin",
+                compiler,
+                builder -> builder.withMethod(
+                        "tesselateBlockProxy",
+                        MethodTypeDesc.of(CD_void, RENDERER, CD_Object, CD_long),
+                        ClassFile.ACC_PRIVATE,
+                        method -> {
+                            // Mixin's own notation without L...; as Fabric API's renderer API writes it.
+                            method.with(RuntimeVisibleAnnotationsAttribute.of(redirect(
+                                    "compile",
+                                    "net/minecraft/client/renderer/block/ModelBlockRenderer.tesselateBlock("
+                                            + "Ljava/lang/Object;J)V")));
+                            method.withCode(CodeBuilder::return_);
+                        }));
+        HostPatchAdjustments adjustments = plan(
+                compiler,
+                "compile",
+                MethodTypeDesc.of(CD_void),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .lconst_0()
+                        .invokevirtual(RENDERER, "tesselateBlock", MethodTypeDesc.of(CD_void, CD_Object, CD_long))
+                        .return_(),
+                code -> code.aconst_null()
+                        .aconst_null()
+                        .lconst_0()
+                        .aconst_null()
+                        .invokevirtual(
+                                RENDERER, "tesselateBlock", MethodTypeDesc.of(CD_void, CD_Object, CD_long, MODEL_DATA))
+                        .return_(),
+                "m/CompilerMixin",
+                mixin,
+                new InjectionPointReplacement(
+                        "net/minecraft/client/renderer/chunk/SectionCompiler",
+                        "compile",
+                        vanilla,
+                        hostCall + "#Lnet/minecraftforge/client/model/data/ModelData;EMPTY",
+                        InjectionPointReplacement.Placement.HOST_NEUTRAL_ARGUMENT));
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.CompilerMixin", mixin));
+        MethodModel bridge = method(applied, HostNeutralArguments.PREFIX + "tesselateBlockProxy");
+        assertEquals(
+                List.of(
+                        "m/CompilerMixin.tesselateBlockProxy",
+                        "java/lang/Long.valueOf",
+                        "com/llamalad7/mixinextras/injector/wrapoperation/Operation.call"),
+                calls(bridge));
+        assertTrue(hasAnnotation(bridge, WRAP_OPERATION));
+        assertFalse(hasAnnotation(method(applied, "tesselateBlockProxy"), REDIRECT));
+    }
+
+    /**
+     * A rule that the host does an injection's job itself ({@code HOST_COVERS}, Forge's hanging sign texture): the
+     * injection is taken out, the handler stays as a plain method, and the mod runs ({@code PLEXUS-COMPAT-226}).
+     */
+    @Test
+    void injectionTheHostCoversIsTakenOutAndTheModRuns() throws IOException {
+        ClassDesc sign = ClassDesc.of("net.minecraft.client.gui.screens.inventory.HangingSignEditScreen");
+        String vanilla = "Lnet/minecraft/resources/Identifier;withDefaultNamespace(Ljava/lang/String;)"
+                + "Lnet/minecraft/resources/Identifier;";
+        byte[] mixin = mixin(
+                "m/SignMixin",
+                sign,
+                builder -> builder.withMethod(
+                        "init", MethodTypeDesc.of(CD_Object, CD_String, OPERATION), ClassFile.ACC_PRIVATE, method -> {
+                            method.with(
+                                    RuntimeVisibleAnnotationsAttribute.of(injector(WRAP_OPERATION, "open", vanilla)));
+                            method.withCode(code -> code.aconst_null().areturn());
+                        }));
+        HostPatchAdjustments adjustments = plan(
+                sign,
+                "open",
+                MethodTypeDesc.of(CD_void),
+                code -> code.aconst_null()
+                        .invokestatic(
+                                ClassDesc.of("net.minecraft.resources.Identifier"),
+                                "withDefaultNamespace",
+                                MethodTypeDesc.of(ClassDesc.of("net.minecraft.resources.Identifier"), CD_String))
+                        .pop()
+                        .return_(),
+                code -> code.return_(),
+                "m/SignMixin",
+                mixin,
+                new InjectionPointReplacement(
+                        "net/minecraft/client/gui/screens/inventory/HangingSignEditScreen",
+                        "open",
+                        "m/SignMixin#init",
+                        "Identifier.parse(name).withPrefix(folder)",
+                        InjectionPointReplacement.Placement.HOST_COVERS));
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        assertTrue(finding.reason().contains("the injection is taken out and the mod runs"), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.SignMixin", mixin));
+        assertFalse(hasAnnotation(method(applied, "init"), WRAP_OPERATION));
+        assertEquals(1, applied.methods().size());
+    }
+
+    /** Mixin's {@code owner.name(descriptor)} notation is checked as {@code Lowner;name(descriptor)}. */
+    @Test
+    void slashedOwnerNotationIsReadAsMixinsUsualOne() {
+        assertEquals("La/b/C;m(I)V", HostPatchAdjustments.targetNotation("a/b/C.m(I)V"));
+        assertEquals("La/b/C;f:I", HostPatchAdjustments.targetNotation("a/b/C.f:I"));
+        assertEquals("La/b/C;m(I)V", HostPatchAdjustments.targetNotation("La/b/C;m(I)V"));
+        assertEquals("La/b/C;m(La/X;)V", HostPatchAdjustments.targetNotation("a/b/C.m(La/X;)V"));
+        assertEquals("LLibA/C;m()V", HostPatchAdjustments.targetNotation("LibA/C.m()V"));
+        assertEquals(
+                "com/mojang/blaze3d/vertex/PoseStack$Pose",
+                HostPatchAdjustments.targetNotation("com/mojang/blaze3d/vertex/PoseStack$Pose"));
+        assertEquals("(I)La/b/C;", HostPatchAdjustments.targetNotation("(I)La/b/C;"));
     }
 
     private static Annotation at(String target) {
