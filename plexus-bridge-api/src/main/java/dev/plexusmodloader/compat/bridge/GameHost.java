@@ -256,6 +256,15 @@ public interface GameHost {
     }
 
     /**
+     * The mods the host found in the mods folder and left out before it runs (for Forge and NeoForge, those failing
+     * their {@code mods.toml} requirements, {@code PLEXUS-COMPAT-209} and {@code 217}), by mod ID, known before {@link
+     * #prepare}. The host has logged why; the runtime tells the player that they are not loaded. Empty by default.
+     */
+    default List<String> leftOutMods() {
+        return List.of();
+    }
+
+    /**
      * Tells the host every mod Plexus Mod Loader runs besides it in this launch (Plexus Mods and other loaders' mods),
      * once, before {@link #prepare}. The host may answer its mods' presence queries for them (Forge's {@code
      * ModList.getModFileById}, ADR-0025), but must not run them, construct them or send them its lifecycle events.

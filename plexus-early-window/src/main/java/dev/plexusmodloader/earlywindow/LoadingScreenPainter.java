@@ -11,7 +11,8 @@ import java.util.List;
 /**
  * Draws the game's loading screen as it looks before its first frame (its background, the Mojang Studios logo, the
  * progress bar) with Plexus Mod Loader's marks where the game layers put them on the game's screen: the spinning gold
- * cube and the name at the bottom right, the mods each loader runs under the bar. What Plexus Mod Loader is doing is at
+ * cube and the name at the bottom right, the mods each loader runs under the bar, and in amber above it the mods not loaded.
+ * What Plexus Mod Loader is doing is at
  * the bottom left. The same painter draws the window and its snapshots.
  */
 final class LoadingScreenPainter {
@@ -22,6 +23,8 @@ final class LoadingScreenPainter {
 
     private static final int FRAME_MILLIS = 60;
     private static final int WHITE = 0xFFFFFF;
+    /** The warning lines under the bar (mods not loaded), as the game layers' {@code PlexusLoadingOverlay} has them. */
+    private static final int AMBER = 0xFFE08A;
 
     private final BufferedImage logo;
     private final List<BufferedImage> cube;
@@ -64,10 +67,14 @@ final class LoadingScreenPainter {
             String name = state.name();
             int[] nameAt = layout.name(PixelLetters.width(name));
             text(graphics, name, nameAt[0], nameAt[1], 0.9f, WHITE);
-            int line = 0;
-            for (String under : state.underBar()) {
-                int[] at = layout.underBar(line++, PixelLetters.width(under));
-                text(graphics, under, at[0], at[1], 0.85f, WHITE);
+            // The first line (the mods each loader runs) under the bar; the warnings above it, in amber.
+            List<String> under = state.underBar();
+            for (int line = 0; line < under.size(); line++) {
+                String text = under.get(line);
+                int[] at = line == 0
+                        ? layout.underBar(0, PixelLetters.width(text))
+                        : layout.aboveBar(line - 1, under.size() - 1, PixelLetters.width(text));
+                text(graphics, text, at[0], at[1], 0.85f, line == 0 ? WHITE : AMBER);
             }
             String status = state.status();
             if (!status.isEmpty()) {

@@ -50,6 +50,7 @@ final class ForgeGameHost implements GameHost {
     private final Path hostJar;
     private final List<SharedMixinConfig> sharedMixinConfigs;
     private final List<BridgeLaunchContext.LoadedMod> hostMods;
+    private final List<String> leftOutMods;
     private ForeignModIndex otherMods = ForeignModIndex.EMPTY;
     private ForgeLaunch launch;
 
@@ -60,7 +61,8 @@ final class ForgeGameHost implements GameHost {
             List<Path> modJars,
             Path hostJar,
             List<SharedMixinConfig> sharedMixinConfigs,
-            List<BridgeLaunchContext.LoadedMod> hostMods) {
+            List<BridgeLaunchContext.LoadedMod> hostMods,
+            List<String> leftOutMods) {
         this.request = request;
         this.files = files;
         this.libraries = libraries;
@@ -68,6 +70,7 @@ final class ForgeGameHost implements GameHost {
         this.hostJar = hostJar;
         this.sharedMixinConfigs = List.copyOf(sharedMixinConfigs);
         this.hostMods = List.copyOf(hostMods);
+        this.leftOutMods = List.copyOf(leftOutMods);
     }
 
     /**
@@ -98,7 +101,11 @@ final class ForgeGameHost implements GameHost {
         if (request.sharedMixin()) {
             libraries = libraries.withSharedMixinExtras(files.directory());
         }
-        List<Path> runnable = runnableMods(request, files, modJars);
+        ForgeModRequirements.Result requirements = runnableMods(request, files, modJars);
+        List<Path> runnable = requirements.kept();
+        List<String> leftOut = requirements.excluded().stream()
+                .map(ForgeModRequirements.Excluded::modId)
+                .toList();
         List<SharedMixinConfig> mixinConfigs = request.sharedMixin() ? ForgeMixinConfigs.read(runnable) : List.of();
         return new ForgeGameHost(
                 request,
@@ -107,14 +114,15 @@ final class ForgeGameHost implements GameHost {
                 runnable,
                 extractHostJar(files.directory()),
                 mixinConfigs,
-                hostMods(runnable));
+                hostMods(runnable),
+                leftOut);
     }
 
     /**
      * The mods FML will accept: those failing their {@code mods.toml} requirements are left out first ({@code
      * PLEXUS-COMPAT-209}), checked with the Maven version ranges of Forge's own {@code maven-artifact}.
      */
-    private static List<Path> runnableMods(
+    private static ForgeModRequirements.Result runnableMods(
             GameHost.Request request, ForgeInstallation.Prepared files, List<Path> modJars) throws IOException {
         Path mavenArtifact = files.libraries().stream()
                 .filter(jar -> jar.getFileName().toString().startsWith("maven-artifact-"))
@@ -144,7 +152,7 @@ final class ForgeGameHost implements GameHost {
                                 + " of " + modJars.size() + " Forge mod file(s) meet their requirements; "
                                 + result.excluded().size() + " left out (PLEXUS-COMPAT-209)");
             }
-            return result.kept();
+            return result;
         } catch (ReflectiveOperationException e) {
             throw new IOException("Forge's maven-artifact cannot check version ranges: " + e, e);
         }
@@ -244,6 +252,11 @@ final class ForgeGameHost implements GameHost {
             throw new IllegalStateException(
                     "Forge's registries could not be opened for other loaders' mods (" + e + ")", e);
         }
+    }
+
+    @Override
+    public List<String> leftOutMods() {
+        return leftOutMods;
     }
 
     @Override

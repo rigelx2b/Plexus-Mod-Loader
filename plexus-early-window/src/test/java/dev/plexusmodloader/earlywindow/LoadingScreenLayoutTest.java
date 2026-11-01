@@ -2,6 +2,7 @@ package dev.plexusmodloader.earlywindow;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -43,5 +44,20 @@ class LoadingScreenLayoutTest {
         assertArrayEquals(new int[] {320, 228}, layout.name(nameWidth));
         assertArrayEquals(new int[] {(427 - 50) / 2, 209}, layout.underBar(0, 50));
         assertArrayEquals(new int[] {(427 - 50) / 2, 220}, layout.underBar(1, 50));
+    }
+
+    /** Two warning lines fit between the logo and the bar, clear of the bottom row's status and name. */
+    @Test
+    void warningLinesSitBetweenTheLogoAndTheBar() {
+        LoadingScreenLayout layout = LoadingScreenLayout.of(854, 480, 0);
+        int[] bar = layout.progressBar();
+        int[] logo = layout.logoLeft();
+
+        int[] first = layout.aboveBar(0, 2, 50);
+        int[] second = layout.aboveBar(1, 2, 50);
+        assertArrayEquals(new int[] {(427 - 50) / 2, 173}, first);
+        assertArrayEquals(new int[] {(427 - 50) / 2, 183}, second);
+        assertTrue(first[1] > logo[1] + logo[3], "under the logo");
+        assertTrue(second[1] + PixelLetters.HEIGHT < bar[1], "above the bar");
     }
 }

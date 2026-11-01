@@ -34,6 +34,11 @@ public record EarlyWindowSettings(
 
     static final int DEFAULT_HEIGHT = 480;
 
+    /** How many of Plexus Mod Loader's pixel letters fit across the window, with a letter's room at each side. */
+    public int letterColumns() {
+        return LoadingScreenLayout.of(width, height, guiScale).guiWidth() / PixelLetters.ADVANCE - 2;
+    }
+
     public EarlyWindowSettings {
         if (width <= 0 || height <= 0) {
             width = DEFAULT_WIDTH;

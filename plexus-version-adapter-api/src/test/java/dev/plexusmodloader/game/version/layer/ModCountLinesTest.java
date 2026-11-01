@@ -46,7 +46,13 @@ class ModCountLinesTest {
                             ModCountLines.QUILT_KEY,
                             ModCountLines.FORGE_KEY,
                             ModCountLines.NEOFORGE_KEY,
-                            ModCountLines.HOST_INCOMPATIBLE_KEY),
+                            ModCountLines.HOST_INCOMPATIBLE_KEY,
+                            ModCountLines.BUNDLED_KEY,
+                            ModCountLines.LEFT_OUT_KEY,
+                            NotLoadedModsNotice.TITLE_KEY,
+                            NotLoadedModsNotice.HOST_INCOMPATIBLE_KEY,
+                            NotLoadedModsNotice.LEFT_OUT_KEY,
+                            NotLoadedModsNotice.DETAILS_KEY),
                     List.copyOf(bundled(language).keySet()),
                     language);
         }
@@ -111,6 +117,61 @@ class ModCountLinesTest {
         try (InputStream in = ModCountLines.bundledLanguage("en_us").orElseThrow()) {
             assertTrue(in.readAllBytes().length > 0);
         }
+    }
+
+    /** Sodium and Iris installed, 13 Fabric API modules and libraries inside them: the player's 2, then the rest. */
+    @Test
+    void bundledModsFollowTheInstalledOnes() throws IOException {
+        LoadedModCounts counts =
+                new LoadedModCounts(0, 15, 0, 0, 2).withInstalled(new LoadedModCounts.Installed(0, 2, 0, 0, 2));
+
+        assertEquals(
+                List.of("Fabric mods: 2 (+13 included)", "NeoForge mods: 2"),
+                ModCountLines.lines(counts, bundled("en_us")::get));
+        assertEquals(
+                List.of("Fabric 모드: 2개 (+13개 포함)", "NeoForge 모드: 2개"),
+                ModCountLines.lines(counts, bundled("ko_kr")::get));
+        assertEquals(
+                List.of("Fabric mods: 2 (+13 included)", "NeoForge mods: 2"), ModCountLines.lines(counts, key -> null));
+    }
+
+    /** A loader none of whose mods is in the mods folder (all bundled in another loader's jar) still shows them. */
+    @Test
+    void aLoaderWithOnlyBundledModsShowsThemAll() {
+        LoadedModCounts counts =
+                new LoadedModCounts(0, 3, 0, 0, 1).withInstalled(new LoadedModCounts.Installed(0, 0, 0, 0, 1));
+
+        assertEquals(List.of("Fabric mods: 3", "NeoForge mods: 1"), ModCountLines.lines(counts, key -> null));
+    }
+
+    /** Mods in the mods folder that are not loaded for another reason have a line last, with how many. */
+    @Test
+    void modsLeftOutForOtherReasonsHaveTheLastLine() throws IOException {
+        LoadedModCounts counts = new LoadedModCounts(0, 2, 0, 0, 0)
+                .withHostIncompatibleMods(1)
+                .withLeftOutMods(List.of("sophisticatedbackpacks", "broken.jar"));
+
+        assertEquals(
+                List.of(
+                        "Fabric mods: 2",
+                        "Not loaded, Plexus Mod Loader can't run them yet: 1",
+                        "Not loaded: 2 (see logs/latest.log)"),
+                ModCountLines.lines(counts, bundled("en_us")::get));
+        assertEquals(
+                "로드되지 않은 모드: 2개 (logs/latest.log 참고)",
+                ModCountLines.lines(counts, bundled("ko_kr")::get).getLast());
+        assertEquals(
+                List.of("Not loaded: 1 (see logs/latest.log)"),
+                ModCountLines.lines(LoadedModCounts.NONE.withLeftOutMods(List.of("a")), key -> null));
+    }
+
+    @Test
+    void installedModsCannotOutnumberLoadedOnes() {
+        LoadedModCounts counts = new LoadedModCounts(0, 2, 0);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> counts.withInstalled(new LoadedModCounts.Installed(0, 3, 0, 0, 0)));
+        assertThrows(IllegalArgumentException.class, () -> new LoadedModCounts.Installed(0, -1, 0, 0, 0));
     }
 
     @Test

@@ -433,9 +433,19 @@ class ForgeInjectionPointsTest {
         assertEquals(Placement.SAME_PLACE, bootStrap.placement());
         assertFalse(
                 points.stream()
-                        .anyMatch(p -> p.targetClass().equals("net/minecraft/client/gui/Gui")
-                                || p.targetClass().equals("net/minecraft/client/resources/model/ModelManager")),
+                        .anyMatch(p -> p.targetClass().equals("net/minecraft/client/resources/model/ModelManager")),
                 "the 1.2.3 client points named calls vanilla does not make");
+        // Gui.extractRenderState's screen call, which vanilla makes: NeoForge makes it through
+        // ClientHooks.extractScreen.
+        InjectionPointReplacement extractScreen = point(points, "Screen;extractRenderStateWithTooltipAndSubtitles(");
+        assertEquals("net/minecraft/client/gui/Gui", extractScreen.targetClass());
+        assertEquals("extractRenderState", extractScreen.method());
+        assertEquals(Placement.SAME_PLACE, extractScreen.placement());
+        assertTrue(extractScreen.replacement().startsWith("Lnet/neoforged/neoforge/client/ClientHooks;extractScreen("));
+        // SpriteSourceList.list(ResourceManager)'s body moved into list(ResourceManager, Set).
+        InjectionPointReplacement spriteList = point(points, "ImmutableList;builder()");
+        assertEquals("net/minecraft/client/renderer/texture/atlas/SpriteSourceList", spriteList.targetClass());
+        assertEquals(Placement.IN_METHOD, spriteList.placement());
         // The one ClientPacketListener point names a call vanilla makes (Fabric API 26.3's TAGS_LOADED point).
         List<InjectionPointReplacement> packetListener = points.stream()
                 .filter(p -> p.targetClass().equals("net/minecraft/client/multiplayer/ClientPacketListener"))

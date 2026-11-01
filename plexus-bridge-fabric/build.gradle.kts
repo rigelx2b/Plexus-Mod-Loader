@@ -115,13 +115,15 @@ val quiltLoaderApi = tasks.register<Sync>("quiltLoaderApi") {
     include(quiltLoaderApiClasses)
     into(layout.buildDirectory.dir("quilt-loader-api"))
 }
-// Plexus Mod Loader's builds of Fabric API modules on NeoForge's hooks and their index (ADR-0031, HostModules): in the jar
-// only, so that the bridge's unit tests do not install NeoForge.
+// Plexus Mod Loader's builds of Fabric API modules on NeoForge's and Forge's hooks and their index (ADR-0031, HostModules): in the jar
+// only, so that the bridge's unit tests do not install NeoForge or Forge.
 val hostModules = configurations.dependencyScope("hostModules")
 val hostModuleResources = configurations.resolvable("hostModuleResources") { extendsFrom(hostModules.get()) }
 dependencies {
     hostModules(project(path = ":plexus-fabric-api-neoforge-v26_2", configuration = "hostModuleElements"))
     hostModules(project(path = ":plexus-fabric-api-neoforge-v26_3", configuration = "hostModuleElements"))
+    hostModules(project(path = ":plexus-fabric-api-forge-v26_2", configuration = "hostModuleElements"))
+    hostModules(project(path = ":plexus-fabric-api-forge-v26_3", configuration = "hostModuleElements"))
 }
 // Each host release's module writes its own index; the jar holds one, with every entry (keys differ by host release).
 val hostModuleIndexPath = "META-INF/plexusmodloader/host-modules.properties"

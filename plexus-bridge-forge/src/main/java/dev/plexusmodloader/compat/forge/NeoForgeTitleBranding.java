@@ -45,6 +45,7 @@ public final class NeoForgeTitleBranding {
 
     private static volatile Supplier<List<String>> lines = List::of;
     private static volatile Consumer<String> log = message -> {};
+    private static volatile String hostBranding = "";
     private static final AtomicBoolean REPORTED = new AtomicBoolean();
 
     private NeoForgeTitleBranding() {}
@@ -67,8 +68,20 @@ public final class NeoForgeTitleBranding {
      * @param brandingLines called each time NeoForge's branding is asked for
      */
     static void install(Supplier<List<String>> brandingLines, Consumer<String> reporter) {
+        install(brandingLines, reporter, "");
+    }
+
+    /**
+     * As {@link #install(Supplier, Consumer)}, with the name NeoForge's branding line starts from ({@code NeoForge
+     * 26.3.0.98}): NeoForge builds that line with {@code FMLTranslations.parseMessage("fml.menu.branding", name,
+     * ModList.size())}, in the game's language, so its mod count is recognised by the name it carries, in any language.
+     *
+     * @param branding the name, or empty to recognise only English mod counts ({@link #stripModCounts})
+     */
+    static void install(Supplier<List<String>> brandingLines, Consumer<String> reporter, String branding) {
         lines = Objects.requireNonNull(brandingLines, "brandingLines");
         log = Objects.requireNonNull(reporter, "reporter");
+        hostBranding = Objects.requireNonNull(branding, "branding");
     }
 
     /**
@@ -82,8 +95,10 @@ public final class NeoForgeTitleBranding {
     public static List<String> withModCounts(boolean includeMinecraft, boolean reverse, List<String> brandings) {
         List<String> plexusLines = lines.get();
         List<String> cleanedBrandings = new ArrayList<>(brandings.size());
+        String name = hostBranding;
         for (String b : brandings) {
-            String stripped = stripModCounts(b);
+            // NeoForge's own line keeps its name only: the mod counts are Plexus Mod Loader's lines, one per loader.
+            String stripped = !name.isEmpty() && b != null && b.contains(name) ? name : stripModCounts(b);
             if (!stripped.isEmpty()) {
                 cleanedBrandings.add(stripped);
             }

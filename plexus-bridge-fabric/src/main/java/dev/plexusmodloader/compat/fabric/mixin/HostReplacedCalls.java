@@ -216,7 +216,7 @@ final class HostReplacedCalls {
      * count} parameters: the receiver, the host's arguments and the {@code Operation} have none, and the parameters after
      * the {@code Operation} keep theirs.
      */
-    private static List<List<Annotation>> placed(
+    static List<List<Annotation>> placed(
             List<List<Annotation>> annotations, int vanillaArguments, int count, int trailing) {
         List<List<Annotation>> placed = new ArrayList<>();
         for (int index = 0; index < count; index++) {
@@ -373,7 +373,7 @@ final class HostReplacedCalls {
     }
 
     /** Loads the local {@code slot} of {@code type} as an {@code Object}, boxing a primitive. */
-    private static void loadBoxed(java.lang.classfile.CodeBuilder code, ClassDesc type, int slot) {
+    static void loadBoxed(java.lang.classfile.CodeBuilder code, ClassDesc type, int slot) {
         code.loadLocal(TypeKind.from(type), slot);
         if (type.isPrimitive()) {
             ClassDesc box = switch (type.descriptorString()) {

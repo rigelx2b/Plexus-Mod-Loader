@@ -145,6 +145,7 @@ public final class ClientHooks {
 
     /** Before the return of {@code Minecraft.tick()}. */
     public static void onClientTick(Minecraft minecraft) {
+        NotLoadedModsScreen.onClientTick(minecraft);
         LayerState.context().ifPresent(context -> {
             if (context.events().hasListeners(ClientEvents.TICK)) {
                 ClientView view = new MinecraftView(minecraft);

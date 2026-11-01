@@ -6,8 +6,8 @@ import dev.plexusmodloader.earlywindow.EarlyWindowSettings;
 import dev.plexusmodloader.game.version.GameVersionAdapter;
 import dev.plexusmodloader.game.version.layer.GameWindowListener;
 import dev.plexusmodloader.game.version.layer.LoadedModCounts;
+import dev.plexusmodloader.game.version.layer.LoadingScreenModLines;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -41,16 +41,18 @@ final class StartupWindow implements GameWindowListener {
 
     private final EarlyWindow window;
     private final Optional<Path> snapshotDirectory;
+    private final int letterColumns;
     private ScheduledExecutorService timer;
 
-    private StartupWindow(EarlyWindow window, Optional<Path> snapshotDirectory) {
+    private StartupWindow(EarlyWindow window, Optional<Path> snapshotDirectory, int letterColumns) {
         this.window = window;
         this.snapshotDirectory = snapshotDirectory;
+        this.letterColumns = letterColumns;
     }
 
     /** A launch without an early window. */
     static StartupWindow none() {
-        return new StartupWindow(EarlyWindow.none(), Optional.empty());
+        return new StartupWindow(EarlyWindow.none(), Optional.empty(), 0);
     }
 
     /** Starts the window's process, hidden until {@link #noHost()}; or a launch without one. */
@@ -69,7 +71,7 @@ final class StartupWindow implements GameWindowListener {
         EarlyWindow window = EarlyWindow.start(settings, line -> LOGGER.info("[Plexus Mod Loader] {}", line));
         Optional<Path> snapshots = Optional.ofNullable(System.getProperty("plexus.earlyWindow.snapshots"))
                 .map(Path::of);
-        StartupWindow startup = new StartupWindow(window, snapshots);
+        StartupWindow startup = new StartupWindow(window, snapshots, settings.letterColumns());
         startup.open();
         startup.step(0.02f, "Scanning for mods");
         return startup;
@@ -101,10 +103,12 @@ final class StartupWindow implements GameWindowListener {
         step(0.3f, "Checking mods and dependencies");
     }
 
-    /** The mods each loader runs, under the bar, as the game's loading screen shows them next. */
+    /**
+     * The mods each loader runs, under the bar, as the game's loading screen shows them next, and the mods that are not
+     * loaded ({@link LoadingScreenModLines}).
+     */
     void modsLoaded(LoadedModCounts counts) {
-        String line = modsLine(counts);
-        window.underBar(line.isEmpty() ? List.of() : List.of(line));
+        window.underBar(LoadingScreenModLines.lines(counts, letterColumns));
         window.progress(0.45f);
     }
 
@@ -136,23 +140,6 @@ final class StartupWindow implements GameWindowListener {
     @Override
     public void shown() {
         closeIn(CLOSE_AFTER_SHOWN_MILLIS);
-    }
-
-    /** {@code Mods: Fabric 34  ·  Plexus 2}, as the game layers' {@code PlexusLoadingOverlay} writes it; empty with none. */
-    static String modsLine(LoadedModCounts counts) {
-        List<String> parts = new ArrayList<>();
-        add(parts, "Fabric", counts.fabricMods());
-        add(parts, "Quilt", counts.quiltMods());
-        add(parts, "Forge", counts.forgeMods());
-        add(parts, "NeoForge", counts.neoForgeMods());
-        add(parts, "Plexus", counts.plexusMods());
-        return parts.isEmpty() ? "" : "Mods: " + String.join("  ·  ", parts);
-    }
-
-    private static void add(List<String> parts, String loader, int count) {
-        if (count > 0) {
-            parts.add(loader + " " + count);
-        }
     }
 
     private void step(float progress, String status) {

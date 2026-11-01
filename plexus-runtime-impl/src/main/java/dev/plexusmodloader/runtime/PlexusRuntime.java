@@ -71,6 +71,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -133,6 +134,11 @@ public final class PlexusRuntime {
         startup.discovered(files.size());
         List<DiscoveredModFile> nativeFiles = new ArrayList<>();
         List<StartupReport.BlockedFile> blockedFiles = new ArrayList<>();
+        // The jars in the mods folder, and the host modules that stand in for one of them (ADR-0031): their mods are
+        // the
+        // installed ones; the others came nested in those (LoadedModCounts.installed).
+        Set<Path> installedJars = new HashSet<>();
+        files.forEach(file -> installedJars.add(file.path()));
         ForeignModResolver foreignMods = new ForeignModResolver(PlexusRuntime.class.getClassLoader());
         // A loader that loads its own mods and starts the game: MinecraftForge through FML (ADR-0021), or, without
         // Forge
@@ -264,6 +270,9 @@ public final class PlexusRuntime {
                     configuration.reportDirectory().resolve("host-modules"),
                     PlexusRuntime.class.getClassLoader());
             for (HostModules.Replacement replaced : hostModules.replaced()) {
+                if (installedJars.contains(replaced.original())) {
+                    installedJars.add(replaced.hostModule());
+                }
                 LOGGER.info(
                         "[Plexus Mod Loader] {} {} {}",
                         replaced.original().getFileName(),
@@ -463,20 +472,56 @@ public final class PlexusRuntime {
                     host.map(GameHost::name).orElse("the host"),
                     String.join(", ", hostIncompatible));
         }
+        List<String> plexusModIds =
+                resolution.loadOrder().stream().map(mod -> mod.id().value()).toList();
+        List<BridgeLaunchContext.LoadedMod> hostMods = host.map(GameHost::mods).orElse(List.of());
         LoadedModCounts modCounts = LoadedModCounter.count(
-                        resolution.loadOrder().stream()
-                                .map(mod -> mod.id().value())
-                                .toList(),
-                        bridgedMods.stream()
-                                .collect(Collectors.groupingBy(
-                                        mod -> mod.bridge().loaderName(),
-                                        Collectors.mapping(
-                                                mod -> mod.assessment().modId(), Collectors.toList()))),
+                        plexusModIds,
+                        modIdsByLoader(bridgedMods),
                         host.map(GameHost::modIds).orElse(Set.of()).stream()
                                 .filter(id -> !hostNeoForgeModIds.contains(id))
                                 .toList(),
                         hostNeoForgeModIds)
-                .withHostIncompatibleMods(hostIncompatible.size());
+                .withHostIncompatibleMods(hostIncompatible);
+        // The mods from jars in the mods folder, not nested in one: the count the player expects, the rest bundled.
+        LoadedModCounts installedCounts = LoadedModCounter.count(
+                plexusModIds,
+                modIdsByLoader(bridgedMods.stream()
+                        .filter(mod -> installedJars.contains(mod.jar()))
+                        .toList()),
+                hostMods.stream()
+                        .filter(mod -> mod.nestedEntry() == null && !hostNeoForgeModIds.contains(mod.modId()))
+                        .map(BridgeLaunchContext.LoadedMod::modId)
+                        .toList(),
+                hostMods.stream()
+                        .filter(mod -> mod.nestedEntry() == null && hostNeoForgeModIds.contains(mod.modId()))
+                        .map(BridgeLaunchContext.LoadedMod::modId)
+                        .toList());
+        Set<String> loadedModIds = new HashSet<>(plexusModIds);
+        bridgedMods.forEach(mod -> loadedModIds.add(mod.assessment().modId()));
+        host.ifPresent(found -> loadedModIds.addAll(found.modIds()));
+        List<String> leftOutMods = leftOutMods(
+                blockedFiles,
+                foreignResolution.mods(),
+                bridgedMods,
+                installedJars,
+                host.map(GameHost::leftOutMods).orElse(List.of()),
+                loadedModIds);
+        if (!leftOutMods.isEmpty()) {
+            LOGGER.warn(
+                    "[Plexus Mod Loader] {} mod(s) in the mods folder are NOT loaded: {}. Each one's reason is listed"
+                            + " above",
+                    leftOutMods.size(),
+                    String.join(", ", leftOutMods));
+        }
+        modCounts = modCounts
+                .withInstalled(new LoadedModCounts.Installed(
+                        installedCounts.plexusMods(),
+                        installedCounts.fabricMods(),
+                        installedCounts.forgeMods(),
+                        installedCounts.quiltMods(),
+                        installedCounts.neoForgeMods()))
+                .withLeftOutMods(leftOutMods);
         LOGGER.info(
                 "[Plexus Mod Loader] Loaded mods per loader: {} Plexus, {} Fabric, {} Quilt, {} Forge, {} NeoForge",
                 modCounts.plexusMods(),
@@ -1079,6 +1124,56 @@ public final class PlexusRuntime {
             }
         }
         return Optional.empty();
+    }
+
+    /** The IDs of {@code mods} by the loader name of the bridge that loads them. */
+    private static Map<String, List<String>> modIdsByLoader(List<ForeignModResolver.ForeignMod> mods) {
+        return mods.stream()
+                .collect(Collectors.groupingBy(
+                        mod -> mod.bridge().loaderName(),
+                        Collectors.mapping(mod -> mod.assessment().modId(), Collectors.toList())));
+    }
+
+    /**
+     * The mods in the mods folder that are not loaded, for the loading screens and the title screen ({@link
+     * LoadedModCounts#leftOutMods}): files that are not mods of a loader Plexus Mod Loader runs, other loaders' mods
+     * that are not loadable (but not those left out for the host's patch, {@code PLEXUS-COMPAT-224}, which have their own
+     * line, nor those only for the other side, {@code 108}, or of which another copy runs, {@code 122}), and the mods the
+     * host left out ({@link GameHost#leftOutMods}). A mod with the ID of a loaded one (a jar for several loaders, the
+     * host's build of it, {@code 139}) is not among them. Only mods from {@code installedJars} (the mods folder, and host
+     * modules standing in for its jars) are: a nested jar's container says what happened.
+     */
+    static List<String> leftOutMods(
+            List<StartupReport.BlockedFile> blockedFiles,
+            List<ForeignModResolver.ForeignMod> foreignMods,
+            List<ForeignModResolver.ForeignMod> loadedForeignMods,
+            Set<Path> installedJars,
+            List<String> hostLeftOutMods,
+            Set<String> loadedModIds) {
+        Set<String> leftOut = new LinkedHashSet<>();
+        for (StartupReport.BlockedFile file : blockedFiles) {
+            if (!file.file().contains("!/") && !file.code().equals("PLEXUS-COMPAT-139")) {
+                leftOut.add(file.file());
+            }
+        }
+        Set<ForeignModResolver.ForeignMod> loaded = new HashSet<>(loadedForeignMods);
+        Set<String> notMissing = Set.of("PLEXUS-COMPAT-108", "PLEXUS-COMPAT-122");
+        for (ForeignModResolver.ForeignMod mod : foreignMods) {
+            List<String> codes = mod.assessment().blockingCodes();
+            if (installedJars.contains(mod.jar())
+                    && !loaded.contains(mod)
+                    && !codes.contains(HostPatchCheck.CODE)
+                    && (codes.isEmpty() || !notMissing.containsAll(codes))
+                    && !loadedModIds.contains(mod.assessment().modId())) {
+                leftOut.add(mod.assessment().modId());
+            }
+        }
+        for (String id : hostLeftOutMods) {
+            if (!loadedModIds.contains(id)) {
+                leftOut.add(id);
+            }
+        }
+        return List.copyOf(leftOut);
     }
 
     /**

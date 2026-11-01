@@ -687,6 +687,134 @@ class HostForgeBridgesTest {
     // --- Helpers
     // -------------------------------------------------------------------------------------------------------
 
+    // --- Gui.extractRenderState: a screen call the patch makes through a static helper with an argument of its own ---
+
+    private static final ClassDesc GUI = ClassDesc.of("t.Gui");
+    private static final ClassDesc SCREEN = ClassDesc.of("t.Screen");
+    private static final ClassDesc HOOKS = ClassDesc.of("t.Hooks");
+    private static final ClassDesc STACK = ClassDesc.of("java.util.Stack");
+    private static final String SCREEN_DRAW = "Lt/Screen;draw(I)V";
+    private static final String HOOKS_DRAW = "Lt/Hooks;draw(Lt/Screen;Ljava/util/Stack;I)V";
+
+    /**
+     * NeoForge calls {@code ClientHooks.extractScreen(screen, screenLayers, graphics, ...)} where vanilla calls {@code
+     * screen.extractRenderStateWithTooltipAndSubtitles(graphics, ...)}, and FancyMenu wraps the vanilla call, making it
+     * once with its own arguments. The wrap runs on the host's call through a bridge that passes the handler the
+     * receiver, the vanilla arguments and an {@link InsertedArguments} holding the host's own argument.
+     */
+    @Test
+    void aWrapOfACallThePatchMakesThroughAStaticHelperRunsOnTheHelper() throws IOException {
+        byte[] mixin = screenMixin(1);
+        HostPatchAdjustments adjustments = screenPlan(mixin);
+
+        HostPatchAdjustments.Finding finding = single(adjustments);
+        assertEquals("PLEXUS-COMPAT-226", finding.code(), finding.reason());
+        assertFalse(finding.incompatible(), finding.reason());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.GuiMixin", mixin));
+        assertFalse(hasAnnotation(method(applied, "wrapDraw"), WRAP_OPERATION));
+        MethodModel bridge = method(applied, HostStaticCalls.PREFIX + "wrapDraw");
+        assertEquals(MethodTypeDesc.of(CD_void, SCREEN, STACK, CD_int, OPERATION), bridge.methodTypeSymbol());
+        assertTrue(annotationText(bridge).contains(HOOKS_DRAW), annotationText(bridge));
+        assertEquals(
+                List.of("dev/plexusmodloader/compat/fabric/mixin/InsertedArguments.<init>", "m/GuiMixin.wrapDraw"),
+                calls(bridge));
+    }
+
+    /** A handler that makes the wrapped call twice would make the host's call twice: not bridged. */
+    @Test
+    void aWrapThatMakesTheCallTwiceDoesNotRunOnTheStaticHelper() throws IOException {
+        HostPatchAdjustments.Finding finding = single(screenPlan(screenMixin(2)));
+        assertEquals("PLEXUS-COMPAT-224", finding.code(), finding.reason());
+        assertTrue(finding.incompatible(), finding.reason());
+    }
+
+    /** The receiver, then the host's own arguments, then the vanilla ones, as the helper takes them. */
+    @Test
+    void insertedArgumentsPutTheHostsArgumentsAfterTheReceiver() {
+        List<Object[]> made = new ArrayList<>();
+        InsertedArguments operation = new InsertedArguments(
+                arguments -> {
+                    made.add(arguments);
+                    return "made";
+                },
+                new Object[] {"layers"});
+        assertEquals("made", operation.call("screen", 1, 2.0F));
+        assertEquals(List.of("screen", "layers", 1, 2.0F), List.of(made.getFirst()));
+    }
+
+    private HostPatchAdjustments screenPlan(byte[] mixin) throws IOException {
+        MethodTypeDesc render = MethodTypeDesc.of(CD_void);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        GUI,
+                        builder -> builder.withMethodBody(
+                                "render",
+                                render,
+                                ClassFile.ACC_PUBLIC,
+                                code -> code.aconst_null()
+                                        .checkcast(SCREEN)
+                                        .iconst_1()
+                                        .invokevirtual(SCREEN, "draw", MethodTypeDesc.of(CD_void, CD_int))
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        GUI,
+                        builder -> builder.withMethodBody(
+                                "render",
+                                render,
+                                ClassFile.ACC_PUBLIC,
+                                code -> code.aconst_null()
+                                        .checkcast(SCREEN)
+                                        .aconst_null()
+                                        .checkcast(STACK)
+                                        .iconst_1()
+                                        .invokestatic(HOOKS, "draw", MethodTypeDesc.of(CD_void, SCREEN, STACK, CD_int))
+                                        .return_()));
+        return plan(
+                Map.of("t/Gui", vanilla),
+                Map.of("t/Gui", patched),
+                "m/GuiMixin",
+                mixin,
+                List.of(new InjectionPointReplacement("t/Gui", "render", SCREEN_DRAW, HOOKS_DRAW)));
+    }
+
+    /** {@code wrapDraw(Screen, int, Operation)}, which calls the {@code Operation} {@code times} times as given. */
+    private static byte[] screenMixin(int times) {
+        return mixin(
+                ClassDesc.of("m.GuiMixin"),
+                GUI,
+                builder -> builder.withMethod(
+                        "wrapDraw",
+                        MethodTypeDesc.of(CD_void, SCREEN, CD_int, OPERATION),
+                        ClassFile.ACC_PRIVATE,
+                        method -> {
+                            method.with(RuntimeVisibleAnnotationsAttribute.of(
+                                    injector(WRAP_OPERATION, "render", SCREEN_DRAW)));
+                            method.withCode(code -> {
+                                for (int call = 0; call < times; call++) {
+                                    code.aload(3)
+                                            .iconst_2()
+                                            .anewarray(CD_Object)
+                                            .dup()
+                                            .iconst_0()
+                                            .aload(1)
+                                            .aastore()
+                                            .dup()
+                                            .iconst_1()
+                                            .iload(2)
+                                            .invokestatic(CD_Integer, "valueOf", MethodTypeDesc.of(CD_Integer, CD_int))
+                                            .aastore()
+                                            .invokeinterface(
+                                                    OPERATION,
+                                                    "call",
+                                                    MethodTypeDesc.of(CD_Object, CD_Object.arrayType()))
+                                            .pop();
+                                }
+                                code.return_();
+                            });
+                        }));
+    }
+
     private static Annotation injector(String type, String method, String target) {
         return Annotation.of(
                 ClassDesc.ofDescriptor(type),

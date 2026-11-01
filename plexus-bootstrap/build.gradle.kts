@@ -484,6 +484,8 @@ if (minecraft == "26.2") {
             // A mod FML 11 would refuse is left out before FML starts, so the others still run.
             "[Plexus Mod Loader] PLEXUS-COMPAT-217 NeoForge mod neoforge_unmet (neoforge-unmet-$testModVersion.jar) is NOT loaded: it requires neoforge [27,), but 26.2.0.93 is installed; it requires not_installed_lib [1,), which is not installed",
             "[Plexus Mod Loader] NeoForge 26.2.0.93: 2 of 3 NeoForge mod file(s) meet their requirements; 1 left out (PLEXUS-COMPAT-217)",
+            // The loading screens and the title screen tell the player, who may never read the log.
+            "[Plexus Mod Loader] 1 mod(s) in the mods folder are NOT loaded: neoforge_unmet. Each one's reason is listed above",
             "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge 26.2.0.93 starts the game",
             "[neoforge_hello] Constructed by FML in module neoforge_hello (neoforge_hello)",
             "[neoforge_hello] Common setup: item neoforge_hello:hello_item is registered",
@@ -561,6 +563,9 @@ if (minecraft == "26.2") {
             fabricHello,
             "All 1 required tests passed",
         )
+        // The NeoForge side FML refuses runs by its Fabric metadata, and NeoForge's build stands in for the Fabric twin:
+        // neither is missing.
+        unexpectedOutput.add("mod(s) in the mods folder are NOT loaded")
         unexpectedOutput.addAll("PLEXUS-COMPAT-216", "fml.modloadingissue.mixin", "registered by the Fabric build", "already registered", "optional integration: com.example.twin.TwinConfig")
         expectedFiles.add("universe/gametestworld/level.dat")
     }
@@ -1237,9 +1242,12 @@ val corpusScenarios = listOf(
             // 2026-11-01: Lithium runs: its CompoundTag$1 mixin applies to CompoundTag$2 (Forge adds an anonymous class
             // before vanilla's) and its Level.setBlock injection runs in Forge's markAndNotifyBlock (85 -> 86 loaded).
             // Balm's crop moisture wrap runs on Forge's isFertile, but Balm still needs fabric-biome-api-v1 (111).
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 86 loaded, 80 not loaded"),
+            // 2026-11-01: fabric-biome-api-v1 and fabric-content-registries-v0 run as Plexus Mod Loader's builds on
+            // Forge's hooks (ADR-0031), and Balm and Puzzles Lib, which need them, run too (86 -> 91 loaded; the copies
+            // the host modules stand for count once).
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 91 loaded, 75 not loaded"),
             corpusCounts(
-                "PLEXUS-COMPAT-224 2 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury, fabric-content-registries-v0",
+                "PLEXUS-COMPAT-224 1 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury.",
                 "mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge ",
             ),
             "share Fabric's Mixin",
@@ -1583,7 +1591,9 @@ val quiltCorpusScenarios = listOf(
             // 2026-11-01: as with corpusFabricForge, fabric-content-registries-v0 (224, Forge's fluid hooks) and
             // fabric-biome-api-v1 (112, Forge's ChunkGenerator.featuresPerStep, link check against the patched game
             // since 2026-10-29) are left out; the expected counts had not followed.
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 120 loaded, 129 not loaded"),
+            // 2026-11-01: both run as Plexus Mod Loader's builds on Forge's hooks (ADR-0031), with the mods that need
+            // them (120 -> 122 loaded; the copies the host modules stand for count once).
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 122 loaded, 123 not loaded"),
             // FusionFix (Quilt) needs Fusion; Forge's build of Fusion, mostly the same classes, stands in for the Fabric
             // build it leaves out (ADR-0026 37).
             corpusCounts("mods that need fusion use MinecraftForge 26.2-65.1.5's build fusion 1.3.16", "share Fabric's Mixin"),
@@ -1592,7 +1602,7 @@ val quiltCorpusScenarios = listOf(
                 "MinecraftForge 26.2-65.1.5: 41 of 47 Forge mod file(s) meet their requirements; 6 left out",
                 "MinecraftForge $minecraft-",
             ),
-            corpusCounts("[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 49 Fabric, 71 Quilt, 42 Forge", "[Plexus Mod Loader] Loaded mods per loader: "),
+            corpusCounts("[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 51 Fabric, 71 Quilt, 42 Forge", "[Plexus Mod Loader] Loaded mods per loader: "),
             corpusCounts("b-side-1.0.jar is built for several loaders (QUILT and Forge); MinecraftForge runs it", "share Fabric's Mixin"),
             corpusCounts("PLEXUS-COMPAT-139 Quilt mod voicechat (voicechat-quilt-2.6.25+26.2.jar) is NOT loaded: MinecraftForge 26.2-65.1.5 loads its own build of voicechat", "share Fabric's Mixin"),
             "share Fabric's Mixin",
@@ -1650,6 +1660,24 @@ tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.QuiltLoaderReferenc
     runDirectory.set(layout.buildDirectory.dir("plexus/quilt-loader-reference/$minecraft"))
     reportFile.set(layout.buildDirectory.file("reports/plexus/quilt-loader-reference-$minecraft.txt"))
 }
+
+// fabric-biome-api-v1's modifications and a Fabric mod's own fluid with fabric-content-registries-v0's drowning, on
+// 26.2 and 26.3, alone and next to MinecraftForge (where both modules run as Plexus Mod Loader's builds, ADR-0031).
+val fabricBiomeAndFluidMods = modJars(":test-mods:fabric-biome-modification", ":test-mods:fabric-custom-fluid")
+val fabricBiomeAndFluidLines = listOf(
+    "[fabric_biome_modification] nether wastes generation settings have minecraft:patch_cactus_desert: true",
+    // 26.3's game test server makes the nether flat too; its generator then places no biome features to check.
+    if (minecraft == "26.2") {
+        "[fabric_biome_modification] nether features per step have minecraft:patch_cactus_desert: true"
+    } else {
+        "[fabric_biome_modification] the nether generator is flat; it places no biome features"
+    },
+    "[fabric_biome_modification] plains base temperature: 1.25",
+    "[fabric_biome_modification] plains temperature sent to clients: 1.25",
+    "[fabric_custom_fluid] pig air supply before: 300 of 300",
+    "[fabric_custom_fluid] pig eyes in fabric_custom_fluid:sludge: true",
+    "[fabric_custom_fluid] pig lost air in sludge after 3 ticks: true",
+)
 
 // Real Fabric API (from the corpus) used by the fabric-api-events test mod: a fake player breaks blocks with
 // PlayerBlockBreakEvents listeners, recipes sit behind Fabric resource conditions, a crafting remainder is read through
@@ -1714,7 +1742,8 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "[fabric_object_builder] entity data serializer fabric_object_builder:counter registered: true",
         "[fabric_object_builder] mob attributes built in onInitialize, max health: 20.0",
     )
-    // fabric-content-registries-v0, which MinecraftForge's patch leaves out (224): alone and next to NeoForge only.
+    // fabric-content-registries-v0 on all three setups; next to NeoForge and MinecraftForge it runs as Plexus Mod Loader's
+    // build on the host's hooks (ADR-0031).
     val contentRegistriesMods = modJars(
         ":test-mods:fabric-content-registries",
         ":test-mods:fabric-oxidizable-blocks",
@@ -1731,31 +1760,46 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "[fabric_oxidizable_blocks] iron axe on minecraft:smooth_sandstone leaves minecraft:sandstone",
     )
     listOf(
-        scenarios.gameTest("fabricApiGameTest", registrySyncMods + contentRegistriesMods) {
+        scenarios.gameTest(
+            "fabricApiGameTest",
+            registrySyncMods + contentRegistriesMods + fabricBiomeAndFluidMods,
+        ) {
             dependsOn(modCorpus)
             description = "Real Fabric API's block break events, resource conditions and crafting remainders on the vanilla game."
             expectedOutput.addAll(lines)
             expectedOutput.addAll(registrySyncLines)
             expectedOutput.addAll(contentRegistriesLines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
         },
-        scenarios.gameTest("forgeFabricApiGameTest", registrySyncMods) {
+        scenarios.gameTest(
+            "forgeFabricApiGameTest",
+            registrySyncMods + contentRegistriesMods + fabricBiomeAndFluidMods,
+        ) {
             dependsOn(modCorpus)
             classpath(forgeClassPath)
             systemProperty("plexus.forge", "always")
-            description = "Real Fabric API with MinecraftForge: every module but fabric-content-registries-v0 loaded."
+            description = "Real Fabric API with MinecraftForge: every module loaded, biome API and content registries as Plexus Mod Loader's builds on Forge's hooks."
             expectedOutput.addAll(lines)
             expectedOutput.addAll(registrySyncLines)
+            expectedOutput.addAll(contentRegistriesLines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
             // Forge fills RegistryDataLoader.WORLDGEN_REGISTRIES after Fabric API copied it; a bridge keeps Forge's.
             expectedOutput.add("fills Lnet/minecraft/resources/RegistryDataLoader;WORLDGEN_REGISTRIES")
             expectedOutput.addAll(
                 "Fabric mod fabric_api_events 1.0.0 (fabric-api-events-",
                 "Forge mod loading, version 65.1.5",
-                // Forge moved the air supply and fluid jump code into FluidType hooks; ADR-0030 leaves the module out.
-                "PLEXUS-COMPAT-224 1 mod(s) are NOT loaded",
-                "MinecraftForge 26.2-65.1.5 patches it: fabric-content-registries-v0.",
                 "useCustomEnchantingChecks into net/minecraft/world/item/enchantment/EnchantmentHelper",
+                // Forge moved the air supply and fluid jump code into FluidType hooks, and made the generator's
+                // features per step a ClearableLazy: these modules run as Plexus Mod Loader's builds (ADR-0031).
+                "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-11.3.2+plexus.forge.26.2.jar",
+                "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
+                    + " its build on the host's hooks instead (ADR-0031): fabric-biome-api-v1-18.0.6+plexus.forge.26.2.jar",
             )
-            unexpectedOutput.addAll("PLEXUS-COMPAT-225", "Critical injection failure")
+            unexpectedOutput.addAll(
+                "PLEXUS-COMPAT-225",
+                "Critical injection failure",
+                "are NOT loaded, because Plexus Mod Loader cannot run them as written",
+            )
         },
         // The same lines next to NeoForge, whose patch moved the code Fabric API hooks (ADR-0026 30): resource
         // conditions through NeoForge's conditional codec, block break events through events-interaction. The item
@@ -1839,10 +1883,32 @@ val fabricApiEvents = if (minecraft == "26.2") {
         "All 1 required tests passed",
     )
     listOf(
-        scenarios.gameTest("fabricApiGameTest", mods) {
+        scenarios.gameTest("fabricApiGameTest", mods + fabricBiomeAndFluidMods) {
             dependsOn(modCorpus)
-            description = "Real Fabric API's block, item, registry sync, object builder, content registries, resource conditions, data generation, menu and entity events modules on the vanilla game."
+            description = "Real Fabric API's block, item, registry sync, object builder, content registries, resource conditions, data generation, menu, entity events and biome modules on the vanilla game."
             expectedOutput.addAll(lines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
+        },
+        // Next to MinecraftForge 26.3, where the biome API and the content registries run as Plexus Mod Loader's builds
+        // (ADR-0031) and the other modules as they are.
+        scenarios.gameTest("forgeFabricApiGameTest", mods + fabricBiomeAndFluidMods) {
+            dependsOn(modCorpus)
+            classpath(forgeClassPath)
+            systemProperty("plexus.forge", "always")
+            description = "Real Fabric API with MinecraftForge 26.3: every module loaded, biome API and content registries as Plexus Mod Loader's builds on Forge's hooks."
+            expectedOutput.addAll(lines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
+            expectedOutput.addAll(
+                "Forge mod loading, version 66.1.0",
+                "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-15.0.6+plexus.forge.26.3.jar",
+                "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
+                    + " its build on the host's hooks instead (ADR-0031): fabric-biome-api-v1-20.1.1+plexus.forge.26.3.jar",
+            )
+            unexpectedOutput.addAll(
+                "PLEXUS-COMPAT-225",
+                "Critical injection failure",
+                "are NOT loaded, because Plexus Mod Loader cannot run them as written",
+            )
         },
         scenarios.gameTest("neoForgeFabricApiGameTest", mods + modJars(":test-mods:neoforge-gametest-harness")) {
             dependsOn(modCorpus)
@@ -2287,6 +2353,44 @@ clientWorldReload("corpusFabricNeoForgeClient") {
         "[neoforge_client_session] 200 client ticks in the world; save and quit",
         "[neoforge_client_session] left the saved world; stopping the client",
     )
+}
+
+// What a player sees of their mods on NeoForge (opens a window, run it alone after the headless checks): Sodium and Iris
+// carry Fabric API modules and libraries inside them, FancyMenu does not run next to NeoForge's title screen, and a
+// NeoForge mod lacks a required mod. The early window (snapshot early-window.png), the game's loading screen and the
+// title screen show the installed mods with the bundled ones in brackets, and the mods that are not loaded.
+if (minecraft == "26.2" || minecraft == "26.3") {
+    clientWorldReload("neoForgeModCountClient") {
+        description = "Shows the mod counts and the mods not loaded on the early window, loading screen and title screen of a NeoForge client (opens a window)."
+        dependsOn(modCorpus)
+        javaAgents.from(plexusAgentJar)
+        systemProperties.addAll("plexus.earlyWindow.snapshots=.plexus", "neoforge_client_session.titleScreenshot=true")
+        devModJars.from(modJars(":test-mods:neoforge-client-session", ":test-mods:neoforge-unmet"))
+        devModJars.from(corpusRoot.map {
+            it.dir("fabric").asFileTree.matching {
+                include("sodium-fabric-*.jar", "iris-fabric-*.jar", "fancymenu_fabric_*.jar", "konkrete_fabric_*.jar", "melody_fabric_*.jar")
+            }
+        })
+        worldName.set("plexus_neoforge_mod_counts")
+        runDirectory.set(layout.buildDirectory.dir("plexus/neoforge-mod-count-client-$minecraft"))
+        timeoutSeconds.set(400)
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Early loading window opened",
+            "mod(s) in the mods folder are NOT loaded: ",
+            "[Plexus Mod Loader] Loading screen marks: Mods: Fabric ",
+            " included)",
+            "neoforge_unmet - see logs/latest.log",
+            "joined the game",
+            "[neoforge_client_session] left the saved world; stopping the client",
+            "line(s) of mod counts drawn above NeoForge's branding",
+            " (see logs/latest.log)",
+            // Back on the title screen the notice of mods not loaded stays until the player closes it (screenshots/title.png).
+            "[Plexus Mod Loader] Notice of mods not loaded shown over the title screen: Some mods were not loaded | ",
+            "neoforge_unmet | The reason for each mod is in logs/latest.log.",
+            "[neoforge_client_session] screenshot title.png",
+            "[Plexus Mod Loader] Notice of mods not loaded closed by the player",
+        )
+    }
 }
 
 // Fabric API's client hooks in a client world with fabric-client-probe (opens a window, run it alone after the headless

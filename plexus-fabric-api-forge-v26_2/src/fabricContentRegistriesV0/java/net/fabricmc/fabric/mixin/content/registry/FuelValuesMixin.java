@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2016, 2017, 2018, 2019 FabricMC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+// Source: Fabric API (FabricMC), fabric-content-registries-v0 11.3.2+37b1aa249e, sources jar on maven.fabricmc.net,
+// net/fabricmc/fabric/mixin/content/registry/FuelValuesMixin.java.
+// Plexus Mod Loader (ADR-0031): reformatted; no other change.
+
+package net.fabricmc.fabric.mixin.content.registry;
+
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.sugar.Local;
+import net.fabricmc.fabric.api.registry.FuelValueEvents;
+import net.fabricmc.fabric.impl.content.registry.FuelRegistryEventsContextImpl;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.flag.FeatureFlagSet;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.entity.FuelValues;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+
+/**
+ * Implements the invocation of {@link FabricFuelRegistryBuilder} callbacks.
+ */
+@Mixin(FuelValues.class)
+public abstract class FuelValuesMixin {
+    /**
+     * Handles invoking both pre- and post-exclusion events.
+     *
+     * <p>Vanilla currently uses a single exclusion for non-flammable wood; if more builder calls for exclusions are added, this mixin method must be split accordingly.
+     */
+    @WrapOperation(
+            method =
+                    "vanillaBurnTimes(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/world/flag/FeatureFlagSet;I)Lnet/minecraft/world/level/block/entity/FuelValues;",
+            at =
+                    @At(
+                            value = "INVOKE",
+                            target =
+                                    "Lnet/minecraft/world/level/block/entity/FuelValues$Builder;remove(Lnet/minecraft/tags/TagKey;)Lnet/minecraft/world/level/block/entity/FuelValues$Builder;"),
+            allow = 1)
+    private static FuelValues.Builder build(
+            FuelValues.Builder builder,
+            TagKey<Item> tag,
+            Operation<FuelValues.Builder> operation,
+            @Local(argsOnly = true) HolderLookup.Provider registries,
+            @Local(argsOnly = true) FeatureFlagSet features,
+            @Local(argsOnly = true) int baseSmeltTime) {
+        final var context = new FuelRegistryEventsContextImpl(registries, features, baseSmeltTime);
+
+        FuelValueEvents.BUILD.invoker().build(builder, context);
+
+        operation.call(builder, tag);
+        FuelValueEvents.EXCLUSIONS.invoker().buildExclusions(builder, context);
+
+        return builder;
+    }
+}

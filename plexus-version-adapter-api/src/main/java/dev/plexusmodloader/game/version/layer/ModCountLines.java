@@ -14,9 +14,12 @@ import java.util.regex.Pattern;
 /**
  * The lines the title screen shows above the game's version text: how many mods each loader loaded ({@link
  * LoadedModCounts}). One line per loader that loaded at least one mod, top to bottom Plexus, Fabric, Quilt, Forge,
- * NeoForge; then, when Plexus Mod Loader left mods out because it cannot run them on the host loader's patched game
- * ({@code PLEXUS-COMPAT-224}, ADR-0030), a line that says so, so that a player who never reads the log sees that those
- * mods are missing and that Plexus Mod Loader, not the mods, has to change. Nothing when no mod is loaded or left out.
+ * NeoForge, each with the mods the player installed and, when some came bundled inside those, how many
+ * ({@link #BUNDLED_KEY}); then, when Plexus Mod Loader left mods out because it cannot run them on the host loader's
+ * patched game ({@code PLEXUS-COMPAT-224}, ADR-0030), a line that says so, so that a player who never reads the log
+ * sees that those mods are missing and that Plexus Mod Loader, not the mods, has to change; then, when mods in the mods
+ * folder are not loaded for another reason ({@link LoadedModCounts#leftOutMods}), a line with how many. Nothing when no
+ * mod is loaded or left out.
  *
  * <p>Each line is a translation key of Plexus Mod Loader's own language files ({@code assets/plexus/lang/<language>.json}
  * in this module, {@link #bundledLanguage}) whose text takes the count as its one argument ({@code %s}), as Minecraft's
@@ -41,6 +44,14 @@ public final class ModCountLines {
     public static final String NEOFORGE_KEY = "plexus.title.mod_count.neoforge";
     /** Key of the left-out mods line, {@code "Not loaded, Plexus Mod Loader can't run them yet: %s"} in English. */
     public static final String HOST_INCOMPATIBLE_KEY = "plexus.title.mod_count.host_incompatible";
+    /** Key of what follows a loader's line when some of its mods came bundled, {@code " (+%s included)"} in English. */
+    public static final String BUNDLED_KEY = "plexus.title.mod_count.bundled";
+    /** Key of the line of mods in the mods folder left out for another reason, in English {@link #LEFT_OUT_ENGLISH}. */
+    public static final String LEFT_OUT_KEY = "plexus.title.mod_count.left_out";
+
+    static final String BUNDLED_ENGLISH = " (+%s included)";
+    static final String LEFT_OUT_ENGLISH = "Not loaded: %s (see logs/latest.log)";
+
     /** The language whose file every other language falls back to, as Minecraft's own. */
     public static final String DEFAULT_LANGUAGE = "en_us";
 
@@ -54,18 +65,28 @@ public final class ModCountLines {
      * @param translations the text of a key in the language to show, or {@code null} when that language has none
      */
     public static List<String> lines(LoadedModCounts counts, Function<String, String> translations) {
-        List<String> lines = new ArrayList<>(6);
-        add(lines, PLEXUS_KEY, "Plexus mods: %s", counts.plexusMods(), translations);
-        add(lines, FABRIC_KEY, "Fabric mods: %s", counts.fabricMods(), translations);
-        add(lines, QUILT_KEY, "Quilt mods: %s", counts.quiltMods(), translations);
-        add(lines, FORGE_KEY, "Forge mods: %s", counts.forgeMods(), translations);
-        add(lines, NEOFORGE_KEY, "NeoForge mods: %s", counts.neoForgeMods(), translations);
+        List<String> lines = new ArrayList<>(7);
+        LoadedModCounts.Installed installed = counts.installed();
+        String bundled = translations.apply(BUNDLED_KEY);
+        add(lines, PLEXUS_KEY, "Plexus mods: %s", counts.plexusMods(), installed.plexusMods(), bundled, translations);
+        add(lines, FABRIC_KEY, "Fabric mods: %s", counts.fabricMods(), installed.fabricMods(), bundled, translations);
+        add(lines, QUILT_KEY, "Quilt mods: %s", counts.quiltMods(), installed.quiltMods(), bundled, translations);
+        add(lines, FORGE_KEY, "Forge mods: %s", counts.forgeMods(), installed.forgeMods(), bundled, translations);
+        add(
+                lines,
+                NEOFORGE_KEY,
+                "NeoForge mods: %s",
+                counts.neoForgeMods(),
+                installed.neoForgeMods(),
+                bundled,
+                translations);
         add(
                 lines,
                 HOST_INCOMPATIBLE_KEY,
                 "Not loaded, Plexus Mod Loader can't run them yet: %s",
                 counts.hostIncompatibleMods(),
                 translations);
+        add(lines, LEFT_OUT_KEY, LEFT_OUT_ENGLISH, counts.leftOutMods().size(), translations);
         return List.copyOf(lines);
     }
 
@@ -83,20 +104,43 @@ public final class ModCountLines {
                 ModCountLines.class.getResourceAsStream("/assets/plexus/lang/" + languageCode + ".json"));
     }
 
+    /** A loader's line: its installed mods, and after them how many came bundled ({@code bundledText}), if any. */
     private static void add(
-            List<String> lines, String key, String english, int count, Function<String, String> translations) {
+            List<String> lines,
+            String key,
+            String english,
+            int count,
+            int installed,
+            String bundledText,
+            Function<String, String> translations) {
         if (count <= 0) {
             return;
         }
-        String text = translations.apply(key);
+        // A loader whose every mod came bundled (none of its jars in the mods folder) still shows them.
+        int shown = installed > 0 ? installed : count;
+        String line = format(translations.apply(key), english, shown);
+        if (shown < count) {
+            line += format(bundledText, BUNDLED_ENGLISH, count - shown);
+        }
+        lines.add(line);
+    }
+
+    private static void add(
+            List<String> lines, String key, String english, int count, Function<String, String> translations) {
+        if (count > 0) {
+            lines.add(format(translations.apply(key), english, count));
+        }
+    }
+
+    /** {@code text} with {@code count}, or {@code english} with it when there is no text or it does not format. */
+    private static String format(String text, String english, int count) {
         if (text != null) {
             try {
-                lines.add(String.format(Locale.ROOT, text, count));
-                return;
+                return String.format(Locale.ROOT, text, count);
             } catch (IllegalFormatException e) {
-                // A resource pack's text that does not take one count; the English line is shown instead.
+                // A resource pack's text that does not take one count; the English text is shown instead.
             }
         }
-        lines.add(String.format(Locale.ROOT, english, count));
+        return String.format(Locale.ROOT, english, count);
     }
 }
