@@ -1036,6 +1036,9 @@ final class HostPatchAdjustments {
                         HostFertileSoil.bridgeMethod(builder, model, method, wrapOperation);
                     } else if (HostEffectRemoval.covers(present.replaced(), present.replacement())) {
                         HostEffectRemoval.bridgeMethod(builder, model, method, wrapOperation);
+                    } else if (HostStaticCalls.covers(present.replaced(), present.replacement())) {
+                        HostStaticCalls.bridgeMethod(
+                                builder, model, method, wrapOperation, present.replaced(), present.replacement());
                     } else {
                         HostReplacedCalls.bridgeMethod(
                                 builder, model, method, wrapOperation, present.replaced(), present.replacement());
@@ -2816,6 +2819,13 @@ final class HostPatchAdjustments {
                 before = List.of(before.getFirst());
                 after = List.of(after.getFirst());
             }
+            if (name.equals("<init>")) {
+                Optional<Injection> delegated =
+                        delegatedConstructor(handler, type, where, selector, points, before, patched, host);
+                if (delegated.isPresent()) {
+                    return delegated;
+                }
+            }
             // A slice whose boundary the patch removed selects nothing, so the injection finds nothing in it.
             for (String[] boundary : boundaries) {
                 if (boundary[1] != null
@@ -2955,6 +2965,18 @@ final class HostPatchAdjustments {
                                     where + " at " + point[1] + ": " + host.hostName() + " calls "
                                             + replacement.replacement() + " there; the wrap runs on that call with the"
                                             + " host's arguments and result",
+                                    new ReplacedCall(
+                                            handler.methodName().stringValue(),
+                                            handler.methodType().stringValue(),
+                                            point[1],
+                                            replacement.replacement())));
+                        }
+                        if (HostStaticCalls.fits(handler, type, point[1], replacement.replacement(), after)) {
+                            return Optional.of(Injection.replacedCall(
+                                    where + " at " + point[1] + ": " + host.hostName() + " calls "
+                                            + replacement.replacement() + " there, with the receiver, arguments of its"
+                                            + " own and the vanilla ones; the wrap runs on that call and makes it when"
+                                            + " the handler makes the wrapped call",
                                     new ReplacedCall(
                                             handler.methodName().stringValue(),
                                             handler.methodType().stringValue(),
@@ -3207,6 +3229,36 @@ final class HostPatchAdjustments {
                         List<MethodModel> movedMethods = methods(patched, movedName, movedDescriptor);
                         if (movedMethods.stream().anyMatch(found -> contains(found, newTarget))
                                 && !capturedArgumentsFit(handler, type, before, movedMethods)) {
+                            Optional<Injection> bridged = movedBodyBridge(
+                                            handler, type, where, point[1], before, movedMethods, host)
+                                    .map(bridge -> new Injection(
+                                            where + " at " + point[1] + ": " + host.hostName()
+                                                    + " moved that call to " + targetName + "."
+                                                    + movedMethodSpec + ", which takes the target method's"
+                                                    + " parameters and more; the injection runs there and"
+                                                    + " passes the handler the ones it was written for",
+                                            null,
+                                            new MethodRetarget(
+                                                    handler.methodName().stringValue(),
+                                                    handler.methodType().stringValue(),
+                                                    selector,
+                                                    movedMethodSpec),
+                                            null,
+                                            null,
+                                            bridge,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null));
+                            if (colon < 0 && bridged.isPresent()) {
+                                return bridged;
+                            }
                             return Optional.of(new Injection(
                                     where + " at " + point[1] + ": " + host.hostName() + " moved that call to "
                                             + targetName + "." + movedMethodSpec + ", whose parameters do not fit"
@@ -3714,6 +3766,152 @@ final class HostPatchAdjustments {
                 null,
                 new Bridge(handlerName, handlerDescriptor, bridgeType.descriptorString(), placed.get()),
                 null));
+    }
+
+    /**
+     * The bridge of an {@code @Inject} handler that takes all of the target method's parameters, whose injection point
+     * the patch moved into another method of the class ({@code moved}, {@link InjectionPointReplacement.Placement#IN_METHOD})
+     * that takes those parameters, in order, and more: the vanilla method of that name only calls it, as NeoForge's
+     * {@code SpriteSourceList.list(ResourceManager)} calls {@code list(ResourceManager, Set)} with an empty set, where the
+     * vanilla body is. The bridge takes the moved method's parameters and passes the handler the ones it was written for
+     * ({@link #changedParameters}), and its captured locals stay as they are: they follow the parameters in both methods.
+     * Empty for another injector, when either side is not exactly one method, when the return types differ, or when the
+     * moved method reorders the handler's parameters.
+     */
+    private static Optional<Bridge> movedBodyBridge(
+            MethodModel handler,
+            String type,
+            String where,
+            String point,
+            List<MethodModel> vanilla,
+            List<MethodModel> moved,
+            HostedLaunch host) {
+        if (!type.equals(INJECT) || vanilla.size() != 1 || moved.size() != 1) {
+            return Optional.empty();
+        }
+        MethodTypeDesc vanillaType = vanilla.getFirst().methodTypeSymbol();
+        MethodTypeDesc movedType = moved.getFirst().methodTypeSymbol();
+        if (!vanillaType.returnType().equals(movedType.returnType())
+                || movedType.parameterCount() <= vanillaType.parameterCount()
+                || !movedType
+                        .parameterList()
+                        .subList(0, vanillaType.parameterCount())
+                        .equals(vanillaType.parameterList())) {
+            return Optional.empty();
+        }
+        return changedParameters(handler, where + " at " + point, vanilla.getFirst(), moved.getFirst(), host)
+                .map(Injection::bridge);
+    }
+
+    /**
+     * An {@code @Inject} at the end ({@code RETURN} or {@code TAIL}) of a constructor that the host's patch turned into
+     * a call of a constructor it added, which takes the vanilla constructor's parameters, in order, and more, and holds
+     * the vanilla body: NeoForge 26.3.0.98's {@code BakedQuad(10 parameters)} calls {@code this(..., BakedNormals,
+     * BakedColors)}, and NeoForge's model baking calls the longer one directly. Injected into the vanilla constructor,
+     * the handler misses every object made with the longer one (Sodium's {@code BakedQuadMixin} computes each quad's
+     * facing there; without it Sodium stops the client building chunk meshes). The injection moves to the longer
+     * constructor, which every object goes through, and a bridge passes the handler the parameters it was written for
+     * ({@link #changedParameters}). Empty for another injector or point, or when the patched constructor does more than
+     * pass its own parameters on, first and in order.
+     */
+    private static Optional<Injection> delegatedConstructor(
+            MethodModel handler,
+            String type,
+            String where,
+            String selector,
+            List<String[]> points,
+            List<MethodModel> before,
+            ClassModel patched,
+            HostedLaunch host) {
+        if (!type.equals(INJECT)
+                || before.size() != 1
+                || points.isEmpty()
+                || points.stream().anyMatch(point -> !point[0].equals("RETURN") && !point[0].equals("TAIL"))) {
+            return Optional.empty();
+        }
+        MethodModel vanilla = before.getFirst();
+        String descriptor = vanilla.methodType().stringValue();
+        String owner = patched.thisClass().asInternalName();
+        if (delegatesTo(vanilla, owner).isPresent()) {
+            return Optional.empty();
+        }
+        Optional<MethodModel> patchedVanilla =
+                methods(patched, "<init>", descriptor).stream().findFirst();
+        Optional<String> longer = patchedVanilla.flatMap(method -> delegatesTo(method, owner));
+        if (longer.isEmpty()) {
+            return Optional.empty();
+        }
+        List<MethodModel> moved = methods(patched, "<init>", longer.get());
+        if (moved.size() != 1 || !passesOwnParameters(patchedVanilla.get())) {
+            return Optional.empty();
+        }
+        String movedSpec = "<init>" + longer.get();
+        return movedBodyBridge(handler, type, where, "the constructor's end", before, moved, host)
+                .map(bridge -> new Injection(
+                        where + ": " + host.hostName() + " made that constructor call " + movedSpec
+                                + ", which takes its parameters and more and which the host's code calls directly;"
+                                + " the injection runs at the end of that one and passes the handler the parameters"
+                                + " it was written for",
+                        null,
+                        new MethodRetarget(
+                                handler.methodName().stringValue(),
+                                handler.methodType().stringValue(),
+                                selector,
+                                movedSpec),
+                        null,
+                        null,
+                        bridge,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+    }
+
+    /** The descriptor of the constructor of {@code owner} that {@code constructor} calls on itself, if it does. */
+    private static Optional<String> delegatesTo(MethodModel constructor, String owner) {
+        return constructor.code().flatMap(code -> {
+            for (CodeElement element : code) {
+                if (element instanceof InvokeInstruction invoke
+                        && invoke.opcode() == Opcode.INVOKESPECIAL
+                        && invoke.name().equalsString("<init>")
+                        && invoke.owner().asInternalName().equals(owner)) {
+                    return Optional.of(invoke.type().stringValue());
+                }
+            }
+            return Optional.empty();
+        });
+    }
+
+    /** Whether {@code constructor} starts by loading {@code this} and then each of its parameters, in order. */
+    private static boolean passesOwnParameters(MethodModel constructor) {
+        MethodTypeDesc type = constructor.methodTypeSymbol();
+        List<Integer> expected = new ArrayList<>();
+        expected.add(0);
+        int slot = 1;
+        for (ClassDesc parameter : type.parameterList()) {
+            expected.add(slot);
+            slot += TypeKind.from(parameter).slotSize();
+        }
+        List<Integer> loaded = new ArrayList<>();
+        for (CodeElement element : constructor.code().orElseThrow()) {
+            if (!(element instanceof Instruction)) {
+                continue;
+            }
+            if (!(element instanceof LoadInstruction load)) {
+                break;
+            }
+            loaded.add(load.slot());
+            if (loaded.size() == expected.size()) {
+                break;
+            }
+        }
+        return loaded.equals(expected);
     }
 
     /**

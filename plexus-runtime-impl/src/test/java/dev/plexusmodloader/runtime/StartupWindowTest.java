@@ -8,17 +8,6 @@ import org.junit.jupiter.api.Test;
 class StartupWindowTest {
 
     @Test
-    void modsLineIsTheGameLayersLine() {
-        // PlexusLoadingOverlay.countsLine writes the same line on the game's loading screen.
-        assertEquals("", StartupWindow.modsLine(LoadedModCounts.NONE));
-        assertEquals(
-                "Mods: Fabric 34  ·  NeoForge 53  ·  Plexus 2",
-                StartupWindow.modsLine(new LoadedModCounts(2, 34, 0, 0, 53)));
-        assertEquals(
-                "Mods: Fabric 1  ·  Quilt 2  ·  Forge 3", StartupWindow.modsLine(new LoadedModCounts(0, 1, 3, 2, 0)));
-    }
-
-    @Test
     void withoutWindowEveryStepDoesNothing() {
         StartupWindow startup = StartupWindow.none();
         startup.hostStarting("NeoForge");

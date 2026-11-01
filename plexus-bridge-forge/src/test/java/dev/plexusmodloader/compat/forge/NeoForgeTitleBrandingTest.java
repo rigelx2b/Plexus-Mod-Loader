@@ -65,6 +65,21 @@ class NeoForgeTitleBrandingTest {
         assertEquals(List.of("Plexus mods: 2", "NeoForge mods: 40", "Minecraft 26.2", "NeoForge 26.2.0.93"), lines);
     }
 
+    /**
+     * NeoForge translates its branding line ({@code fml.menu.branding}) into the game's language; in Korean its mod count
+     * reads {@code (모드 54개 로드됨)}, which no English pattern matches. The line keeps NeoForge's name only, as in
+     * English, so the counts come from Plexus Mod Loader's lines alone.
+     */
+    @Test
+    void aTranslatedBrandingLineKeepsNeoForgesNameOnly() {
+        NeoForgeTitleBranding.install(() -> List.of("Fabric 모드: 15개"), message -> {}, "NeoForge 26.3.0.98");
+
+        List<String> lines = NeoForgeTitleBranding.withModCounts(
+                true, true, List.of("NeoForge 26.3.0.98 (모드 54개 로드됨)", "Minecraft 26.3"));
+
+        assertEquals(List.of("NeoForge 26.3.0.98", "Minecraft 26.3", "Fabric 모드: 15개"), lines);
+    }
+
     @Test
     void withoutLinesNeoForgesListIsReturnedWithoutModCounts() {
         NeoForgeTitleBranding.install(List::of, message -> {});

@@ -23,13 +23,13 @@
 
 ## 무엇을 소유하는가
 - `EarlyWindow`: 게임 프로세스 측 진입점으로, 프로세스 생명주기 관리 및 명령 전송을 담당합니다(`start`, `show`, `status`, `progress`, `underBar`, `snapshot`, `close`).
-- `EarlyWindowSettings`: 게임 실행 인수와 `options.txt`에서 창 제목, 크기, 배율, 배경 모드, 로고 경로를 파싱하는 불변 레코드입니다.
+- `EarlyWindowSettings`: 게임 실행 인수와 `options.txt`에서 창 제목, 크기, 배율, 배경 모드, 로고 경로를 파싱하는 불변 레코드입니다. `letterColumns()`는 막대 아래 한 줄에 들어가는 글자 수를 줍니다.
 - `EarlyWindowMain`: 보조 JVM 프로세스의 메인 클래스로, 표준 입력을 읽고 Swing 컴포넌트를 구동합니다.
 - `EarlyWindowProtocol`: 프로세스 간 표준 입력 기반 명령 프로토콜(`show`, `status`, `progress`, `under`, `snapshot`, `close`) 직렬화 및 구문 분석기입니다.
 - `LoadingScreenLayout`: 마인크래프트 26.1, 26.2, 26.3의 `LoadingOverlay` 및 `Window.calculateScale` 역공학 수치를 바탕으로 한 레이아웃 연산 클래스입니다.
-- `LoadingScreenPainter`: 로딩 화면 배경, 로고, 막대, 큐브 애니메이션, 텍스트를 렌더링하는 페인터입니다.
+- `LoadingScreenPainter`: 로딩 화면 배경, 로고, 막대, 큐브 애니메이션, 텍스트를 렌더링하는 페인터입니다. 막대 아래에는 첫 줄(로더별 모드 수)을 그리고, 그 뒤의 줄(로드되지 않은 모드)은 호박색으로 로고와 막대 사이, 막대 바로 위에 그립니다(막대 아래에 두면 상태 글자와 아래 줄의 이름에 겹침).
 - `LoadingScreenState`: 현재 표시할 이름, 상태 텍스트, 막대 아래 텍스트, 진행률(0~1)을 담는 레코드입니다.
-- `PixelLetters`: 게임 계층 `PlexusLoadingOverlay`와 동일한 5 x 7 픽셀 폰트 렌더러입니다.
+- `PixelLetters`: 게임 계층 `PlexusLoadingOverlay`와 동일한 5 x 7 픽셀 폰트 렌더러입니다(대문자로 그리는 영문, 숫자, 공백, `: · ' . , - _ / + ( )`).
 - `EarlyWindowArt`: 로고 프레임 시트(`plexus_cube.png`), 아이콘(`plexus_icon.png`), 클라이언트 jar 내 로고를 로드하는 유틸리티입니다.
 
 ## 무엇을 하지 않는가
@@ -70,7 +70,7 @@
 2. 보조 프로세스(`EarlyWindowMain`)는 숨겨진 상태로 시작되며, 준비가 완료되면 게임 프로세스가 `show` 명령을 전송하여 화면 중앙에 초기 창을 엽니다.
 3. FML 호스트 로더가 감지되면 NeoForge는 헤드리스 모드로 시작하고, MinecraftForge는 `ForgeEarlyWindowOff`를 통해 자체 초기 창을 비활성화합니다.
 4. Plexus 모드 로더가 모드를 탐색하는 동안 `status("Found 5 mod files")`와 `progress(0.15f)` 등의 명령을 보내 진행률과 상태를 갱신합니다.
-5. 모드 해석이 완료되면 `underBar` 명령을 통해 막대 아래에 로더별 모드 수(예: `Mods: Fabric 1 · Plexus 4`)를 전달합니다.
+5. 모드 해석이 완료되면 `underBar` 명령을 통해 막대 아래 줄을 전달합니다. 첫 줄은 로더별 모드 수로, 모드 폴더에 직접 넣은 모드 수 뒤에 그 안에 들어 있는 모드 수를 붙입니다(예: `Mods: Fabric 2 (+13 included)  ·  Plexus 4`). 모드 폴더의 모드가 로드되지 않았으면 둘째 줄부터 막대 바로 위에 호박색으로 `1 not loaded: sophisticatedbackpacks - see logs/latest.log`처럼 보여 줍니다(들어가는 만큼의 이름, 나머지는 "and N more"). 줄은 `plexus-version-adapter-api`의 `LoadingScreenModLines`가 만들며 게임 계층의 로딩 화면과 같습니다.
 6. 호스트 로더 준비 시 `status("Starting NeoForge")` 등을 전달하고, 마인크래프트 `Main` 실행 시 `status("Starting Minecraft 26.2")`를 보낸 뒤 스냅샷 디렉터리가 지정되어 있으면 `snapshot` 명령으로 `early-window.png`를 저장합니다.
 7. 게임 창이 열리고(`opening()`, 20초 안전 타이머 시작) 게임 계층의 `PlexusLoadingOverlay`가 첫 로딩 화면 프레임을 그리면 `GameWindowListener.shown()`이 호출됩니다.
 8. `shown()` 호출 0.3초 후 `close` 명령을 보내거나 표준 입력을 닫아 초기 창 프로세스를 종료하고 게임 창에 포커스를 넘깁니다(최대 3분 초과 시 자동 종료).

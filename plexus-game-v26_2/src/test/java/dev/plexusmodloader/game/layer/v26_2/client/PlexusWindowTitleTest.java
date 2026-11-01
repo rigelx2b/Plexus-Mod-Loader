@@ -3,6 +3,8 @@ package dev.plexusmodloader.game.layer.v26_2.client;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.plexusmodloader.game.version.layer.LoadedModCounts;
+import dev.plexusmodloader.game.version.layer.LoadingScreenModLines;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /** Plexus Mod Loader's name in the window title, and its mods line on the loading screen. */
@@ -26,10 +28,10 @@ class PlexusWindowTitleTest {
 
     @Test
     void theLoadingScreenNamesTheLoadersWhoseModsRun() {
-        assertEquals("", PlexusLoadingOverlay.countsLine(LoadedModCounts.NONE));
+        // The loading screen draws LoadingScreenModLines' lines, which the early window draws too.
         assertEquals(
-                "Mods: Fabric 34  ·  NeoForge 53  ·  Plexus 2",
-                PlexusLoadingOverlay.countsLine(new LoadedModCounts(2, 34, 0, 0, 53)));
+                List.of("Mods: Fabric 34  ·  NeoForge 53  ·  Plexus 2"),
+                LoadingScreenModLines.lines(new LoadedModCounts(2, 34, 0, 0, 53), 70));
         assertEquals(17 * 6 - 1, PlexusLoadingOverlay.pixelWidth("Plexus Mod Loader"));
     }
 }

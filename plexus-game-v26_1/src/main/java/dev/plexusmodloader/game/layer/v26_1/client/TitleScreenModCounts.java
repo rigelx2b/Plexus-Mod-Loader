@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -85,6 +86,17 @@ public final class TitleScreenModCounts {
             translated = current;
         }
         return current.lines();
+    }
+
+    /**
+     * The text of one of Plexus Mod Loader's keys in the game's current language (so a resource pack can change it),
+     * else in Plexus Mod Loader's own file for the selected language over its English one; {@code null} for none.
+     */
+    static Function<String, String> translations() {
+        Language language = Language.getInstance();
+        Map<String, String> bundled =
+                bundledTexts(Minecraft.getInstance().getLanguageManager().getSelected());
+        return key -> language.has(key) ? language.getOrDefault(key) : bundled.get(key);
     }
 
     /** Plexus Mod Loader's own texts for {@code languageCode}, over its English ones; English for a language it has no file for. */

@@ -96,4 +96,13 @@ record LoadingScreenLayout(int scale, int guiWidth, int guiHeight) {
     int[] underBar(int line, int textWidth) {
         return new int[] {(guiWidth - textWidth) / 2, barCentre() + 10 + 11 * line};
     }
+
+    /**
+     * The top left corner of warning line {@code line} of {@code lines}, top to bottom, {@code textWidth} GUI pixels
+     * wide: just above the bar, between it and the logo, since under the bar a second line would reach the status and
+     * the name on the bottom row.
+     */
+    int[] aboveBar(int line, int lines, int textWidth) {
+        return new int[] {(guiWidth - textWidth) / 2, barCentre() - 5 - 4 - 7 - 10 * (lines - 1 - line)};
+    }
 }

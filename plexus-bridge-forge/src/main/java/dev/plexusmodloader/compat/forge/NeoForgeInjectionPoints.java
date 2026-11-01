@@ -158,6 +158,29 @@ final class NeoForgeInjectionPoints {
                         "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;send(Lnet/minecraft/network/protocol/Packet;)V",
                         "openMenu(Lnet/minecraft/world/MenuProvider;Ljava/util/function/Consumer;)Ljava/util/OptionalInt;",
                         InjectionPointReplacement.Placement.IN_METHOD),
+                // Gui.extractRenderState: where vanilla calls
+                // screen.extractRenderStateWithTooltipAndSubtitles(graphics,
+                // mouseX, mouseY, partialTick), NeoForge calls ClientHooks.extractScreen(screen, screenLayers,
+                // graphics,
+                // mouseX, mouseY, partialTick), which draws its screen layers and makes that very call between its
+                // ScreenEvent.Render.Pre and Post (javap, 26.2.0.93 and 26.3.0.98). FancyMenu's MixinFabricGameRenderer
+                // wraps the vanilla call; the wrap runs on NeoForge's (HostStaticCalls).
+                new InjectionPointReplacement(
+                        "net/minecraft/client/gui/Gui",
+                        "extractRenderState",
+                        "Lnet/minecraft/client/gui/screens/Screen;extractRenderStateWithTooltipAndSubtitles(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V",
+                        "Lnet/neoforged/neoforge/client/ClientHooks;extractScreen(Lnet/minecraft/client/gui/screens/Screen;Ljava/util/Stack;Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V"),
+                // SpriteSourceList.list(ResourceManager): NeoForge turns it into a call of list(ResourceManager, Set)
+                // with
+                // Set.of(), which holds the vanilla body with the same locals after its parameters (javap, 26.2.0.93
+                // and 26.3.0.98). Continuity's SpriteSourceListMixin injects at ImmutableList.builder() there, taking
+                // the target's parameter and the sprites map; a bridge passes it the parameter it was written for.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/renderer/texture/atlas/SpriteSourceList",
+                        "list",
+                        "Lcom/google/common/collect/ImmutableList;builder()Lcom/google/common/collect/ImmutableList$Builder;",
+                        "list(Lnet/minecraft/server/packs/resources/ResourceManager;Ljava/util/Set;)Ljava/util/List;",
+                        InjectionPointReplacement.Placement.IN_METHOD),
                 // Bootstrap.bootStrap: vanilla calls wrapStreams() last, after CreativeModeTabs.validate(), where
                 // Fabric API's BootstrapMixin (fabric-registry-sync-v0) injects afterInitialize. NeoForge calls
                 // GameData.vanillaSnapshot() in its place and wrapStreams nowhere. afterInitialize only adds

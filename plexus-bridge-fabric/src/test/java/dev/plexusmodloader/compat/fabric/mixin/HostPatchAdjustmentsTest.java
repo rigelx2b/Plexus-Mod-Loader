@@ -4279,6 +4279,279 @@ class HostPatchAdjustmentsTest {
         assertFalse(annotations.contains("Lt/Target;create("), annotations);
     }
 
+    /**
+     * NeoForge's {@code BakedQuad(10 parameters)} calls its added {@code BakedQuad(12 parameters)}, which its model baking
+     * calls directly: Sodium's injection at the vanilla constructor's end moves to the longer one, through a bridge.
+     */
+    @Test
+    void anInjectAtTheEndOfAConstructorFollowsItIntoTheLongerOneItCalls() throws Exception {
+        assertConstructorInjection("RETURN", true);
+        assertConstructorInjection("TAIL", true);
+    }
+
+    /** At the head, before the vanilla constructor calls the longer one, the injection stays where it is. */
+    @Test
+    void anInjectAtTheHeadOfAConstructorStays() throws Exception {
+        assertConstructorInjection("HEAD", false);
+    }
+
+    private void assertConstructorInjection(String at, boolean moves) throws Exception {
+        ClassDesc callbackInfo = ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo");
+        MethodTypeDesc handlerType = MethodTypeDesc.of(CD_void, CD_int, callbackInfo);
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("<init>"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", at)))));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.QuadMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("init", handlerType, ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"QuadMixin\"]}", "m/QuadMixin.class", mixin));
+        MethodTypeDesc one = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc two = MethodTypeDesc.of(CD_void, CD_int, CD_boolean);
+        MethodTypeDesc objectInit = MethodTypeDesc.of(CD_void);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "<init>",
+                                one,
+                                ClassFile.ACC_PUBLIC,
+                                code -> code.aload(0)
+                                        .invokespecial(ConstantDescs.CD_Object, "<init>", objectInit)
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                        "<init>",
+                                        one,
+                                        ClassFile.ACC_PUBLIC,
+                                        code -> code.aload(0)
+                                                .iload(1)
+                                                .iconst_1()
+                                                .invokespecial(TARGET, "<init>", two)
+                                                .return_())
+                                .withMethodBody(
+                                        "<init>",
+                                        two,
+                                        ClassFile.ACC_PUBLIC,
+                                        code -> code.aload(0)
+                                                .invokespecial(ConstantDescs.CD_Object, "<init>", objectInit)
+                                                .return_()));
+
+        HostPatchAdjustments adjustments = HostPatchAdjustments.plan(
+                new HostedLaunch("Host 1", List.of(), List.of(), directory),
+                GameSide.CLIENT,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        ClassModel rewritten = ClassFile.of().parse(adjustments.apply("m.QuadMixin", mixin));
+        Optional<MethodModel> bridge = rewritten.methods().stream()
+                .filter(method -> method.methodName().equalsString("plexus$hostParameters$init"))
+                .findFirst();
+        if (!moves) {
+            assertTrue(adjustments.findings().isEmpty(), adjustments.findings().toString());
+            assertTrue(bridge.isEmpty());
+            return;
+        }
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        assertFalse(
+                adjustments.findings().getFirst().incompatible(),
+                adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().toString().contains("which the host's code calls directly"),
+                adjustments.findings().toString());
+        assertEquals(
+                MethodTypeDesc.of(CD_void, CD_int, CD_boolean, callbackInfo),
+                bridge.orElseThrow().methodTypeSymbol());
+        assertTrue(annotationsOf(bridge.get()).contains("<init>(IZ)V"), annotationsOf(bridge.get()));
+    }
+
+    /**
+     * NeoForge's {@code SpriteSourceList.list(ResourceManager)} calls {@code list(ResourceManager, Set)}, which holds the
+     * vanilla body; Continuity injects there taking the target's parameter and a captured local. The injection moves
+     * to the longer overload through a bridge that takes its parameters and passes the handler the ones it was written
+     * for; the handler itself keeps no {@code @Inject}.
+     */
+    @Test
+    void anInjectTakingTheTargetsParametersFollowsABodyMovedIntoALongerOverload() throws Exception {
+        ClassDesc callbackInfo = ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo");
+        MethodTypeDesc handlerType = MethodTypeDesc.of(CD_void, CD_int, callbackInfo, CD_String);
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("setItem(I)V"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", "INVOKE"),
+                                AnnotationElement.ofString("target", "Lt/Target;old()V")))));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.BodyMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("afterOld", handlerType, ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"BodyMixin\"]}", "m/BodyMixin.class", mixin));
+        MethodTypeDesc one = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc two = MethodTypeDesc.of(CD_void, CD_int, CD_boolean);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "setItem",
+                                one,
+                                0,
+                                code -> code.invokestatic(TARGET, "old", MethodTypeDesc.of(CD_void))
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                        "setItem",
+                                        one,
+                                        0,
+                                        code -> code.aload(0)
+                                                .iload(1)
+                                                .iconst_1()
+                                                .invokevirtual(TARGET, "setItem", two)
+                                                .return_())
+                                .withMethodBody(
+                                        "setItem",
+                                        two,
+                                        0,
+                                        code -> code.invokestatic(TARGET, "old", MethodTypeDesc.of(CD_void))
+                                                .return_()));
+
+        HostPatchAdjustments adjustments = HostPatchAdjustments.plan(
+                new HostedLaunch(
+                        "Host 1",
+                        List.of(),
+                        List.of(new InjectionPointReplacement(
+                                "t/Target",
+                                "setItem",
+                                "Lt/Target;old()V",
+                                "setItem(IZ)V",
+                                InjectionPointReplacement.Placement.IN_METHOD)),
+                        directory),
+                GameSide.DEDICATED_SERVER,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        assertFalse(
+                adjustments.findings().getFirst().incompatible(),
+                adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().toString().contains("passes the handler the ones it was written for"),
+                adjustments.findings().toString());
+
+        ClassModel rewritten = ClassFile.of().parse(adjustments.apply("m.BodyMixin", mixin));
+        MethodModel handler = rewritten.methods().stream()
+                .filter(method -> method.methodName().equalsString("afterOld"))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(annotationsOf(handler).contains("Inject"), annotationsOf(handler));
+        MethodModel bridge = rewritten.methods().stream()
+                .filter(method -> method.methodName().equalsString("plexus$hostParameters$afterOld"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                MethodTypeDesc.of(CD_void, CD_int, CD_boolean, callbackInfo, CD_String), bridge.methodTypeSymbol());
+        assertTrue(annotationsOf(bridge).contains("setItem(IZ)V"), annotationsOf(bridge));
+    }
+
+    /**
+     * The same move, where the longer overload puts its added parameter first: the handler's parameters are not the
+     * overload's first ones, so the injection does not run and the mod is incompatible.
+     */
+    @Test
+    void anInjectTakingTheTargetsParametersDoesNotFollowABodyWhoseOverloadReordersThem() throws Exception {
+        ClassDesc callbackInfo = ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo");
+        MethodTypeDesc handlerType = MethodTypeDesc.of(CD_void, CD_int, callbackInfo);
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("setItem(I)V"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", "INVOKE"),
+                                AnnotationElement.ofString("target", "Lt/Target;old()V")))));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.BodyMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("afterOld", handlerType, ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"BodyMixin\"]}", "m/BodyMixin.class", mixin));
+        MethodTypeDesc one = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc two = MethodTypeDesc.of(CD_void, CD_boolean, CD_int);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "setItem",
+                                one,
+                                0,
+                                code -> code.invokestatic(TARGET, "old", MethodTypeDesc.of(CD_void))
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                        "setItem",
+                                        one,
+                                        0,
+                                        code -> code.aload(0)
+                                                .iconst_1()
+                                                .iload(1)
+                                                .invokevirtual(TARGET, "setItem", two)
+                                                .return_())
+                                .withMethodBody(
+                                        "setItem",
+                                        two,
+                                        0,
+                                        code -> code.invokestatic(TARGET, "old", MethodTypeDesc.of(CD_void))
+                                                .return_()));
+
+        HostPatchAdjustments adjustments = HostPatchAdjustments.plan(
+                new HostedLaunch(
+                        "Host 1",
+                        List.of(),
+                        List.of(new InjectionPointReplacement(
+                                "t/Target",
+                                "setItem",
+                                "Lt/Target;old()V",
+                                "setItem(ZI)V",
+                                InjectionPointReplacement.Placement.IN_METHOD)),
+                        directory),
+                GameSide.DEDICATED_SERVER,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().getFirst().incompatible(),
+                adjustments.findings().toString());
+    }
+
     @Test
     void aCallTheHostMovedToAnotherMethodRetargetsTheMethodSelector() throws Exception {
         Annotation redirect = Annotation.of(

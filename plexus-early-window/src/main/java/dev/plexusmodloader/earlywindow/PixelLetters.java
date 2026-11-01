@@ -5,7 +5,7 @@ import java.util.Map;
 
 /**
  * Plexus Mod Loader's 5 x 7 pixel letters, the same as the game layers' {@code PlexusLoadingOverlay} draws on the game's
- * loading screen (upper case, digits, space, colon, middle dot, apostrophe, full stop, hyphen, slash; anything else is
+ * loading screen (upper case, digits, space, colon, middle dot, apostrophe, full stop, comma, hyphen, underscore, slash, plus, brackets; anything else is
  * drawn as a space).
  */
 final class PixelLetters {
@@ -76,7 +76,12 @@ final class PixelLetters {
             letter('\'', "..1..", "..1..", ".1...", ".....", ".....", ".....", "....."),
             letter('.', ".....", ".....", ".....", ".....", ".....", ".....", "..1.."),
             letter('-', ".....", ".....", ".....", ".111.", ".....", ".....", "....."),
-            letter('/', "....1", "...1.", "...1.", "..1..", ".1...", ".1...", "1...."));
+            letter('/', "....1", "...1.", "...1.", "..1..", ".1...", ".1...", "1...."),
+            letter(',', ".....", ".....", ".....", ".....", ".....", "..1..", ".1..."),
+            letter('_', ".....", ".....", ".....", ".....", ".....", ".....", "11111"),
+            letter('+', ".....", "..1..", "..1..", "11111", "..1..", "..1..", "....."),
+            letter('(', "...1.", "..1..", ".1...", ".1...", ".1...", "..1..", "...1."),
+            letter(')', ".1...", "..1..", "...1.", "...1.", "...1.", "..1..", ".1..."));
 
     private static Map.Entry<Character, String[]> letter(char letter, String... rows) {
         return Map.entry(letter, rows);

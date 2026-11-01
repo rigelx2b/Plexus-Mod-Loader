@@ -69,9 +69,11 @@ includeIfPresent(
     "plexus-bridge-api",
     "plexus-bridge-fabric",
     "plexus-bridge-forge",
-    // Fabric API modules implemented on NeoForge 26.2 (ADR-0031).
+    // Fabric API modules implemented on NeoForge and on MinecraftForge (ADR-0031).
     "plexus-fabric-api-neoforge-v26_2",
     "plexus-fabric-api-neoforge-v26_3",
+    "plexus-fabric-api-forge-v26_2",
+    "plexus-fabric-api-forge-v26_3",
     "plexus-bootstrap",
     "plexus-installer",
     "examples:minimal-native-mod",
@@ -146,6 +148,8 @@ includeIfPresent(
     "test-mods:fabric-object-builder",
     "test-mods:fabric-block-item",
     "test-mods:fabric-content-registries",
+    "test-mods:fabric-biome-modification",
+    "test-mods:fabric-custom-fluid",
     "test-mods:fabric-data-generation",
     "test-mods:fabric-datagen-run",
     "test-mods:fabric-client-probe",

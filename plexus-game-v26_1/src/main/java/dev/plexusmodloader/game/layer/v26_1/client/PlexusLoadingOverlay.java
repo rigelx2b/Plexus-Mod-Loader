@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import dev.plexusmodloader.game.layer.v26_1.LayerState;
 import dev.plexusmodloader.game.version.layer.GameLayerContext;
 import dev.plexusmodloader.game.version.layer.LoadedModCounts;
+import dev.plexusmodloader.game.version.layer.LoadingScreenModLines;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
@@ -107,36 +108,28 @@ public final class PlexusLoadingOverlay {
         if (barAlpha > 0.0f) {
             LoadedModCounts counts =
                     LayerState.context().map(GameLayerContext::modCounts).orElse(LoadedModCounts.NONE);
-            String line = countsLine(counts);
+            // The counts line in white, then a line for each kind of mods not loaded, as the early window has them.
+            List<String> lines = LoadingScreenModLines.lines(counts, width / LETTER_ADVANCE - 2);
             // The game's progress bar: centred at height * 0.8325, 10 pixels high.
             int barCentre = (int) (height * 0.8325);
-            if (!line.isEmpty()) {
-                pixelText(graphics, line, (width - pixelWidth(line)) / 2, barCentre + 10, barAlpha * 0.85f, 0xFFFFFF);
-            }
-            if (counts.hostIncompatibleMods() > 0) {
-                String left = counts.hostIncompatibleMods() + " not loaded: Plexus Mod Loader can't run them yet";
-                pixelText(graphics, left, (width - pixelWidth(left)) / 2, barCentre + 21, barAlpha * 0.85f, 0xFFE08A);
+            for (int index = 0; index < lines.size(); index++) {
+                String line = lines.get(index);
+                // The counts under the bar; the warnings just above it (the early window's LoadingScreenLayout), since
+                // under the bar a second line would reach the bottom row.
+                int y = index == 0 ? barCentre + 10 : barCentre - 5 - 4 - 7 - 10 * (lines.size() - 1 - index);
+                pixelText(
+                        graphics,
+                        line,
+                        (width - pixelWidth(line)) / 2,
+                        y,
+                        barAlpha * 0.85f,
+                        index == 0 ? 0xFFFFFF : 0xFFE08A);
             }
             if (REPORTED.compareAndSet(false, true)) {
-                LOGGER.info("[Plexus Mod Loader] Loading screen marks: {}", line.isEmpty() ? "no mods" : line);
+                LOGGER.info(
+                        "[Plexus Mod Loader] Loading screen marks: {}",
+                        lines.isEmpty() ? "no mods" : String.join(" / ", lines));
             }
-        }
-    }
-
-    /** {@code Mods: Fabric 34 · NeoForge 53 · Plexus 2}: the loaders whose mods run; empty with none. */
-    static String countsLine(LoadedModCounts counts) {
-        List<String> parts = new ArrayList<>();
-        add(parts, "Fabric", counts.fabricMods());
-        add(parts, "Quilt", counts.quiltMods());
-        add(parts, "Forge", counts.forgeMods());
-        add(parts, "NeoForge", counts.neoForgeMods());
-        add(parts, "Plexus", counts.plexusMods());
-        return parts.isEmpty() ? "" : "Mods: " + String.join("  ·  ", parts);
-    }
-
-    private static void add(List<String> parts, String loader, int count) {
-        if (count > 0) {
-            parts.add(loader + " " + count);
         }
     }
 
@@ -164,7 +157,7 @@ public final class PlexusLoadingOverlay {
 
     /**
      * {@code text} in Plexus Mod Loader's 5 x 7 pixel letters (upper case; digits; space, colon, middle dot, apostrophe,
-     * full stop, hyphen, slash), with a shadow one pixel down and right as the game's text has. The game's font is not
+     * full stop, comma, hyphen, underscore, slash, plus, brackets), with a shadow one pixel down and right as the game's text has. The game's font is not
      * used: MinecraftForge's first loading screen comes before the game loads it.
      */
     private static void pixelText(GuiGraphicsExtractor graphics, String text, int x, int y, float alpha, int rgb) {
@@ -249,7 +242,12 @@ public final class PlexusLoadingOverlay {
             letter('\'', "..1..", "..1..", ".1...", ".....", ".....", ".....", "....."),
             letter('.', ".....", ".....", ".....", ".....", ".....", ".....", "..1.."),
             letter('-', ".....", ".....", ".....", ".111.", ".....", ".....", "....."),
-            letter('/', "....1", "...1.", "...1.", "..1..", ".1...", ".1...", "1...."));
+            letter('/', "....1", "...1.", "...1.", "..1..", ".1...", ".1...", "1...."),
+            letter(',', ".....", ".....", ".....", ".....", ".....", "..1..", ".1..."),
+            letter('_', ".....", ".....", ".....", ".....", ".....", ".....", "11111"),
+            letter('+', ".....", "..1..", "..1..", "11111", "..1..", "..1..", "....."),
+            letter('(', "...1.", "..1..", ".1...", ".1...", ".1...", "..1..", "...1."),
+            letter(')', ".1...", "..1..", "...1.", "...1.", "...1.", "..1..", ".1..."));
 
     private static Map.Entry<Character, String[]> letter(char letter, String... rows) {
         return Map.entry(letter, rows);

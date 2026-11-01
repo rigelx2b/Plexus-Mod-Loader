@@ -65,6 +65,7 @@ final class NeoForgeGameHost implements GameHost {
     private final Path hostJar;
     private final List<Path> modJars;
     private final List<BridgeLaunchContext.LoadedMod> hostMods;
+    private final List<String> leftOutMods;
     private final List<Path> declined;
     private ForeignModIndex otherMods = ForeignModIndex.EMPTY;
     private NeoForgeLaunch launch;
@@ -77,7 +78,8 @@ final class NeoForgeGameHost implements GameHost {
             Path hostJar,
             List<Path> modJars,
             List<BridgeLaunchContext.LoadedMod> hostMods,
-            List<Path> declined) {
+            List<Path> declined,
+            List<String> leftOutMods) {
         this.request = request;
         this.files = files;
         this.modules = List.copyOf(modules);
@@ -85,6 +87,7 @@ final class NeoForgeGameHost implements GameHost {
         this.hostJar = hostJar;
         this.modJars = List.copyOf(modJars);
         this.hostMods = List.copyOf(hostMods);
+        this.leftOutMods = List.copyOf(leftOutMods);
         this.declined = List.copyOf(declined);
     }
 
@@ -129,7 +132,11 @@ final class NeoForgeGameHost implements GameHost {
                 }
             }
         }
-        List<Path> runnable = runnableMods(request, files, modJars);
+        ForgeModRequirements.Result requirements = runnableMods(request, files, modJars);
+        List<Path> runnable = requirements.kept();
+        List<String> leftOut = requirements.excluded().stream()
+                .map(ForgeModRequirements.Excluded::modId)
+                .toList();
         // With Fabric's Mixin shared, a jar built for several loaders that FML would refuse may run by its other
         // metadata instead (declinedJars).
         List<Path> declined = request.sharedMixin()
@@ -143,7 +150,8 @@ final class NeoForgeGameHost implements GameHost {
                 extractHostJar(files.directory()),
                 runnable,
                 NeoForgeModRequirements.hostMods(runnable),
-                declined);
+                declined,
+                leftOut);
     }
 
     /**
@@ -195,7 +203,7 @@ final class NeoForgeGameHost implements GameHost {
      * PLEXUS-COMPAT-217}), checked with the Maven version ranges of NeoForge's own {@code maven-artifact} and the version
      * FML's Java language loader has ({@link #javaLanguageVersion}).
      */
-    private static List<Path> runnableMods(
+    private static ForgeModRequirements.Result runnableMods(
             GameHost.Request request, NeoForgeInstallation.Prepared files, List<Path> modJars) throws IOException {
         Path mavenArtifact = library(files, "maven-artifact-");
         String javaLanguage = javaLanguageVersion(fmlLoaderJar(files));
@@ -223,7 +231,7 @@ final class NeoForgeGameHost implements GameHost {
                                 + result.excluded().size()
                                 + " left out (PLEXUS-COMPAT-217)");
             }
-            return result.kept();
+            return result;
         } catch (ReflectiveOperationException e) {
             throw new IOException("NeoForge's maven-artifact cannot check version ranges: " + e, e);
         }
@@ -570,6 +578,11 @@ final class NeoForgeGameHost implements GameHost {
     }
 
     @Override
+    public List<String> leftOutMods() {
+        return leftOutMods;
+    }
+
+    @Override
     public Set<String> modIds() {
         Set<String> ids = new LinkedHashSet<>();
         hostMods.forEach(mod -> ids.add(mod.modId()));
@@ -638,7 +651,8 @@ final class NeoForgeGameHost implements GameHost {
 
     @Override
     public void addBrandingLines(Supplier<List<String>> lines) {
-        NeoForgeTitleBranding.install(lines, request.log());
+        NeoForgeTitleBranding.install(
+                lines, request.log(), "NeoForge " + files.release().neoForgeVersion());
     }
 
     /** FML's mod list answers for {@code mods} too, through {@link ForgeModListPatch} (ADR-0025). */
