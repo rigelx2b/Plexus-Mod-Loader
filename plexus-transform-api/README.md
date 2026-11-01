@@ -1,39 +1,41 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-transform-api — Declarative Bytecode Transform Contract
 
-`plexus-transform-api`는 마인크래프트 바이트코드 변환 규칙과 접근성 확장(Access Widening), 그리고 변환 검증 오류 코드를 데이터 모델로 선언하는 내부 인터페이스 모듈입니다.
+`plexus-transform-api` is an internal interface module that declares Minecraft bytecode transform rules, access widening, and transform validation error codes as data models.
 
 ---
 
-## 1. 설계 원칙 및 책임
+## 1. Design Principles and Responsibilities
 
-1. **ASM 의존성 차단:**
-   - 바이트코드를 직접 다루는 ASM 라이브러리 타입(`ClassNode`, `MethodNode` 등)을 일절 노출하지 않습니다.
-   - 변환 의도(Method Hook, Static Redirect, Constant Replacement, Access Widening)를 순수 Java 불변 데이터 레코드(`Record`, `Sealed Interface`)로 추상화합니다.
-2. **선언적 변환 규칙 (Declarative Rules):**
-   - 모드와 버전 어댑터는 "어떤 클래스의 어떤 메서드에 어떤 훅을 거는가"를 불변 객체(`TransformRuleDefinition`)로 선언하며, 실제 바이트코드 조작은 `plexus-transform-engine`이 전담합니다.
-3. **엄격한 실패 정책 (`TransformFailurePolicy`):**
-   - `ABORT_STARTUP`(시작 중단), `DISABLE_RULE`(해당 규칙만 비활성화) 두 정책으로 안전한 실패(Fail-safe)를 지원합니다.
+1. **ASM Dependency Isolation:**
+   - Does not expose any ASM library types (`ClassNode`, `MethodNode`, etc.) that directly manipulate bytecode.
+   - Abstracts transform intents (Method Hook, Static Redirect, Constant Replacement, Access Widening) into pure Java immutable data records (`Record`, `Sealed Interface`).
+2. **Declarative Transform Rules:**
+   - Mods and version adapters declare "which hook to attach to which method of which class" as immutable objects (`TransformRuleDefinition`), while actual bytecode manipulation is handled entirely by `plexus-transform-engine`.
+3. **Strict Failure Policy (`TransformFailurePolicy`):**
+   - Supports fail-safe behavior through two policies: `ABORT_STARTUP` (abort startup) and `DISABLE_RULE` (disable only the affected rule).
 
 ---
 
-## 2. 주요 선언 모델
+## 2. Key Declaration Models
 
-- **`TransformRuleDefinition`**: 규칙 ID, 타겟 클래스, 타겟 메서드, 적용 액션, 실패 정책 및 선행 규칙(`after`) 정의.
+- **`TransformRuleDefinition`**: Defines the rule ID, target class, target method, applied action, failure policy, and prerequisite rules (`after`).
 - **`MethodTransformAction`** (Sealed Interface):
-  - `InjectStaticCallAtHead`: 메서드 시작 지점에 정적 메서드 호출 주입
-  - `InvokeHookAtHead`: 컨텍스트/인자를 포함한 시작 훅 호출
-  - `InvokeHookBeforeReturn`: `RETURN` 직전 반환 훅 호출
-  - `InvokeHookAtCall`: 특정 호출의 바로 앞이나 뒤에서 훅을 부르고, 원래 호출은 그대로 둠
-  - `RedirectCall`: 특정 메서드 호출 지점(Call site)을 대체 메서드로 리다이렉트
-  - `ReplaceReturnedStringConstant`: 문자열 상수 반환값 치환
-  - `ReplaceConstantReturnWithStaticCall`: 상수만 반환하는 메서드를 정적 훅 호출 결과를 반환하도록 바꿈
-- **`AccessWidening`**: `public` 확장 및 `final` 제거를 선언하는 접근 제어자 확장 모델.
+  - `InjectStaticCallAtHead`: Injects a static method call at the start of the method
+  - `InvokeHookAtHead`: Invokes an entry hook with context/arguments
+  - `InvokeHookBeforeReturn`: Invokes a return hook immediately before `RETURN`
+  - `InvokeHookAtCall`: Invokes a hook immediately before or after a specific call, leaving the original call intact
+  - `RedirectCall`: Redirects a specific method call site to an alternative method
+  - `ReplaceReturnedStringConstant`: Replaces a returned string constant value
+  - `ReplaceConstantReturnWithStaticCall`: Changes a method that only returns a constant to return the result of a static hook call
+- **`AccessWidening`**: Access modifier widening model declaring `public` expansion and `final` removal.
 
 ---
 
-## 3. 검증 및 빌드
+## 3. Verification and Build
 
 ```powershell
 .\gradlew.bat :plexus-transform-api:check
 ```
-실제 바이트코드 변환 엔진의 통합 테스트는 `plexus-transform-engine`에서 수행됩니다.
+Integration testing of the actual bytecode transform engine is performed in `plexus-transform-engine`.

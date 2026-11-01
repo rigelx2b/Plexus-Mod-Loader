@@ -34,7 +34,7 @@ class LoadingScreenModLinesTest {
         assertEquals(
                 List.of(
                         "Mods: Fabric 15",
-                        "2 not loaded: Plexus Mod Loader can't run them yet",
+                        "2 not loaded: not yet supported by Plexus Mod Loader",
                         "1 not loaded: sophisticatedbackpacks - see logs/latest.log"),
                 LoadingScreenModLines.lines(counts, 70));
     }

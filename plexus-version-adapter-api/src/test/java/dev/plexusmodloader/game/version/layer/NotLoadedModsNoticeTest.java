@@ -33,7 +33,7 @@ class NotLoadedModsNoticeTest {
                 new NotLoadedModsNotice(
                         "Some mods were not loaded",
                         List.of(
-                                "Plexus Mod Loader can't run these yet: fancymenu",
+                                "Not yet supported by Plexus Mod Loader: fancymenu",
                                 "Missing a required mod, blocked or unreadable: sophisticatedbackpacks",
                                 "The reason for each mod is in logs/latest.log.")),
                 NotLoadedModsNotice.of(COUNTS, bundled("en_us")::get).orElseThrow());
@@ -64,7 +64,7 @@ class NotLoadedModsNoticeTest {
                         LoadedModCounts.NONE.withHostIncompatibleMods(3), key -> null)
                 .orElseThrow();
         assertEquals(
-                "Plexus Mod Loader can't run these yet: 3", notice.paragraphs().getFirst());
+                "Not yet supported by Plexus Mod Loader: 3", notice.paragraphs().getFirst());
     }
 
     @Test

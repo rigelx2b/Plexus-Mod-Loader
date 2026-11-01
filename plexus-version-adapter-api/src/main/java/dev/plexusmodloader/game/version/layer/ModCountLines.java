@@ -42,7 +42,7 @@ public final class ModCountLines {
     public static final String FORGE_KEY = "plexus.title.mod_count.forge";
     /** Key of the NeoForge mods line, {@code "NeoForge mods: %s"} in English. */
     public static final String NEOFORGE_KEY = "plexus.title.mod_count.neoforge";
-    /** Key of the left-out mods line, {@code "Not loaded, Plexus Mod Loader can't run them yet: %s"} in English. */
+    /** Key of the left-out mods line, {@code "Not yet supported by Plexus Mod Loader: %s"} in English. */
     public static final String HOST_INCOMPATIBLE_KEY = "plexus.title.mod_count.host_incompatible";
     /** Key of what follows a loader's line when some of its mods came bundled, {@code " (+%s included)"} in English. */
     public static final String BUNDLED_KEY = "plexus.title.mod_count.bundled";
@@ -83,7 +83,7 @@ public final class ModCountLines {
         add(
                 lines,
                 HOST_INCOMPATIBLE_KEY,
-                "Not loaded, Plexus Mod Loader can't run them yet: %s",
+                "Not yet supported by Plexus Mod Loader: %s",
                 counts.hostIncompatibleMods(),
                 translations);
         add(lines, LEFT_OUT_KEY, LEFT_OUT_ENGLISH, counts.leftOutMods().size(), translations);

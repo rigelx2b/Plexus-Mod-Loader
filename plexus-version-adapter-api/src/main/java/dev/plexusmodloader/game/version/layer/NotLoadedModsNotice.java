@@ -37,7 +37,7 @@ public record NotLoadedModsNotice(String title, List<String> paragraphs) {
     public static final String DETAILS_KEY = "plexus.notice.not_loaded.details";
 
     static final String TITLE_ENGLISH = "Some mods were not loaded";
-    static final String HOST_INCOMPATIBLE_ENGLISH = "Plexus Mod Loader can't run these yet: %s";
+    static final String HOST_INCOMPATIBLE_ENGLISH = "Not yet supported by Plexus Mod Loader: %s";
     static final String LEFT_OUT_ENGLISH = "Missing a required mod, blocked or unreadable: %s";
     static final String DETAILS_ENGLISH = "The reason for each mod is in logs/latest.log.";
 

@@ -1,52 +1,54 @@
+[English](README.md) | [한국어](README.ko.md)
+
 # plexus-installer — Cross-Platform Installer & Launcher Integrator
 
-`plexus-installer`는 마인크래프트 공식 런처(`.minecraft`) 및 독립 서버 환경에 Plexus Mod Loader를 설치·관리할 수 있는 크로스 플랫폼 설치 프로그램 모듈입니다.
+`plexus-installer` is a cross-platform installer module for installing and managing Plexus Mod Loader in the official Minecraft launcher (`.minecraft`) and standalone server environments.
 
 ---
 
-## 1. 배포 형태 및 아키텍처
+## 1. Distribution Format and Architecture
 
-Plexus 인스톨러는 모든 플랫폼에서 jar 하나로 빌드 및 배포됩니다:
+The Plexus installer is built and distributed as a single JAR across all platforms:
 
-| 배포 파일명 | 대상 플랫폼 | 특징 |
+| Distribution Filename | Target Platform | Features |
 | :--- | :--- | :--- |
-| **`PlexusModLoader-<version>.jar`** | Windows, macOS, Linux (Java 17+) | Java Swing GUI 기반 크로스 플랫폼 인스톨러. CLI 헤드리스 설치 지원. |
+| **`PlexusModLoader-<version>.jar`** | Windows, macOS, Linux (Java 17+) | Java Swing GUI-based cross-platform installer. Supports headless CLI installation. |
 
 ---
 
-## 2. 주요 기능
+## 2. Key Features
 
-1. **공식 마인크래프트 런처 원클릭 프로필 생성:**
-   - `.minecraft/versions` 및 `launcher_profiles.json`에 `Plexus Mod Loader <버전>` 프로필을 안전하게 추가합니다.
-   - 기존 설정 손상을 방지하기 위해 원자적 파일 쓰기(Atomic Write) 및 백업(`.plexusmodloader-backup`)을 수행합니다.
-2. **다국어 GUI 지원 (영어 / 한국어):**
-   - 시스템 언어를 자동 감지하며, 창 우측 상단의 언어 메뉴를 통해 실시간으로 전환할 수 있습니다.
-3. **독립 서버 원클릭 설치 (명령줄 `install-server`):**
-   - 전용 서버(Dedicated Server) 실행에 필요한 라이브러리, 구동 스크립트, 모드 폴더(`mods/`)를 지정된 디렉터리에 자동으로 구성합니다.
-4. **최적 메모리 할당 자동 계산:**
-   - 시스템 물리 메모리 용량을 감지하여 추천 JVM 힙 메모리(`-Xmx`)를 프로필에 자동 설정합니다.
+1. **One-Click Official Minecraft Launcher Profile Creation:**
+   - Safely adds a `Plexus Mod Loader <version>` profile to `.minecraft/versions` and `launcher_profiles.json`.
+   - Performs atomic file writes and backups (`.plexusmodloader-backup`) to prevent corruption of existing configurations.
+2. **Multilingual GUI Support (English / Korean):**
+   - Automatically detects the system language and supports real-time switching via the language menu in the upper-right corner of the window.
+3. **One-Click Standalone Server Installation (Command-Line `install-server`):**
+   - Automatically configures the libraries, launch scripts, and mods folder (`mods/`) required to run a dedicated server in the specified directory.
+4. **Automatic Optimal Memory Allocation Calculation:**
+   - Detects physical system memory capacity and automatically configures the recommended JVM heap memory (`-Xmx`) in the profile.
 
 ---
 
-## 3. 빌드 및 테스트 (Gradle Tasks)
+## 3. Build and Test (Gradle Tasks)
 
 ```powershell
-# 단위 테스트 실행
+# Run unit tests
 .\gradlew.bat :plexus-installer:check
 
-# 배포용 jar 빌드 (plexus-installer/build/distributions/)
+# Build distribution JAR (plexus-installer/build/distributions/)
 .\gradlew.bat :plexus-installer:installerDistributions
 
-# 모의 런처 프로필 생성 및 구동 통합 테스트
+# Mock launcher profile creation and launch integration test
 .\gradlew.bat :plexus-bootstrap:launcherProfileTest
 
-# 헤드리스 서버 설치 및 기동 테스트
+# Headless server installation and launch test
 .\gradlew.bat :plexus-installer:serverInstallTest
 ```
 
 ---
 
-## 4. 모듈 구조
+## 4. Module Structure
 
-- **`dev.plexusmodloader.installer`**: Java Swing GUI 창, CLI 파서, 프로필 JSON 생성기, 라이브러리 검증기.
-- 아이콘은 `ProfileIcon`이 코드로 그리고, 영어·한국어 문구는 `InstallerWindow.Language`에 있습니다(별도 리소스 파일 없음).
+- **`dev.plexusmodloader.installer`**: Java Swing GUI window, CLI parser, profile JSON generator, library validator.
+- Icons are drawn in code by `ProfileIcon`, and English and Korean text strings are located in `InstallerWindow.Language` (no separate resource files).
