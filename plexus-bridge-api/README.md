@@ -19,7 +19,7 @@ Forge나 NeoForge의 바이트코드 패치로 인해 이동하거나 변경된 
 - `method`: 대상 메서드 명 (예: `loadDefault`)
 - `replaced`: 패치가 없앤 원래 주입 대상(호출 또는 필드)
 - `replacement`: 그 자리를 대신하는 대상
-- `placement`: 대체 방식(`SAME_PLACE`, `AFTER_TRUE_RESULT`, `IN_METHOD`)
+- `placement`: 대체 방식(`SAME_PLACE`, `AFTER_TRUE_RESULT`, `IN_METHOD`, `HOST_COVERS`, `HOST_NEUTRAL_ARGUMENT` 등). `HOST_COVERS`는 호스트의 자기 코드가 주입 처리기 하나의 일을 이미 해서 그 처리기만 덜어내고 모드를 로드하는 규칙(`replaced`는 `<mixin 내부 이름>#<처리기>`)이고, `HOST_NEUTRAL_ARGUMENT`는 호스트가 인자를 하나 더한 오버로드로 바꾼 호출의 `@Redirect`를 호스트가 중립 값을 넘길 때만 실행하는 규칙입니다(`replacement`는 `<호출>#<owner>;<필드>`).
 
 ### 진단 데이터 모델
 - **`CompatibilityStatus`**: `VERIFIED`(테스트 계획 통과), `PARTIAL`(알려진 기능 제한), `EXPERIMENTAL`(일부 실험만 확인한 경로), `BLOCKED`(실행 불가, 로드 안 함), `UNTESTED`(평가 안 함). 앞의 셋은 로드합니다.

@@ -75,6 +75,11 @@ val hostModules = listOf(
     HostModule("fabric-biome-api-v1", "fabricBiomeApiV1", "20.1.1+plexus.forge.26.3", always = true),
     // Forge moves drowning and fluid jumping into its FluidType hooks (PLEXUS-COMPAT-224).
     HostModule("fabric-content-registries-v0", "fabricContentRegistriesV0", "15.0.6+plexus.forge.26.3"),
+    // Forge turned the client's fluid overlay check (instanceof HalfTransparentBlock or LeavesBlock) into
+    // BlockState.shouldDisplayFluidOverlay; the original's expression mixin finds nothing there and the game stopped
+    // when it first drew a chunk (PLEXUS-COMPAT-225), which the check before the launch does not see. Forgified Fabric
+    // API's build of the mixin modifies Forge's call instead.
+    HostModule("fabric-rendering-fluids-v1", "fabricRenderingFluidsV1", "6.0.6+plexus.forge.26.3", always = true),
 )
 
 val hostModuleJars = hostModules.map { module ->

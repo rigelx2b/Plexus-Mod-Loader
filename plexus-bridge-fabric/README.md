@@ -40,7 +40,7 @@
 | 패키지 | 주요 클래스 | 역할 |
 | :--- | :--- | :--- |
 | `dev.plexusmodloader.compat.fabric` | `FabricBridge`, `ClassTweakerFile`, `FabricClassTransformer` | Fabric 모드 검색 및 변환 파이프라인 관리 |
-| `dev.plexusmodloader.compat.fabric.mixin` | `FabricMixinBootstrap`, `PlexusMixinService`, `HostPatchAdjustments` | 통합 Mixin 구동 및 호스트 패치 자동 적응 |
+| `dev.plexusmodloader.compat.fabric.mixin` | `FabricMixinBootstrap`, `PlexusMixinService`, `HostPatchAdjustments`, `HostStaticCalls`, `HostTargetCalls`, `ReplacedReceiver`, `HostNeutralArguments` | 통합 Mixin 구동 및 호스트 패치 자동 적응. 호스트가 바꾼 호출에 `@WrapOperation`/`@Redirect`를 이어 주는 다리(정적 도우미, 대상 클래스의 자기 메서드 호출, 인자가 늘어난 오버로드의 중립 값) |
 | `dev.plexusmodloader.compat.fabric.loader` | `FabricLoaderRuntime`, `OfficialMappingResolver` | Fabric Loader 공개 API 런타임 구현 |
 | `dev.plexusmodloader.compat.quilt` | `QuiltBridge`, `QuiltModJsonReader`, `QuiltLoaderRuntime` | Quilt 메타데이터 파서 및 Quilt Loader API 구현 |
 
@@ -64,5 +64,6 @@
 ---
 
 ## 4. 제약 사항
+- 호스트 패치가 처리기의 일을 이미 하는 주입은 `HOST_COVERS` 규칙으로만 덜어냅니다(자동 아님, ADR-0032). 덜어낸 처리기의 기능은 Fabric 단독 실행과 다를 수 있습니다(MinecraftForge 옆: 위치별 파티클·벽 안 스프라이트, 자동 블록 아이템 모델).
 - Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 존재하지 않으므로, QSL에 직접 의존하는 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-303`)와 함께 제외됩니다.
 - 모드가 Fabric Loader나 Quilt Loader의 비공개 내부 패키지(`net.fabricmc.loader.impl.*` 등)에 직접 접근하는 경우 링크 검증 단계(`PLEXUS-COMPAT-111`)에서 거부될 수 있습니다.

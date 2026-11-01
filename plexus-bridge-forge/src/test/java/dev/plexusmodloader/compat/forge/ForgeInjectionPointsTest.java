@@ -113,6 +113,16 @@ class ForgeInjectionPointsTest {
         assertEquals("Lnet/minecraft/world/entity/Entity;isInWaterOrSwimmable()Z", isVisuallyCrawling.replacement());
         assertEquals(Placement.SAME_PLACE, isVisuallyCrawling.placement());
 
+        InjectionPointReplacement stopSwimSprinting = points.stream()
+                .filter(p -> p.targetClass().equals("net/minecraft/client/player/LocalPlayer")
+                        && p.method().equals("shouldStopSwimSprinting"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Lnet/minecraft/client/player/LocalPlayer;isInWater()Z", stopSwimSprinting.replaced());
+        assertEquals(
+                "Lnet/minecraft/client/player/LocalPlayer;isInWaterOrSwimmable()Z", stopSwimSprinting.replacement());
+        assertEquals(Placement.SAME_PLACE, stopSwimSprinting.placement());
+
         InjectionPointReplacement travelInFluid = point(points, "LivingEntity;travelInLava(");
         assertEquals("net/minecraft/world/entity/LivingEntity", travelInFluid.targetClass());
         assertEquals("travelInFluid", travelInFluid.method());
@@ -520,6 +530,39 @@ class ForgeInjectionPointsTest {
                 }
             }
         }
+    }
+
+    /**
+     * The client points of Fabric API's screen, object builder, data generation and renderer modules next to Forge: the
+     * screen input calls on Forge's static helpers, the screen drawing on Forge's own drawScreen, the hanging sign and
+     * particle captures that Forge does itself, and the block drawing with Forge's ModelData.
+     */
+    @Test
+    void clientScreenAndRendererPointsFollowForgesCalls() {
+        List<InjectionPointReplacement> points = ForgeInjectionPoints.all();
+
+        InjectionPointReplacement keyPressed = point(points, "Screen;keyPressed(");
+        assertEquals(
+                "Lnet/minecraftforge/client/ForgeHooksClient;onScreenKeyPressed("
+                        + "Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/KeyEvent;)Z",
+                keyPressed.replacement());
+        assertEquals(Placement.SAME_PLACE, keyPressed.placement());
+
+        InjectionPointReplacement drawing = point(points, "Screen;extractRenderStateWithTooltipAndSubtitles(");
+        assertEquals("net/minecraft/client/gui/Gui", drawing.targetClass());
+        assertEquals(
+                "Lnet/minecraft/client/gui/Gui;drawScreen(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V",
+                drawing.replacement());
+
+        InjectionPointReplacement sign = point(points, "HangingSignEditScreenMixin#init");
+        assertEquals(Placement.HOST_COVERS, sign.placement());
+        assertEquals("<init>", sign.method());
+
+        InjectionPointReplacement tesselate = point(points, "ModelBlockRenderer;tesselateBlock(");
+        assertEquals(Placement.HOST_NEUTRAL_ARGUMENT, tesselate.placement());
+        assertTrue(
+                tesselate.replacement().endsWith("ModelData;)V#Lnet/minecraftforge/client/model/data/ModelData;EMPTY"),
+                tesselate.replacement());
     }
 
     private static InjectionPointReplacement point(List<InjectionPointReplacement> points, String replaced) {

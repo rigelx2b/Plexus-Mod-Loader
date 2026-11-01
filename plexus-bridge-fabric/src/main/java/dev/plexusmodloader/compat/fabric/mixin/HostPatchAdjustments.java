@@ -301,7 +301,8 @@ final class HostPatchAdjustments {
      * An item injection at a call Forge replaced. The remainder kinds are kept only when the handler makes no call but
      * {@code ItemStack.getCraftingRemainder()} on the stack Forge calls it on ({@link #onlyStackRemainder}), which is
      * Forge's own call; ENCHANTMENT_CHECK only when the handler is Fabric's {@code canBeEnchantedWith} check
-     * ({@link #onlyFabricEnchantingCheck}).
+     * ({@link #onlyFabricEnchantingCheck}); BLOCK_BREAK_RESET for a {@code @Redirect} of vanilla's "same item" check that
+     * Forge turned into the opposite question ({@link #blockBreakResetMethod}).
      */
     private record ItemWrap(
             String handler,
@@ -315,7 +316,8 @@ final class HostPatchAdjustments {
             BREWING_REMAINDER,
             CRAFTING_CAPTURE,
             CRAFTING_REMAINDER,
-            ENCHANTMENT_CHECK
+            ENCHANTMENT_CHECK,
+            BLOCK_BREAK_RESET
         }
     }
 
@@ -348,6 +350,14 @@ final class HostPatchAdjustments {
     private record ReplacedCall(String handler, String descriptor, String replaced, String replacement) {}
 
     private static final String BRIDGE_PREFIX = "plexus$hostParameters$";
+
+    /**
+     * The {@link ReplacedCall#replaced} of an injection the host does itself ({@link
+     * InjectionPointReplacement.Placement#HOST_COVERS}): its injector annotations are taken out, the handler stays as a
+     * plain method, and no bridge is made.
+     */
+    static final String HOST_COVERS = "plexus:host-covers";
+
     private static final String APPENDED_PREFIX = "plexus$hostArguments$";
     private static final ClassDesc APPENDED_ARGUMENTS = ClassDesc.of(AppendedArguments.class.getName());
     private static final String WRAP_PREFIX = "plexus$hostCall$";
@@ -370,6 +380,7 @@ final class HostPatchAdjustments {
     private static final ClassDesc PRECOMPUTED_CALL = ClassDesc.of(PrecomputedCall.class.getName());
     private static final String REDIRECT_PREFIX = "plexus$hostRedirect$";
     private static final String RECEIVERS_PREFIX = "plexus$receivers$";
+    private static final String BOAT_STATUS = "Lnet/minecraft/world/entity/vehicle/boat/AbstractBoat$Status;";
     private static final String WRAP_OPERATION = "Lcom/llamalad7/mixinextras/injector/wrapoperation/WrapOperation;";
     private static final ClassDesc OPERATION =
             ClassDesc.ofDescriptor("Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;");
@@ -583,7 +594,12 @@ final class HostPatchAdjustments {
                                 local.reason().substring(0, local.reason().indexOf(": "));
                         if (!local.incompatible()
                                 || injections.stream()
-                                        .noneMatch(injection -> injection.doesNotRun()
+                                        .noneMatch(injection -> (injection.doesNotRun()
+                                                        || (injection.replacedCall() != null
+                                                                && injection
+                                                                        .replacedCall()
+                                                                        .replaced()
+                                                                        .equals(HOST_COVERS)))
                                                 && (injection.reason().startsWith(where + " ")
                                                         || injection.reason().startsWith(where + ":")))) {
                             findings.add(local);
@@ -873,10 +889,32 @@ final class HostPatchAdjustments {
                                 && method.methodType().equalsString(candidate.descriptor()))
                         .findFirst();
                 boolean withoutInject = bridge.isPresent() || wrap.isPresent() || guarded.isPresent();
+                boolean covered = replacedCall
+                        .filter(present -> present.replaced().equals(HOST_COVERS))
+                        .isPresent();
+                boolean neutralArgument = replacedCall
+                        .filter(present -> HostNeutralArguments.covers(present.replaced(), present.replacement()))
+                        .isPresent();
                 builder.transformMethod(method, (methodBuilder, methodElement) -> {
-                    if (methodElement instanceof RuntimeVisibleAnnotationsAttribute attribute) {
+                    if (covered && methodElement instanceof RuntimeInvisibleAnnotationsAttribute invisible) {
+                        // MixinExtras' expression annotations make it look for the injector a taken-out handler lost.
+                        List<Annotation> kept = invisible.annotations().stream()
+                                .filter(annotation -> !annotation
+                                        .className()
+                                        .stringValue()
+                                        .startsWith("Lcom/llamalad7/mixinextras/expression/"))
+                                .toList();
+                        if (!kept.isEmpty()) {
+                            methodBuilder.with(RuntimeInvisibleAnnotationsAttribute.of(kept));
+                        }
+                    } else if (methodElement instanceof RuntimeVisibleAnnotationsAttribute attribute) {
                         methodBuilder.with(RuntimeVisibleAnnotationsAttribute.of(attribute.annotations().stream()
-                                .filter(annotation -> !(withoutInject
+                                .filter(annotation -> !(covered
+                                                && INJECTORS.contains(
+                                                        annotation.className().stringValue()))
+                                        && !(neutralArgument
+                                                && annotation.className().equalsString(REDIRECT))
+                                        && !(withoutInject
                                                 && annotation.className().equalsString(INJECT))
                                         && !((moved.isPresent() || optionalLeft.isPresent() || replacedCall.isPresent())
                                                 && annotation.className().equalsString(WRAP_OPERATION))
@@ -948,7 +986,13 @@ final class HostPatchAdjustments {
                 });
                 bedWrap.ifPresent(present -> bedWrapMethod(builder, model, method, present));
                 fluidWrap.ifPresent(present -> fluidWrapMethod(builder, model, method, present));
-                itemWrap.ifPresent(present -> itemWrapMethod(builder, method, present));
+                itemWrap.ifPresent(present -> {
+                    if (present.kind() == ItemWrap.Kind.BLOCK_BREAK_RESET) {
+                        blockBreakResetMethod(builder, model, method, present);
+                    } else {
+                        itemWrapMethod(builder, method, present);
+                    }
+                });
                 registrySyncWrap.ifPresent(present -> registrySyncWrapMethod(builder, model, method, present));
                 optionalLeft.ifPresent(present -> HostOptionalResults.bridgeMethod(
                         builder,
@@ -988,7 +1032,8 @@ final class HostPatchAdjustments {
                     }
                 });
                 replacedCall.ifPresent(present -> {
-                    if (present.replaced().equals(HostConditionalSkip.SKIP)) {
+                    if (present.replaced().equals(HostConditionalSkip.SKIP)
+                            || present.replaced().equals(HOST_COVERS)) {
                         return;
                     }
                     if (present.replaced().equals(HostConditionalSkip.COMPANION)) {
@@ -1002,6 +1047,16 @@ final class HostPatchAdjustments {
                                         handlers,
                                         methodHandlers,
                                         sliceHandlers),
+                                present.replacement());
+                        return;
+                    }
+                    if (HostNeutralArguments.covers(present.replaced(), present.replacement())) {
+                        HostNeutralArguments.bridgeMethod(
+                                builder,
+                                model,
+                                method,
+                                annotation(method.attributes(), REDIRECT).orElseThrow(),
+                                present.replaced(),
                                 present.replacement());
                         return;
                     }
@@ -1036,6 +1091,9 @@ final class HostPatchAdjustments {
                         HostFertileSoil.bridgeMethod(builder, model, method, wrapOperation);
                     } else if (HostEffectRemoval.covers(present.replaced(), present.replacement())) {
                         HostEffectRemoval.bridgeMethod(builder, model, method, wrapOperation);
+                    } else if (HostTargetCalls.covers(present.replacement())) {
+                        HostTargetCalls.bridgeMethod(
+                                builder, model, method, wrapOperation, present.replaced(), present.replacement());
                     } else if (HostStaticCalls.covers(present.replaced(), present.replacement())) {
                         HostStaticCalls.bridgeMethod(
                                 builder, model, method, wrapOperation, present.replaced(), present.replacement());
@@ -1902,7 +1960,9 @@ final class HostPatchAdjustments {
     private static void fluidWrapMethod(
             ClassBuilder builder, ClassModel mixin, MethodModel handler, FluidWrap fluidWrap) {
         List<String> methods = fluidWrap.kind() == FluidWrap.Kind.BOAT_SUPPORT
-                ? List.of("checkInWater()Z", "isUnderwater()Z")
+                // Both methods Forge's patch makes call canBoatInFluid: isUnderwater returns the boat's status, not a
+                // boolean, and a selector with the wrong descriptor matches nothing, which left submerged boats afloat.
+                ? List.of("checkInWater()Z", "isUnderwater()" + BOAT_STATUS)
                 : List.of(fluidWrap.targetMethod() + fluidWrap.targetMethodDescriptor());
         Annotation at = Annotation.of(
                 ClassDesc.ofDescriptor(AT),
@@ -2010,6 +2070,87 @@ final class HostPatchAdjustments {
             }
         }
         return placed;
+    }
+
+    /**
+     * The bridge of a {@code @Redirect} of {@code ItemStack.isSameItemSameComponents(mainHand, destroyingItem)} in
+     * {@code MultiPlayerGameMode.sameDestroyTarget}, which MinecraftForge (javap, 26.2-65.1.5 and 26.3-66.1.0) replaced
+     * with {@code !destroyingItem.shouldCauseBlockBreakReset(mainHand)}: the opposite question, on the other stack. The
+     * bridge wraps Forge's call and resets the breaking only when Forge's answer resets it and the handler (Fabric API's
+     * {@code allowContinuingBlockBreaking}) does not let it go on, so a Forge item's and a Fabric item's wish to keep
+     * breaking both count.
+     */
+    private static void blockBreakResetMethod(
+            ClassBuilder builder, ClassModel mixin, MethodModel handler, ItemWrap itemWrap) {
+        int flags = handler.flags().flagsMask();
+        boolean isStatic = (flags & ClassFile.ACC_STATIC) != 0;
+        boolean isInterface = mixin.flags().has(AccessFlag.INTERFACE);
+        Annotation at = Annotation.of(
+                ClassDesc.ofDescriptor(AT),
+                AnnotationElement.ofString("value", "INVOKE"),
+                AnnotationElement.ofString("target", itemWrap.targetCall()));
+        Annotation wrapOperation = Annotation.of(
+                ClassDesc.ofDescriptor(WRAP_OPERATION),
+                AnnotationElement.of(
+                        "method",
+                        AnnotationValue.ofArray(
+                                AnnotationValue.ofString(itemWrap.targetMethod() + itemWrap.targetMethodDescriptor()))),
+                AnnotationElement.of("at", AnnotationValue.ofArray(AnnotationValue.ofAnnotation(at))));
+        MethodTypeDesc bridgeType = MethodTypeDesc.of(ConstantDescs.CD_boolean, ITEM_STACK, ITEM_STACK, OPERATION);
+        int destroying = isStatic ? 0 : 1;
+        int mainHand = destroying + 1;
+        int operation = destroying + 2;
+        builder.withMethod(WRAP_PREFIX + handler.methodName().stringValue(), bridgeType, flags, method -> {
+            method.with(RuntimeVisibleAnnotationsAttribute.of(wrapOperation));
+            method.withCode(code -> {
+                Label keep = code.newLabel();
+                // Forge's call: destroyingItem.shouldCauseBlockBreakReset(mainHand).
+                code.aload(operation);
+                code.iconst_2();
+                code.anewarray(ConstantDescs.CD_Object);
+                code.dup();
+                code.iconst_0();
+                code.aload(destroying);
+                code.aastore();
+                code.dup();
+                code.iconst_1();
+                code.aload(mainHand);
+                code.aastore();
+                code.invokeinterface(
+                        OPERATION,
+                        "call",
+                        MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object.arrayType()));
+                code.checkcast(ConstantDescs.CD_Boolean);
+                code.invokevirtual(
+                        ConstantDescs.CD_Boolean, "booleanValue", MethodTypeDesc.of(ConstantDescs.CD_boolean));
+                code.ifeq(keep);
+                // The handler answers vanilla's question, isSameItemSameComponents(mainHand, destroyingItem).
+                if (!isStatic) {
+                    code.aload(0);
+                }
+                code.aload(mainHand);
+                code.aload(destroying);
+                if (isStatic) {
+                    code.invokestatic(
+                            mixin.thisClass().asSymbol(),
+                            handler.methodName().stringValue(),
+                            handler.methodTypeSymbol(),
+                            isInterface);
+                } else {
+                    code.invokespecial(
+                            mixin.thisClass().asSymbol(),
+                            handler.methodName().stringValue(),
+                            handler.methodTypeSymbol(),
+                            isInterface);
+                }
+                code.ifne(keep);
+                code.iconst_1();
+                code.ireturn();
+                code.labelBinding(keep);
+                code.iconst_0();
+                code.ireturn();
+            });
+        });
     }
 
     /**
@@ -2334,7 +2475,7 @@ final class HostPatchAdjustments {
             if (at.className().equalsString(AT)
                     && element.name().equalsString("target")
                     && element.value() instanceof AnnotationValue.OfString target
-                    && target.stringValue().equals(replaced)) {
+                    && targetNotation(target.stringValue()).equals(replaced)) {
                 elements.add(AnnotationElement.ofString("target", replacement));
             } else {
                 elements.add(AnnotationElement.of(
@@ -2716,6 +2857,12 @@ final class HostPatchAdjustments {
                 continue;
             }
             for (MethodModel handler : mixin.methods()) {
+                Optional<Injection> coveredByHost = coveredByHost(mixin, handler, targetName, host);
+                if (coveredByHost.isPresent()) {
+                    found.add(coveredByHost.get());
+                    adjusted.add(CoupledInjections.key(handler));
+                    continue;
+                }
                 for (Annotation injector : annotations(handler.attributes())) {
                     String type = injector.className().stringValue();
                     if (INJECTORS.contains(type)) {
@@ -2744,6 +2891,41 @@ final class HostPatchAdjustments {
             }
         }
         return found;
+    }
+
+    /**
+     * The injection of {@code handler} when a rule of {@code host} says the host's patch does its job in {@code
+     * targetName} ({@link InjectionPointReplacement.Placement#HOST_COVERS}, {@code replaced} {@code
+     * <mixin>#<handler name>}, or with the handler's descriptor after the name where a mixin overloads it): it is taken
+     * out ({@link #HOST_COVERS}) and the mod runs.
+     */
+    private static Optional<Injection> coveredByHost(
+            ClassModel mixin, MethodModel handler, String targetName, HostedLaunch host) {
+        String key =
+                mixin.thisClass().asInternalName() + "#" + handler.methodName().stringValue();
+        String keyWithDescriptor = key + handler.methodType().stringValue();
+        Optional<Annotation> injector = annotations(handler.attributes()).stream()
+                .filter(annotation -> INJECTORS.contains(annotation.className().stringValue()))
+                .findFirst();
+        if (injector.isEmpty()) {
+            return Optional.empty();
+        }
+        String type = injector.get().className().stringValue();
+        String simple = type.substring(type.lastIndexOf('/') + 1, type.length() - 1);
+        return host.injectionPointReplacements().stream()
+                .filter(rule -> rule.placement() == InjectionPointReplacement.Placement.HOST_COVERS
+                        && rule.targetClass().equals(targetName)
+                        && (rule.replaced().equals(key) || rule.replaced().equals(keyWithDescriptor)))
+                .findFirst()
+                .map(rule -> Injection.replacedCall(
+                        "@" + simple + " " + handler.methodName().stringValue() + " into " + targetName + "."
+                                + rule.method() + ": " + host.hostName() + "'s patch does that job there itself with "
+                                + rule.replacement() + "; the injection is taken out and the mod runs",
+                        new ReplacedCall(
+                                handler.methodName().stringValue(),
+                                handler.methodType().stringValue(),
+                                HOST_COVERS,
+                                rule.replacement())));
     }
 
     private static Optional<Injection> injection(
@@ -2930,6 +3112,33 @@ final class HostPatchAdjustments {
                             || !replacement.replaced().equals(point[1])) {
                         continue;
                     }
+                    if (replacement.placement() == InjectionPointReplacement.Placement.HOST_NEUTRAL_ARGUMENT) {
+                        if (HostNeutralArguments.fits(handler, type, point[1], replacement.replacement())
+                                && after.stream()
+                                        .anyMatch(found -> contains(
+                                                found,
+                                                HostNeutralArguments.Rule.parse(point[1], replacement.replacement())
+                                                        .orElseThrow()
+                                                        .hostCall()))) {
+                            return Optional.of(Injection.replacedCall(
+                                    where + " at " + point[1] + ": " + host.hostName() + " calls the overload "
+                                            + replacement
+                                                    .replacement()
+                                                    .substring(
+                                                            0,
+                                                            replacement
+                                                                    .replacement()
+                                                                    .lastIndexOf('#'))
+                                            + " there; the redirect runs when the host passes its neutral value"
+                                            + " for the added argument, otherwise the host's call runs as it is",
+                                    new ReplacedCall(
+                                            handler.methodName().stringValue(),
+                                            handler.methodType().stringValue(),
+                                            point[1],
+                                            replacement.replacement())));
+                        }
+                        continue;
+                    }
                     if (replacement.placement() == InjectionPointReplacement.Placement.SAME_PLACE
                             && after.stream().anyMatch(found -> contains(found, replacement.replacement()))) {
                         if (HostHopperTransfer.covers(point[1], replacement.replacement())) {
@@ -2975,13 +3184,28 @@ final class HostPatchAdjustments {
                             return Optional.of(Injection.replacedCall(
                                     where + " at " + point[1] + ": " + host.hostName() + " calls "
                                             + replacement.replacement() + " there, with the receiver, arguments of its"
-                                            + " own and the vanilla ones; the wrap runs on that call and makes it when"
-                                            + " the handler makes the wrapped call",
+                                            + " own if any and the vanilla ones; the wrap runs on that call and makes"
+                                            + " it when the handler makes the wrapped call",
                                     new ReplacedCall(
                                             handler.methodName().stringValue(),
                                             handler.methodType().stringValue(),
                                             point[1],
                                             replacement.replacement())));
+                        }
+                        Optional<String> receiverGetter =
+                                HostTargetCalls.receiverGetter(patched, point[1], replacement.replacement());
+                        if (receiverGetter.isPresent() && HostTargetCalls.fits(handler, type, point[1])) {
+                            return Optional.of(Injection.replacedCall(
+                                    where + " at " + point[1] + ": " + host.hostName() + " calls "
+                                            + replacement.replacement() + " on the " + targetName + " itself there,"
+                                            + " which makes that call; the wrap runs on it with the receiver from "
+                                            + receiverGetter.get() + "() and makes it when the handler makes the"
+                                            + " wrapped call",
+                                    new ReplacedCall(
+                                            handler.methodName().stringValue(),
+                                            handler.methodType().stringValue(),
+                                            point[1],
+                                            HostTargetCalls.encode(replacement.replacement(), receiverGetter.get()))));
                         }
                         if (HostFertileSoil.fits(
                                 handler, type, targetName, method, point[1], replacement.replacement())) {
@@ -3187,6 +3411,27 @@ final class HostPatchAdjustments {
                                                 replacement.replacement(),
                                                 ItemWrap.Kind.ENCHANTMENT_CHECK)));
                             }
+                        }
+                        if (targetName.equals("net/minecraft/client/multiplayer/MultiPlayerGameMode")
+                                && method.equals("sameDestroyTarget")
+                                && replacement.replaced().contains("ItemStack;isSameItemSameComponents(")
+                                && replacement.replacement().contains("ItemStack;shouldCauseBlockBreakReset(")
+                                && type.equals(REDIRECT)
+                                && handler.methodTypeSymbol()
+                                        .equals(MethodTypeDesc.of(ConstantDescs.CD_boolean, ITEM_STACK, ITEM_STACK))) {
+                            return Optional.of(Injection.itemWrap(
+                                    where + " at " + point[1] + ": " + host.hostName() + " calls "
+                                            + replacement.replacement()
+                                            + " there, the opposite question; a generated @WrapOperation bridge resets"
+                                            + " the breaking only when Forge's answer does and the handler does not"
+                                            + " let it go on",
+                                    new ItemWrap(
+                                            handler.methodName().stringValue(),
+                                            handler.methodType().stringValue(),
+                                            "sameDestroyTarget",
+                                            "(Lnet/minecraft/core/BlockPos;)Z",
+                                            replacement.replacement(),
+                                            ItemWrap.Kind.BLOCK_BREAK_RESET)));
                         }
                         if (targetName.equals("net/minecraft/data/registries/RegistryPatchGenerator")) {
                             if (method.equals("lambda$createLookup$0")
@@ -4610,6 +4855,30 @@ final class HostPatchAdjustments {
                 && containsInstruction(instruction, target);
     }
 
+    /**
+     * {@code target} in the notation the checks use: Mixin also takes a member as {@code owner.name(descriptor)} or
+     * {@code owner.name:descriptor} with a slashed owner and no {@code L...;} around it (Fabric API's renderer API
+     * writes {@code net/minecraft/client/renderer/block/ModelBlockRenderer.tesselateBlock(...)V}); that becomes {@code
+     * Lowner;name(descriptor)}. Other notations are returned as they are.
+     */
+    static String targetNotation(String target) {
+        if (target == null || target.startsWith("(")) {
+            return target;
+        }
+        int member = target.indexOf('(');
+        int field = target.indexOf(':');
+        int end = member < 0 ? field : field < 0 ? member : Math.min(member, field);
+        int semicolon = target.indexOf(';');
+        if (target.startsWith("L") && semicolon > 0 && (end < 0 || semicolon < end)) {
+            return target;
+        }
+        int dot = end < 0 ? -1 : target.lastIndexOf('.', end);
+        if (dot <= 0 || target.indexOf('/') < 0 || target.indexOf('/') > dot) {
+            return target;
+        }
+        return "L" + target.substring(0, dot) + ";" + target.substring(dot + 1);
+    }
+
     /** {@code [value, target, another element's name or null]} of each {@code @At}. */
     static void points(AnnotationValue value, List<String[]> out) {
         if (value instanceof AnnotationValue.OfArray array) {
@@ -4624,7 +4893,7 @@ final class HostPatchAdjustments {
                     kind = text.stringValue();
                 } else if (element.value() instanceof AnnotationValue.OfString text
                         && element.name().equalsString("target")) {
-                    target = text.stringValue();
+                    target = targetNotation(text.stringValue());
                 } else {
                     other = element.name().stringValue();
                 }

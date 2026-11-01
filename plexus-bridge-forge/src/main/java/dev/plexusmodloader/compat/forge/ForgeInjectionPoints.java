@@ -117,6 +117,151 @@ final class ForgeInjectionPoints {
                         "isVisuallyCrawling",
                         "Lnet/minecraft/world/entity/Entity;isInWater()Z",
                         "Lnet/minecraft/world/entity/Entity;isInWaterOrSwimmable()Z"),
+                // MultiPlayerGameMode.sameDestroyTarget: vanilla asks ItemStack.isSameItemSameComponents(mainHand,
+                // destroyingItem); Forge asks !destroyingItem.shouldCauseBlockBreakReset(mainHand) (javap, 26.2-65.1.5
+                // and 26.3-66.1.0). fabric-item-api-v1's client MultiPlayerGameModeMixin redirects the vanilla call;
+                // the
+                // bridge answers Forge's opposite question (HostPatchAdjustments' block break reset item wrap).
+                new InjectionPointReplacement(
+                        "net/minecraft/client/multiplayer/MultiPlayerGameMode",
+                        "sameDestroyTarget",
+                        "Lnet/minecraft/world/item/ItemStack;isSameItemSameComponents(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;)Z",
+                        "Lnet/minecraft/world/item/ItemStack;shouldCauseBlockBreakReset(Lnet/minecraft/world/item/ItemStack;)Z"),
+                // Screen input (javap, 26.2-65.1.5 and 26.3-66.1.0): where vanilla calls the screen's own handler,
+                // Forge
+                // calls a static helper with the screen first, which posts its ScreenEvent before and after making that
+                // very call. fabric-screen-api-v1's KeyboardHandlerMixin and MouseHandlerMixin wrap the vanilla calls
+                // to
+                // run Fabric's screen events; the wraps run on Forge's helpers (HostStaticCalls), and without them the
+                // module did not load on the client.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/KeyboardHandler",
+                        "keyPress",
+                        "Lnet/minecraft/client/gui/screens/Screen;keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z",
+                        "Lnet/minecraftforge/client/ForgeHooksClient;onScreenKeyPressed(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/KeyEvent;)Z"),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/KeyboardHandler",
+                        "keyPress",
+                        "Lnet/minecraft/client/gui/screens/Screen;keyReleased(Lnet/minecraft/client/input/KeyEvent;)Z",
+                        "Lnet/minecraftforge/client/ForgeHooksClient;onScreenKeyReleased(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/KeyEvent;)Z"),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/KeyboardHandler",
+                        "charTyped",
+                        "Lnet/minecraft/client/gui/screens/Screen;charTyped(Lnet/minecraft/client/input/CharacterEvent;)Z",
+                        "Lnet/minecraftforge/client/ForgeHooksClient;onScreenCharTyped(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/CharacterEvent;)Z"),
+                // Mouse clicks and releases: Forge's helper also takes the mouse position, before the vanilla
+                // arguments.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/MouseHandler",
+                        "onButton",
+                        "Lnet/minecraft/client/gui/screens/Screen;mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z",
+                        "Lnet/minecraftforge/client/event/ForgeEventFactoryClient;onScreenMouseClicked(Lnet/minecraft/client/gui/screens/Screen;DDLnet/minecraft/client/input/MouseButtonEvent;Z)Z"),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/MouseHandler",
+                        "onButton",
+                        "Lnet/minecraft/client/gui/screens/Screen;mouseReleased(Lnet/minecraft/client/input/MouseButtonEvent;)Z",
+                        "Lnet/minecraftforge/client/event/ForgeEventFactoryClient;onScreenMouseReleased(Lnet/minecraft/client/gui/screens/Screen;DDLnet/minecraft/client/input/MouseButtonEvent;)Z"),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/MouseHandler",
+                        "handleAccumulatedMovement",
+                        "Lnet/minecraft/client/gui/screens/Screen;mouseDragged(Lnet/minecraft/client/input/MouseButtonEvent;DD)Z",
+                        "Lnet/minecraftforge/client/ForgeHooksClient;onScreenMouseDrag(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/input/MouseButtonEvent;DD)Z"),
+                // Gui.extractRenderState: while a screen is set, vanilla calls
+                // screen.extractRenderStateWithTooltipAndSubtitles(graphics, mouseX, mouseY, partialTick); Forge calls
+                // this.drawScreen(graphics, mouseX, mouseY, partialTick), inherited from its ForgeLayerInstance, which
+                // draws Forge's screen layers and then makes that very call for the current screen (javap, 26.2-65.1.5
+                // and 26.3-66.1.0). fabric-screen-api-v1's GuiMixin wraps the vanilla call to run Fabric's
+                // ScreenEvents.beforeExtract and afterExtract; the wrap runs on Forge's call with Gui.screen() as the
+                // screen (HostTargetCalls), so Fabric's events also enclose Forge's layers below the screen.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/gui/Gui",
+                        "extractRenderState",
+                        "Lnet/minecraft/client/gui/screens/Screen;extractRenderStateWithTooltipAndSubtitles(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V",
+                        "Lnet/minecraft/client/gui/Gui;drawScreen(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V"),
+                // HangingSignEditScreen.<init>: vanilla builds the texture with Identifier.withDefaultNamespace(
+                // "textures/gui/hanging_signs/" + woodType.name() + ".png"); Forge builds it with
+                // Identifier.parse(woodType.name() + ".png").withPrefix("textures/gui/hanging_signs/") (javap,
+                // 26.2-65.1.5 and 26.3-66.1.0), which keeps a mod's namespace in the wood type's name. That is what
+                // fabric-object-builder-api-v1's HangingSignEditScreenMixin.init does (parse the name when it has a
+                // namespace, put the path in the same folder); the result is the same identifier for every name.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/gui/screens/inventory/HangingSignEditScreen",
+                        "<init>",
+                        "net/fabricmc/fabric/mixin/object/builder/client/HangingSignEditScreenMixin#init",
+                        "Identifier.parse(woodType.name() + \".png\").withPrefix(\"textures/gui/hanging_signs/\")",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // ModelProvider.ItemInfoCollector.finalizeAndValidate: vanilla gives every block item without a model
+                // its block's model (the lambda that checks copies.containsKey); Forge removed that lambda and
+                // validates only the items its data generator was given (javap, 26.2-65.1.5 and 26.3-66.1.0).
+                // fabric-data-generation-api-v1's wrap of that containsKey limits the automatic models to the blocks of
+                // the mod being generated; next to Forge no automatic models are made at all. Only data generation runs
+                // this code. The module's other handler of the same name (the validation filter) still applies.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/data/models/ModelProvider$ItemInfoCollector",
+                        "finalizeAndValidate",
+                        "net/fabricmc/fabric/mixin/datagen/client/ModelProviderItemInfoCollectorMixin"
+                                + "#filterItemsForProcessingMod(Ljava/util/Map;Ljava/lang/Object;"
+                                + "Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;)Z",
+                        "its own item validation, which adds no automatic block item models",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // SectionCompiler.compile: vanilla draws each block with ModelBlockRenderer.tesselateBlock(output, x,
+                // y,
+                // z, level, pos, state, model, seed); Forge calls its overload with one more argument, the ModelData it
+                // looked up for that position and model (ModelData.EMPTY when there is none), javap, 26.2-65.1.5 and
+                // 26.3-66.1.0. fabric-renderer-api-v1's SectionCompilerMixin redirects the vanilla call to draw the
+                // block
+                // through the Fabric renderer. The redirect runs where Forge passes ModelData.EMPTY; a block whose
+                // model
+                // Forge gives data (a Forge mod's connected textures, say) is drawn by Forge with it
+                // (HostNeutralArguments). Without this the client stopped when it first drew a chunk (225).
+                new InjectionPointReplacement(
+                        "net/minecraft/client/renderer/chunk/SectionCompiler",
+                        "compile",
+                        "Lnet/minecraft/client/renderer/block/ModelBlockRenderer;tesselateBlock(Lnet/minecraft/client/renderer/block/BlockQuadOutput;FFFLnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/client/renderer/block/dispatch/BlockStateModel;J)V",
+                        "Lnet/minecraft/client/renderer/block/ModelBlockRenderer;tesselateBlock(Lnet/minecraft/client/renderer/block/BlockQuadOutput;FFFLnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/client/renderer/block/dispatch/BlockStateModel;JLnet/minecraftforge/client/model/data/ModelData;)V"
+                                + "#Lnet/minecraftforge/client/model/data/ModelData;EMPTY",
+                        InjectionPointReplacement.Placement.HOST_NEUTRAL_ARGUMENT),
+                // Particle sprites by position (fabric-renderer-api-v1): vanilla asks
+                // BlockStateModelSet.getParticleMaterial(state) for a block marker particle and for the block a
+                // player's
+                // view is inside; Fabric's renderer API asks the model with the level and the position instead. Forge
+                // asks the model too, with the ModelData it keeps for that position (BlockMarker:
+                // BlockStateModel.particleMaterial(ModelData); the view: its getOverlayBlock, which returns the state
+                // with
+                // its position), javap, 26.2-65.1.5 and 26.3-66.1.0. So the sprite follows the position the Forge way;
+                // what differs is only that a Fabric renderer model that picks its particle sprite from the level gets
+                // its default sprite in these two places (block marker particles and the in-wall overlay). Forgified
+                // Fabric API leaves the in-wall capture out next to NeoForge as well. The captures are taken out; the
+                // material wraps they feed then make the vanilla call.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/particle/BlockMarker",
+                        "<init>",
+                        "net/fabricmc/fabric/mixin/client/renderer/block/particle/BlockMarkerMixin#getParticleMaterialProxy",
+                        "BlockStateModel.particleMaterial(ModelData) with the level's model data at the marker",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/renderer/ScreenEffectRenderer",
+                        "getViewBlockingState",
+                        "net/fabricmc/fabric/mixin/client/renderer/block/particle/ScreenEffectRendererMixin"
+                                + "#onReturnGetInWallBlockState",
+                        "getOverlayBlock(Player), which finds the state with its position",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/client/renderer/extract/LevelExtractor",
+                        "getViewBlockingState",
+                        "net/fabricmc/fabric/mixin/client/renderer/block/particle/LevelExtractorMixin"
+                                + "#captureViewBlockingPosition",
+                        "getOverlayBlock(LocalPlayer, Frustum), which finds the state with its position",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // LocalPlayer.shouldStopSwimSprinting: vanilla checks isInWater(); Forge widens it to
+                // isInWaterOrSwimmable()
+                // (javap, 26.2-65.1.5 and 26.3-66.1.0). fabric-content-registries-v0's LocalPlayerMixin keeps a player
+                // sprint-swimming in a custom fluid there, and without this the module did not load on the client.
+                new InjectionPointReplacement(
+                        "net/minecraft/client/player/LocalPlayer",
+                        "shouldStopSwimSprinting",
+                        "Lnet/minecraft/client/player/LocalPlayer;isInWater()Z",
+                        "Lnet/minecraft/client/player/LocalPlayer;isInWaterOrSwimmable()Z"),
                 // LivingEntity.travelInFluid: vanilla calls travelInLava directly. Forge moves it to
                 // travelInFluid(Vec3, FluidState).
                 new InjectionPointReplacement(

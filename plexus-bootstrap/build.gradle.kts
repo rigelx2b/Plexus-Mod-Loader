@@ -1245,7 +1245,9 @@ val corpusScenarios = listOf(
             // 2026-11-01: fabric-biome-api-v1 and fabric-content-registries-v0 run as Plexus Mod Loader's builds on
             // Forge's hooks (ADR-0031), and Balm and Puzzles Lib, which need them, run too (86 -> 91 loaded; the copies
             // the host modules stand for count once).
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 91 loaded, 75 not loaded"),
+            // 2026-11-01: fabric-rendering-fluids-v1 runs as Plexus Mod Loader's build too (Forge's fluid overlay check);
+            // its two copies in the corpus count once (75 -> 74 not loaded).
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 91 loaded, 74 not loaded"),
             corpusCounts(
                 "PLEXUS-COMPAT-224 1 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury.",
                 "mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge ",
@@ -1661,10 +1663,25 @@ tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.QuiltLoaderReferenc
     reportFile.set(layout.buildDirectory.file("reports/plexus/quilt-loader-reference-$minecraft.txt"))
 }
 
-// fabric-biome-api-v1's modifications and a Fabric mod's own fluid with fabric-content-registries-v0's drowning, on
-// 26.2 and 26.3, alone and next to MinecraftForge (where both modules run as Plexus Mod Loader's builds, ADR-0031).
-val fabricBiomeAndFluidMods = modJars(":test-mods:fabric-biome-modification", ":test-mods:fabric-custom-fluid")
-val fabricBiomeAndFluidLines = listOf(
+// A Fabric mod's own fluid with fabric-content-registries-v0's behaviour: drowning, swimming, sinking slowly, a boat at
+// the bottom staying there and one on the surface floating, each as in water (the test mod puts the same entities in
+// water to compare). On 26.2 and 26.3, alone, next to MinecraftForge and next to NeoForge, where the module runs as
+// Plexus Mod Loader's build (ADR-0031).
+val fabricFluidMod = modJars(":test-mods:fabric-custom-fluid")
+val fabricFluidLines = listOf(
+    "[fabric_custom_fluid] pig air supply before: 300 of 300",
+    "[fabric_custom_fluid] pig eyes in fabric_custom_fluid:sludge: true",
+    "[fabric_custom_fluid] pig lost air in sludge after 3 ticks: true",
+    "[fabric_custom_fluid] sprinting pig swims in sludge after 5 ticks: true",
+    "[fabric_custom_fluid] armor stand sank less than a block in sludge in 10 ticks: true",
+    "[fabric_custom_fluid] boat at the bottom of sludge stays there as in water after 10 ticks: true",
+    "[fabric_custom_fluid] boat on the surface of sludge floats as on water after 10 ticks: true",
+)
+
+// fabric-biome-api-v1's modifications and the fluid above, on 26.2 and 26.3, alone and next to MinecraftForge (where
+// both modules run as Plexus Mod Loader's builds, ADR-0031).
+val fabricBiomeAndFluidMods = modJars(":test-mods:fabric-biome-modification") + fabricFluidMod
+val fabricBiomeAndFluidLines = fabricFluidLines + listOf(
     "[fabric_biome_modification] nether wastes generation settings have minecraft:patch_cactus_desert: true",
     // 26.3's game test server makes the nether flat too; its generator then places no biome features to check.
     if (minecraft == "26.2") {
@@ -1674,9 +1691,6 @@ val fabricBiomeAndFluidLines = listOf(
     },
     "[fabric_biome_modification] plains base temperature: 1.25",
     "[fabric_biome_modification] plains temperature sent to clients: 1.25",
-    "[fabric_custom_fluid] pig air supply before: 300 of 300",
-    "[fabric_custom_fluid] pig eyes in fabric_custom_fluid:sludge: true",
-    "[fabric_custom_fluid] pig lost air in sludge after 3 ticks: true",
 )
 
 // Real Fabric API (from the corpus) used by the fabric-api-events test mod: a fake player breaks blocks with
@@ -1807,7 +1821,7 @@ val fabricApiEvents = if (minecraft == "26.2") {
         // NeoForge starts only with a NeoForge mod file in the game; the harness is one.
         scenarios.gameTest(
             "neoForgeFabricApiGameTest",
-            registrySyncMods + contentRegistriesMods + modJars(":test-mods:neoforge-gametest-harness"),
+            registrySyncMods + contentRegistriesMods + fabricBiomeAndFluidMods + modJars(":test-mods:neoforge-gametest-harness"),
         ) {
             dependsOn(modCorpus)
             runsNeoForge()
@@ -1815,17 +1829,23 @@ val fabricApiEvents = if (minecraft == "26.2") {
             expectedOutput.addAll(lines)
             expectedOutput.addAll(registrySyncLines)
             expectedOutput.addAll(contentRegistriesLines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
             expectedOutput.addAll(
                 "Fabric mod fabric_api_events 1.0.0 (fabric-api-events-",
                 "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
                 "@Inject skipData into net/minecraft/server/packs/resources/SimpleJsonResourceReloadListener",
                 // These modules run as Plexus Mod Loader's builds on NeoForge's hooks (ADR-0031).
                 "runs its build on the host's hooks instead (ADR-0031): fabric-block-api-v1-3.1.0+plexus.neoforge.26.2.jar",
+                // NeoForge keeps the generator's features per step in a Lazy its biome modifiers cast to.
+                "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
+                    + " its build on the host's hooks instead (ADR-0031): fabric-biome-api-v1-18.0.6+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-14.5.0+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-registry-sync-v0-7.1.1+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-11.3.2+plexus.neoforge.26.2.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-data-generation-api-v1-25.6.0+plexus.neoforge.26.2.jar",
-                "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-2.0.17+plexus.neoforge.26.2.jar",
+                // The original menu module fits NeoForge's patch: its injections follow ServerPlayer.openMenu's body into the
+                // overload NeoForge added (PLEXUS-COMPAT-226), and the client probe's extended menu works with it.
+                "PLEXUS-COMPAT-226 Fabric mod fabric-menu-api-v1 (fabric-menu-api-v1.mixins.json, ServerPlayerMixin): @Inject fabric_storeOpenedMenu",
                 // The original object builder loads there, but its attribute modifications do not reach the game.
                 "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
                     + " its build on the host's hooks instead (ADR-0031): fabric-object-builder-api-v1-24.1.1+plexus.neoforge.26.2.jar",
@@ -1910,19 +1930,24 @@ val fabricApiEvents = if (minecraft == "26.2") {
                 "are NOT loaded, because Plexus Mod Loader cannot run them as written",
             )
         },
-        scenarios.gameTest("neoForgeFabricApiGameTest", mods + modJars(":test-mods:neoforge-gametest-harness")) {
+        scenarios.gameTest("neoForgeFabricApiGameTest", mods + fabricBiomeAndFluidMods + modJars(":test-mods:neoforge-gametest-harness")) {
             dependsOn(modCorpus)
             runsNeoForge()
             description = "Real Fabric API's block, item, registry sync, object builder, content registries, resource conditions, data generation, menu and entity events modules next to NeoForge."
             expectedOutput.addAll(lines)
+            expectedOutput.addAll(fabricBiomeAndFluidLines)
             expectedOutput.addAll(
                 "runs its build on the host's hooks instead (ADR-0031): fabric-block-api-v1-3.1.0+plexus.neoforge.26.3.jar",
+                "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
+                    + " its build on the host's hooks instead (ADR-0031): fabric-biome-api-v1-20.1.1+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-14.8.0+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-registry-sync-v0-8.0.4+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-15.0.6+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-resource-conditions-api-v1-6.2.0+plexus.neoforge.26.3.jar",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-data-generation-api-v1-27.4.2+plexus.neoforge.26.3.jar",
-                "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-2.0.30+plexus.neoforge.26.3.jar",
+                // The original menu module fits NeoForge's patch: its injections follow ServerPlayer.openMenu's body into the
+                // overload NeoForge added (PLEXUS-COMPAT-226), and the client probe's extended menu works with it.
+                "PLEXUS-COMPAT-226 Fabric mod fabric-menu-api-v1 (fabric-menu-api-v1.mixins.json, ServerPlayerMixin): @Inject fabric_storeOpenedMenu",
                 "runs its build on the host's hooks instead (ADR-0031): fabric-entity-events-v1-6.0.4+plexus.neoforge.26.3.jar",
                 "loads next to the host but does not work there as it does under Fabric Loader; Plexus Mod Loader runs"
                     + " its build on the host's hooks instead (ADR-0031): fabric-object-builder-api-v1-24.1.12+plexus.neoforge.26.3.jar",
@@ -2080,7 +2105,7 @@ clientWorldReload("forgeClient") {
 // injects with the vanilla parameters; without the bridge (HostPatchAdjustments) Mixin rejected that handler and took
 // Fabric API's mixins on the same class with it, and the first frame failed with a ClassCastException
 // (LevelRendererExtensions). Opens a window; run it alone after the headless checks.
-if (minecraft == "26.2") {
+if (minecraft == "26.2" || minecraft == "26.3") {
     clientWorldReload("forgeSodiumClient") {
         description = "Opens the saved world in a MinecraftForge client with Sodium (Fabric) and Physics Mod (Forge) (opens a window)."
         dependsOn(modCorpus)
@@ -2094,10 +2119,14 @@ if (minecraft == "26.2") {
         expectedOutput.addAll(
             "LevelExtractorMixin",
             "the injection runs with the patched parameters",
-            "Forge mod loading, version 65.1.5",
+            if (minecraft == "26.2") "Forge mod loading, version 65.1.5" else "Forge mod loading, version 66.1.0",
             "joined the game",
             "[fabric_client_session] 200 client ticks in the world; save and quit",
             "[fabric_client_session] left the saved world; stopping the client",
+        )
+        unexpectedOutput.addAll(
+            "are NOT loaded, because Plexus Mod Loader cannot run them as written",
+            "PLEXUS-COMPAT-225",
         )
     }
 }
@@ -2395,9 +2424,11 @@ if (minecraft == "26.2" || minecraft == "26.3") {
 
 // Fabric API's client hooks in a client world with fabric-client-probe (opens a window, run it alone after the headless
 // checks): an item tooltip line, screen init and extract events, an extended menu that the integrated server opens for
-// the player with its opening data and screen, the water fluid render handler and a streamed sound's audio stream.
-// Alone (fabricClientProbe) and next to NeoForge (neoForgeFabricClientProbe), where Plexus Mod Loader runs its builds of
-// the item, menu, screen, sound and fluid rendering modules (ADR-0031); both print the same lines.
+// the player with its opening data and screen, the water fluid render handler, a streamed sound's audio stream, and
+// whether block breaking goes on when the held stack of a tool that allows it changes (a plain pickaxe does not).
+// Alone (fabricClientProbe), next to NeoForge (neoForgeFabricClientProbe), where Plexus Mod Loader runs its builds of
+// the item, menu, screen, sound and fluid rendering modules (ADR-0031), and next to MinecraftForge
+// (forgeFabricClientProbe), where the original modules run through Mixin bridges; all print the same lines.
 val fabricApiJar = corpusRoot.map { it.dir("fabric").asFileTree.matching { include("fabric-api-*.jar") } }
 val clientProbeLines = listOf(
     "[fabric_client_probe] tooltip of minecraft:stick has the probe's line: true",
@@ -2405,6 +2436,8 @@ val clientProbeLines = listOf(
     "[fabric_client_probe] client made the extended menu with opening data 42 and opened its screen: true",
     "[fabric_client_probe] ScreenEvents.AFTER_INIT ran: true, afterExtract ran: true",
     "[fabric_client_probe] streamed sound asked FabricSoundInstance.getAudioStream: true",
+    "[fabric_client_probe] breaking goes on when the held probe tool changes: true",
+    "[fabric_client_probe] breaking goes on when a held wooden pickaxe changes: false",
 )
 clientWorldReload("fabricClientProbe") {
     description = "Checks Fabric API's client hooks in a client world with real Fabric API (opens a window)."
@@ -2433,13 +2466,110 @@ clientWorldReload("neoForgeFabricClientProbe") {
     expectedOutput.addAll(clientProbeLines)
     expectedOutput.addAll(
         "Fabric or Quilt mod(s) run together; one Mixin serves both (ADR-0026 30)",
-        "runs its build on the host's hooks instead (ADR-0031): fabric-screen-api-v1-",
+        // The original screen and menu modules fit NeoForge's patch (PLEXUS-COMPAT-226): Gui's screen drawing wraps
+        // NeoForge's ClientHooks.extractScreen, and openMenu's injections follow its body into NeoForge's overload.
+        "PLEXUS-COMPAT-226 Fabric mod fabric-screen-api-v1 (fabric-screen-api-v1.mixins.json, GuiMixin): @WrapOperation onExtractGui",
         "runs its build on the host's hooks instead (ADR-0031): fabric-sound-api-v1-",
         "runs its build on the host's hooks instead (ADR-0031): fabric-rendering-fluids-v1-",
-        "runs its build on the host's hooks instead (ADR-0031): fabric-menu-api-v1-",
+        "PLEXUS-COMPAT-226 Fabric mod fabric-menu-api-v1 (fabric-menu-api-v1.mixins.json, ServerPlayerMixin): @Inject fabric_storeOpenedMenu",
         "runs its build on the host's hooks instead (ADR-0031): fabric-item-api-v1-",
         "joined the game",
         "[neoforge_client_session] 200 client ticks in the world; save and quit",
+        "[neoforge_client_session] left the saved world; stopping the client",
+    )
+}
+
+clientWorldReload("forgeFabricClientProbe") {
+    description = "Checks Fabric API's client hooks in a MinecraftForge client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    classpath.from(forgeClassPath)
+    systemProperties.add("plexus.forge=always")
+    devModJars.from(modJars(":test-mods:fabric-client-probe", ":test-mods:fabric-client-session"))
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_forge_fabric_client_probe")
+    runDirectory.set(layout.buildDirectory.dir("plexus/forge-fabric-client-probe-$minecraft"))
+    timeoutSeconds.set(400)
+    expectedOutput.addAll(clientProbeLines)
+    expectedOutput.addAll(
+        // Forge draws the screen through its own drawScreen and posts its screen input events around the vanilla calls;
+        // Fabric's screen events run on those (HostTargetCalls, HostStaticCalls). Forge asks shouldCauseBlockBreakReset
+        // where vanilla asks isSameItemSameComponents (the block break reset bridge).
+        "PLEXUS-COMPAT-226 Fabric mod fabric-screen-api-v1 (fabric-screen-api-v1.mixins.json, GuiMixin): @WrapOperation onExtractGui",
+        "joined the game",
+        "[fabric_client_session] 200 client ticks in the world; save and quit",
+        "[fabric_client_session] left the saved world; stopping the client",
+    )
+    unexpectedOutput.addAll(
+        "are NOT loaded, because Plexus Mod Loader cannot run them as written",
+        "PLEXUS-COMPAT-225",
+    )
+}
+
+// The client side of a Fabric mod's own fluid (fabric-content-registries-v0's LocalPlayer and Hud mixins; opens a
+// window, run it alone after the headless checks): the test mod puts the player, in survival mode and sprinting, at the
+// bottom of its sludge pool and names what the client sees, with screenshots/fluid.png for the air bubbles. Alone, next
+// to MinecraftForge (-Dplexus.forge=always, no Forge mod needed) and next to NeoForge, where the module runs as Plexus
+// Mod Loader's build (ADR-0031). The same lines everywhere.
+val fluidClientLines = listOf(
+    "[fabric_custom_fluid] client probe: player put in the sludge pool",
+    "[fabric_custom_fluid] client player eyes in sludge: true",
+    "[fabric_custom_fluid] client player air below full: true",
+    "[fabric_custom_fluid] client player swims in sludge while sprinting: true",
+    "[fabric_custom_fluid] screenshot fluid.png",
+)
+clientWorldReload("fabricFluidClient") {
+    description = "Puts the player in a Fabric mod's own fluid in a client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    systemProperties.add("fabric_custom_fluid.clientProbe=true")
+    devModJars.from(fabricFluidMod + modJars(":test-mods:fabric-client-session"))
+    // All of Fabric API, as a player has it, here and next to the hosts: its networking and registry sync run too.
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_fabric_fluid_client")
+    runDirectory.set(layout.buildDirectory.dir("plexus/fabric-fluid-client-$minecraft"))
+    timeoutSeconds.set(400)
+    expectedOutput.addAll(fluidClientLines)
+    expectedOutput.add("[fabric_client_session] left the saved world; stopping the client")
+}
+clientWorldReload("forgeFluidClient") {
+    description = "Puts the player in a Fabric mod's own fluid in a MinecraftForge client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    classpath.from(forgeClassPath)
+    systemProperties.addAll("fabric_custom_fluid.clientProbe=true", "plexus.forge=always")
+    devModJars.from(fabricFluidMod + modJars(":test-mods:fabric-client-session"))
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_forge_fluid_client")
+    runDirectory.set(layout.buildDirectory.dir("plexus/forge-fluid-client-$minecraft"))
+    timeoutSeconds.set(400)
+    expectedOutput.addAll(fluidClientLines)
+    expectedOutput.addAll(
+        "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-",
+        // Forge's fluid overlay check took the original's expression mixin's place: a crash at the first chunk before.
+        "runs its build on the host's hooks instead (ADR-0031): fabric-rendering-fluids-v1-",
+        // Forge's channel list on minecraft:register is written with Forge's codec: the join broke before.
+        "joined the game",
+        "[fabric_client_session] left the saved world; stopping the client",
+    )
+    // All of Fabric API loads next to Forge on the client: screen, object builder, renderer and data generation
+    // modules through Mixin bridges, the hanging sign, particle and data generation injections that Forge does itself
+    // taken out (PLEXUS-COMPAT-226).
+    unexpectedOutput.addAll(
+        "are NOT loaded, because Plexus Mod Loader cannot run them as written",
+        "PLEXUS-COMPAT-225",
+    )
+}
+clientWorldReload("neoForgeFluidClient") {
+    description = "Puts the player in a Fabric mod's own fluid in a NeoForge client world with real Fabric API (opens a window)."
+    dependsOn(modCorpus)
+    javaAgents.from(plexusAgentJar)
+    systemProperties.add("fabric_custom_fluid.clientProbe=true")
+    devModJars.from(fabricFluidMod + modJars(":test-mods:neoforge-client-session"))
+    devModJars.from(fabricApiJar)
+    worldName.set("plexus_neoforge_fluid_client")
+    runDirectory.set(layout.buildDirectory.dir("plexus/neoforge-fluid-client-$minecraft"))
+    timeoutSeconds.set(400)
+    expectedOutput.addAll(fluidClientLines)
+    expectedOutput.addAll(
+        "runs its build on the host's hooks instead (ADR-0031): fabric-content-registries-v0-",
         "[neoforge_client_session] left the saved world; stopping the client",
     )
 }

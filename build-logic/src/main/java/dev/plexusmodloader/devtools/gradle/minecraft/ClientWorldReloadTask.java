@@ -29,6 +29,7 @@ import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
@@ -75,6 +76,11 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
 
     @Input
     public abstract ListProperty<String> getExpectedOutput();
+
+    /** Text that must not appear in any line of the client's output (the check fails if one does). */
+    @Input
+    @Optional
+    public abstract ListProperty<String> getUnexpectedOutput();
 
     @Input
     public abstract Property<Integer> getTimeoutSeconds();
@@ -137,6 +143,8 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
 
         Set<String> remaining = ConcurrentHashMap.newKeySet();
         remaining.addAll(getExpectedOutput().get());
+        List<String> unexpected = getUnexpectedOutput().getOrElse(List.of());
+        Set<String> seenUnexpected = ConcurrentHashMap.newKeySet();
         Path outputLog = runDirectory.resolve("client-world-reload-output.log");
         // In an argument file: the whole command line can be longer than Windows allows (CreateProcess error=206).
         Process process = new ProcessBuilder(
@@ -155,6 +163,7 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
                     getLogger().info(line);
                     String current = line;
                     remaining.removeIf(current::contains);
+                    unexpected.stream().filter(current::contains).forEach(seenUnexpected::add);
                 }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
@@ -184,6 +193,11 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
             throw new GradleException("Client world reload check failed"
                     + (exitedEarly ? " (client exited with " + process.exitValue() + ")" : "")
                     + "; missing log lines: " + remaining.stream().sorted().collect(Collectors.joining(", "))
+                    + ". Full output: " + outputLog + crashReports(runDirectory));
+        }
+        if (!seenUnexpected.isEmpty()) {
+            throw new GradleException("Client world reload check failed; unexpected log lines: "
+                    + seenUnexpected.stream().sorted().collect(Collectors.joining(", "))
                     + ". Full output: " + outputLog + crashReports(runDirectory));
         }
         getLogger()

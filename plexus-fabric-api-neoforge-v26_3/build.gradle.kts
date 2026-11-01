@@ -106,6 +106,11 @@ data class HostModule(
 // Fabric API 0.165.0+26.3's module versions these jars stand in for (ADR-0031: same public API as that version).
 val hostModules = listOf(
     HostModule("fabric-block-api-v1", "fabricBlockApiV1", "3.1.0+plexus.neoforge.26.3"),
+    // The original's mixins fit, but its code writes ChunkGenerator.featuresPerStep, where NeoForge keeps a Lazy that its
+    // biome modifiers cast to at the server start (ClassCastException, the server stopped), and NeoForge's modifiers
+    // start from the biome info it took before Fabric API's changes. Plexus Mod Loader's build for MinecraftForge, on
+    // NeoForge's ModifiableBiomeInfo and refreshFeaturesPerStep.
+    HostModule("fabric-biome-api-v1", "fabricBiomeApiV1", "20.1.1+plexus.neoforge.26.3", always = true),
     HostModule("fabric-item-api-v1", "fabricItemApiV1", "14.8.0+plexus.neoforge.26.3"),
     HostModule("fabric-registry-sync-v0", "fabricRegistrySyncV0", "8.0.4+plexus.neoforge.26.3"),
     // The original loads next to NeoForge, but its attribute modifications do not reach the game (as on 26.2).

@@ -61,6 +61,8 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-unchecked")
     options.compilerArgs.add("-Xlint:-rawtypes")
     options.compilerArgs.add("-Xlint:-overloads")
+    // The biome API's selectors pass generic varargs on, as upstream wrote them.
+    options.compilerArgs.add("-Xlint:-varargs")
     // The rendering module's ClientLevelMixin hands 'this' to a listener from a constructor injection, and the renderer
     // API's MutableQuadView falls through switch cases, as Fabric API's do.
     options.compilerArgs.add("-Xlint:-this-escape")
@@ -100,6 +102,11 @@ data class HostModule(
 // Fabric API 0.161.0+26.2's module versions these jars stand in for (ADR-0031: same public API as that version).
 val hostModules = listOf(
     HostModule("fabric-block-api-v1", "fabricBlockApiV1", "3.1.0+plexus.neoforge.26.2"),
+    // The original's mixins fit, but its code writes ChunkGenerator.featuresPerStep, where NeoForge keeps a Lazy that its
+    // biome modifiers cast to at the server start (ClassCastException, the server stopped), and NeoForge's modifiers
+    // start from the biome info it took before Fabric API's changes. Plexus Mod Loader's build for MinecraftForge, on
+    // NeoForge's ModifiableBiomeInfo and refreshFeaturesPerStep.
+    HostModule("fabric-biome-api-v1", "fabricBiomeApiV1", "18.0.6+plexus.neoforge.26.2", always = true),
     HostModule("fabric-item-api-v1", "fabricItemApiV1", "14.5.0+plexus.neoforge.26.2"),
     HostModule("fabric-registry-sync-v0", "fabricRegistrySyncV0", "7.1.1+plexus.neoforge.26.2"),
     // The original loads next to NeoForge, but its attribute modifications run before Fabric mods add them, into a map

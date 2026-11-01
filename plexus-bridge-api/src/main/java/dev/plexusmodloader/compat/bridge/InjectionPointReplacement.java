@@ -55,7 +55,26 @@ public record InjectionPointReplacement(
          * mod reads in its place, moves to {@code replacement} through a bridge that returns the handler's list
          * followed by the host's own elements, so that both loaders' additions are there.
          */
-        FIELD_THEN_HOST_ENTRIES
+        FIELD_THEN_HOST_ENTRIES,
+        /**
+         * {@code replaced} names one injection handler, as {@code <mixin's internal name>#<handler name>}, that targets
+         * {@code method} of {@code targetClass}; the host's patch replaced the code it changes there with its own code
+         * {@code replacement}, which does that job itself (MinecraftForge's hanging sign texture through {@code
+         * Identifier.parse(...).withPrefix(...)}, which takes a mod's wood type namespace as Fabric API's handler does).
+         * The injection is taken out and the mod runs. Each rule is written after reading the handler and the patched
+         * code, and its comment names what, if anything, differs from the injection running.
+         */
+        HOST_COVERS,
+        /**
+         * {@code replacement} is {@code <call>#<owner>;<field>}: {@code <call>} is an overload of the instance call
+         * {@code replaced} on the same owner, with the same result and one argument appended after the vanilla ones,
+         * and {@code <field>} a static field of {@code <owner>} holding the value of that argument that asks for
+         * nothing more than the vanilla call (MinecraftForge's {@code ModelBlockRenderer.tesselateBlock(..., long,
+         * ModelData)} with {@code ModelData.EMPTY}). A {@code @Redirect} of {@code replaced} runs, through a {@code
+         * @WrapOperation} bridge at {@code <call>}, when the host passes that value; with any other value the host's
+         * call runs as it is, so what the host's argument carries is not lost.
+         */
+        HOST_NEUTRAL_ARGUMENT
     }
 
     /** A replacement at the same place ({@link Placement#SAME_PLACE}). */

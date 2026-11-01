@@ -22,6 +22,7 @@ Forge와 NeoForge는 고유한 클래스로더 구조(ModLauncher 및 FML 모듈
 - **호스트 패치 동적 적응 (`HostPatchAdjustments` & `NeoForgeInjectionPoints`):**
   - Forge나 NeoForge가 바닐라 클래스를 바이너리 패치하여 기존 Mixin의 인젝션 지점(Method Call, Field Access 등)이 이동한 경우, 런타임에 바이트코드 주입 대상을 올바른 대체 메서드로 리타겟합니다.
   - `fabric-content-registries-v0` 등 일부 Fabric API 모듈의 주입점은 이렇게 옮겨 그대로 동작합니다. 옮길 수 없는 믹스인이 남은 모듈은 `PLEXUS-COMPAT-224`로 제외됩니다(26.2 마지막 측정: Forge 옆 10개, NeoForge 옆 16개).
+  - `ForgeInjectionPoints`에는 호출을 옮기는 규칙 외에 `HOST_COVERS`(호스트의 자기 코드가 처리기 하나의 일을 이미 하면 그 처리기만 덜어냄)와 `HOST_NEUTRAL_ARGUMENT`(호스트가 인자를 더한 호출의 `@Redirect`를 중립 값일 때만 실행) 규칙이 있습니다(ADR-0032). `HOST_COVERS`는 처리기마다 읽고 손으로 쓴 규칙에만 쓰며, Forge 옆에서 위치별 파티클·벽 안 스프라이트를 고르는 Fabric 렌더러 모델은 기본 스프라이트를 보이고 Fabric 데이터 생성은 블록 아이템 모델을 자동으로 만들지 않습니다.
 
 ### 3) 상호 모드 인식 (Cross-Loader Mod Visibility)
 - **`ForeignModList` / `ForeignModIndex`:**
@@ -39,6 +40,7 @@ Forge와 NeoForge는 고유한 클래스로더 구조(ModLauncher 및 FML 모듈
 | `dev.plexusmodloader.compat.forge.NeoForgeInjectionPoints` | NeoForge 패치로 변경된 바닐라 메서드 주입점 대체 규칙 모음 |
 | `dev.plexusmodloader.compat.forge.MinecraftForgeBridge` | MinecraftForge 바이너리 패치 세트 적용 및 호스트 셋업 |
 | `dev.plexusmodloader.compat.forge.ForgeInjectionPoints` | MinecraftForge 패치 대응 주입점 대체 규칙 모음 |
+| `dev.plexusmodloader.compat.forge.ForgeForeignPayloads` | MinecraftForge 쪽 `ForeignPayloads`(`ADR-0026`). Fabric이나 Quilt 모드가 게임을 함께 쓸 때 `ForgeGameHost`가 설치함. Fabric API 네트워킹의 코덱이 플러그인 채널 id `minecraft:register`·`minecraft:unregister`에서 앞서므로, Forge의 채널 목록(`ForgePayload`)이 그 코덱으로 쓰여 `ClassCastException`이 나던 문제를 막음. Forge 채널이 있는 id(`NetworkRegistry.findTarget`)의 `ForgePayload`는 Forge 자신의 코덱(`ForgeHooks.getCustomPayloadCodec`)으로 씀(플러그인 채널의 전송 형식은 같음). Forge에는 연결별 채널 검사가 없어 변환 규칙이 필요 없음. 게임 계층의 `HostPayloadHooks.encode`(규칙 `plexus:custom_payload_encoding`)가 이를 부름 |
 | `dev.plexusmodloader.compat.forge.ForeignModIndex` | 타 로더의 모드 메타데이터를 FML SPI 형식으로 변환 |
 | `dev.plexusmodloader.compat.forge.EarlyScreenArt` | 클라이언트에서 Forge·NeoForge 초기 로딩 창의 애니메이션(모루·여우)과 로고·아이콘을 Plexus 큐브(`earlyscreen/*.png`)로 바꿈. 원본 이미지 크기가 확인한 값과 같을 때만 모듈 리더의 `find`·`open`이 `<게임 폴더>/.plexus/early-screen`의 사본을 돌려주며, Plexus 모드 로더 자체 초기 창이 뜨지 않을 때만(macOS, `-Dplexus.earlyWindow=off`) 적용됨 |
 | `dev.plexusmodloader.compat.forge.ForgeEarlyWindowOff` | Plexus 모드 로더 자체 초기 창이 뜰 때 MinecraftForge의 `fmlearlydisplay` 모듈에서 `ImmediateWindowProvider` 서비스를 제거하여 FML이 자체 초기 창을 띄우지 않고 비활성화 경로(`DummyProvider`, `fml.toml`의 `earlyWindowControl = false`와 동일)를 타도록 함 |
@@ -50,7 +52,7 @@ Forge와 NeoForge는 고유한 클래스로더 구조(ModLauncher 및 FML 모듈
 ## 3. 검증 및 테스트 (Gradle Tasks)
 
 ```powershell
-# 단위 테스트 및 주입점 대체 규칙 검증
+# 단위 테스트(`ForgeForeignPayloadsTest` 포함) 및 주입점 대체 규칙 검증
 .\gradlew.bat :plexus-bridge-forge:check
 
 # Forge 26.2 + Plexus 네이티브 모드 통합 게임 테스트
