@@ -16,7 +16,7 @@
 | **`plexus.minecraft-versions`** | Root project | `gradle/minecraft-versions.properties` inspection, `newMinecraftVersion`, `minecraftVersionDiff`, and `remapMinecraft` tasks |
 | **`plexus.mod-template`** | Root project | New Plexus Mod project template generation (`newPlexusMod`) and distribution packaging |
 | **`plexus.sdk-repository`** | Root project | Plexus SDK artifact build and local Maven publishing (`publishSdk`) |
-| **`dev.plexusmodloader.mod`** (previous ID `dev.polymodloader.mod` is also the same plugin) | Mod projects (`templates/plexus-mod-template`) | Plexus Mod build: public API dependencies, `poly.mod.json` validation, resource generation |
+| **`dev.plexusmodloader.mod`** | Mod projects (`templates/plexus-mod-template`) | Plexus Mod build: public API dependencies, `plexus.mod.json` validation, resource generation |
 
 ---
 

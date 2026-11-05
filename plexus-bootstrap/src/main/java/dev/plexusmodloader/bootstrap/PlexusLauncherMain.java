@@ -38,7 +38,6 @@ public final class PlexusLauncherMain {
     private PlexusLauncherMain() {}
 
     public static void main(String[] args) throws Throwable {
-        LegacyPropertyNames.copyToCurrentNames(System.getProperties());
         LaunchConfiguration configuration;
         try {
             configuration = readConfiguration();

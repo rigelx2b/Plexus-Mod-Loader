@@ -20,6 +20,9 @@
 - 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/LogoArt.java`가 저장소 루트의 `logo.svg`·`tools/logo/logo-tile.svg`와 같은 모양으로 생성합니다.
 - 게임 실행 인수 `--width`/`--height`(기본값 854 x 480)와 `--gameDir`의 `options.txt`(`guiScale`, `darkMojangStudiosBackground`)를 읽어 게임 창 크기 및 화면 중앙 위치를 일치시킵니다.
 - Windows와 Linux에서 화면 픽셀 크기를 일치시키기 위해 `-Dsun.java2d.uiScale=1`을 적용합니다.
+- macOS 환경 지원: `-Dapple.awt.UIElement=true`를 적용하여 독(Dock) 아이콘 및 메뉴 표시줄 없이 보조 UI 요소로 실행되어 게임 창으로부터 포커스를 빼앗지 않으며, 창 크기가 포인트 단위인 레티나 환경에 맞게 `-Dsun.java2d.uiScale=1`을 적용하지 않습니다. 또한 상속된 환경 변수(`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`)에서 `-XstartOnFirstThread` 토큰을 제거하여 AWT/Swing과 macOS AppKit 이벤트 루프 간 데드락을 방지합니다.
+- 보조 프로세스의 창 생성 실패(`HeadlessException`, `AWTError`, `UnsatisfiedLinkError`, `InternalError`) 시 로그 한 줄을 남기고 계속 표준 입력을 처리하여 창 없이도 `snapshot` 및 `close` 명령을 처리함으로써 게임 부팅에 영향을 주지 않는 안전 폴백을 갖춥니다.
+- 부팅 초기에 보조 프로세스가 비정상 종료되는 경우를 감지하여 로그를 남기는 부모 프로세스 감시(watchdog)를 갖춥니다.
 - 키보드 포커스를 요청하지 않도록 설정하여, 나중에 그 위에 열리는 게임 창이 자연스럽게 포커스를 가져가도록 합니다.
 - Windows 환경에서는 별도의 콘솔 창이 뜨지 않도록 `javaw.exe`를 실행하며 최대 힙은 `-Xmx64m`로 제한됩니다.
 
@@ -39,7 +42,7 @@
 - 창 프로세스 시작에 실패하거나 통신이 끊겨도 게임 실행을 중단시키지 않습니다(로그 한 줄을 남기고 정상 진행).
 - Mojang Studios 로고 이미지를 저장소에 복사하여 보관하지 않습니다(클라이언트 jar에서 직접 읽음).
 - Forge 및 NeoForge의 FML 내부 진행 메시지를 수집하거나 표시하지 않습니다.
-- macOS 환경에서는 창을 표시하지 않습니다(아직 검증되지 않음).
+- macOS 환경의 초기 창 표시는 안전 폴백과 함께 활성화되었으나, 이 빌드 환경(Windows) 특성상 실제 Apple 하드웨어에서는 아직 검증되지 않았습니다.
 - 로고 경로가 정의되지 않은 1.21.11 실험 버전이나 전용 서버(DEDICATED_SERVER)에서는 창을 표시하지 않습니다.
 - 시스템 속성 `-Dplexus.earlyWindow=off`가 지정된 환경에서는 창을 열지 않습니다.
 
@@ -62,6 +65,7 @@
 ```
 - `EarlyWindowSettingsTest`: `--width`, `--height` 및 `options.txt` 옵션 파싱 동작 검증.
 - `EarlyWindowProtocolTest`: 표준 입력 명령 직렬화 및 구문 해석 검증.
+- `EarlyWindowCommandTest`: Windows·Linux·macOS 명령행 인수, 환경 변수 정제(`-XstartOnFirstThread` 제거), Java 실행 파일 탐색, 감시(watchdog) 조기 종료 감지, 보조 프로세스 오류 폴백 검증.
 - `LoadingScreenLayoutTest`: 26.1, 26.2, 26.3 버전별 화면 배율 및 좌표 계산 검증.
 - `LoadingScreenPainterTest`: 스냅샷 이미지 생성 및 렌더링 무결성 검증.
 - 헤드리스 검증: `worldCreateSaveTest`, `compatibilityMatrix`, `forgeGameTest`, `neoForgeWorldTest`.
@@ -75,12 +79,12 @@
 5. 모드 해석이 완료되면 `underBar` 명령을 통해 막대 아래 줄을 전달합니다. 첫 줄은 로더별 모드 수로, 모드 폴더에 직접 넣은 모드 수 뒤에 그 안에 들어 있는 모드 수를 붙입니다(예: `Mods: Fabric 2 (+13 included)  ·  Plexus 4`). 모드 폴더의 모드가 로드되지 않았으면 둘째 줄부터 막대 바로 위에 호박색으로 `1 not loaded: sophisticatedbackpacks - see logs/latest.log`처럼 보여 줍니다(들어가는 만큼의 이름, 나머지는 "and N more"). 줄은 `plexus-version-adapter-api`의 `LoadingScreenModLines`가 만들며 게임 계층의 로딩 화면과 같습니다.
 6. 호스트 로더 준비 시 `status("Starting NeoForge")` 등을 전달하고, 마인크래프트 `Main` 실행 시 `status("Starting Minecraft 26.2")`를 보낸 뒤 스냅샷 디렉터리가 지정되어 있으면 `snapshot` 명령으로 `early-window.png`를 저장합니다.
 7. 게임 창이 열리고(`opening()`, 20초 안전 타이머 시작) 게임 계층의 `PlexusLoadingOverlay`가 첫 로딩 화면 프레임을 그리면 `GameWindowListener.shown()`이 호출됩니다.
-8. `shown()` 호출 0.3초 후 `close` 명령을 보내거나 표준 입력을 닫아 초기 창 프로세스를 종료하고 게임 창에 포커스를 넘깁니다(최대 3분 초과 시 자동 종료).
+8. 0.3초 후 `close` 명령을 보내거나 표준 입력을 닫아 초기 창 프로세스를 종료하고 게임 창에 포커스를 넘깁니다(최대 3분 초과 시 자동 종료).
 
 ## 알려진 제한
 - 게임 자체의 창이 아니라 보조 프로세스이므로 게임 창이 처음 열릴 때 최대 0.3초 동안 두 개의 창이 동시에 존재합니다.
 - 초기 로딩 동안 최대 64 MiB 힙을 점유하는 보조 JVM 프로세스가 추가로 실행됩니다.
-- macOS 환경은 아직 지원하지 않습니다.
+- macOS 환경의 초기 로딩 창 지원은 안전 폴백과 함께 구현되었으나 실제 Apple 기기에서는 아직 검증되지 않았습니다.
 - Forge 및 NeoForge FML 자체의 내부 진행 메시지는 Plexus 로딩 창에 전달되지 않습니다.
 - 진행 막대는 측정된 시간이 아니라 Plexus 모드 로더의 사전 정의된 단계별 진행률을 따릅니다.
-- Quilt 단독 실행 창 동작, macOS, Linux, 런처 프로필 테스트(`launcherProfileTest`), 1.21.11 실험 버전은 아직 확인되지 않았습니다.
+- Quilt 단독 실행 창 동작, 실제 Apple 하드웨어에서의 macOS 검증, Linux, 런처 프로필 테스트(`launcherProfileTest`), 1.21.11 실험 버전은 아직 확인되지 않았습니다.

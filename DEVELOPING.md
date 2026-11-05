@@ -20,7 +20,7 @@ Welcome to the Plexus Mod Loader contributor documentation. This guide provides 
 ```powershell
 # Clone the repository
 git clone https://github.com/xyrz47-spec/Plexus-Mod-Loader.git
-cd Poly-Mod-Loader
+cd Plexus-Mod-Loader
 
 # Verify code formatting and run all unit tests
 .\gradlew.bat check
@@ -57,7 +57,7 @@ Every pull request and every push to `main` runs `.github/workflows/ci.yml` on G
 Plexus Mod Loader is structured as a decoupled multi-project build. Each module has a strictly defined single responsibility:
 
 ```
-Poly-Mod-Loader
+Plexus-Mod-Loader
 ├── plexus-bootstrap/                # JVM Entrypoint (PlexusLauncherMain), dev launch tasks
 ├── plexus-runtime-api/              # Shared API base: GameSide and the @ApiStability markers
 ├── plexus-runtime-impl/             # Core runtime coordinator, mod loading pipeline, dependency solver
@@ -68,16 +68,19 @@ Poly-Mod-Loader
 ├── plexus-bridge-forge/             # MinecraftForge & NeoForge FML virtualizer, patch retargeting
 ├── plexus-event-api/                # Native API: event keys, listener registration, server lifecycle events
 ├── plexus-game-api/                 # Native API: blocks, items, entities, commands, networking, client, game tests
-├── plexus-game-v1_21_11/            # Minecraft 1.21.11 game layer (experimental, not supported)
+├── plexus-game-v1_20_1/            # Minecraft 1.20.1 game layer (supported version, remapped on-demand)
+├── plexus-game-v1_20_4/            # Minecraft 1.20.4 game layer (supported version, remapped on-demand)
+├── plexus-game-v1_21_1/            # Minecraft 1.21.1 game layer (supported version, remapped on-demand)
+├── plexus-game-v1_21_11/           # Minecraft 1.21.11 game layer (supported version, remapped on-demand)
 ├── plexus-game-v26_1/               # Minecraft 26.1 / 26.1.1 / 26.1.2 game layer & custom loading overlay
 ├── plexus-game-v26_2/               # Minecraft 26.2 game layer & custom loading overlay
 ├── plexus-game-v26_3/               # Minecraft 26.3 game layer & SDL keycode adapters
 ├── plexus-version-adapter-api/      # Version adapter and game layer contracts
-├── plexus-version-adapter-v*/       # Per-version launch targets and built-in transform rules (26.1, 26.2, 26.3, 1.21.11)
+├── plexus-version-adapter-v*/       # Per-version launch targets and built-in transform rules (1.20.1, 1.20.4, 1.21.1, 1.21.11, 26.1, 26.2, 26.3)
 ├── plexus-system-api/               # Native API: replaceable systems (plexus:game_brand)
 ├── plexus-system-registry/          # Built-in systems, replacement resolution and lookup
 ├── plexus-lifecycle-api/            # Mod entrypoints (common, client, server) and ModContext
-├── plexus-mod-metadata/             # Parser and validator for poly.mod.json (Fabric, Quilt and FML metadata: the bridges)
+├── plexus-mod-metadata/             # Parser and validator for plexus.mod.json (Fabric, Quilt and FML metadata: the bridges)
 └── plexus-installer/                # Cross-platform installer jar (Java Swing GUI and command line)
 ```
 

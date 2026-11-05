@@ -3,6 +3,7 @@ package dev.plexusmodloader.game.layer.v26_3.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.stream.Collectors;
 
 /**
  * Converts Plexus Mod Loader key codes to the key codes of Minecraft 26.3 (ADR-0029). Plexus Mod Loader key codes are
@@ -135,7 +136,17 @@ final class GameKeyCodes {
             Map.entry(347, 231), // right.win
             Map.entry(348, 118)); // menu
 
+    /** SDL scancode to Plexus Mod Loader (GLFW) key code; the table pairs each key once. */
+    private static final Map<Integer, Integer> PLEXUS_KEYS =
+            SCANCODES.entrySet().stream().collect(Collectors.toUnmodifiableMap(Map.Entry::getValue, Map.Entry::getKey));
+
     private GameKeyCodes() {}
+
+    /** The Plexus Mod Loader key code for a 26.3 key code (SDL scancode), or -1 ({@code KeyCodes.UNBOUND}). */
+    static int toPlexus(int gameKey) {
+        Integer key = PLEXUS_KEYS.get(gameKey);
+        return key == null ? -1 : key;
+    }
 
     /**
      * The 26.3 key code for a Plexus Mod Loader key code: {@link InputConstants#UNKNOWN} for

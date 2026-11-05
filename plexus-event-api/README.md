@@ -26,7 +26,7 @@ Priority: `ModContext.events().register(BlockEvents.BREAK, EventPriority.HIGH, (
 ```
 
 ## Typical Flow
-The `MinecraftServer.tickServer` entry hook fires `STARTED` on each server's first tick, followed by `TICK` on every tick thereafter. The `stopServer` entry hook fires `STOPPING`. `STARTING` (before world creation) and `STOPPED` (after world shutdown) are fired by `LifecycleHooks` in the game layer. If a listener throws an exception, only that listener is disabled and reported as `PLEXUS-EVENT-001`.
+The `MinecraftServer.tickServer` entry hook fires `STARTED` on each server's first tick, followed by `TICK` at the start of every tick thereafter, and `TICK_END` before return after all levels have ticked. The `stopServer` entry hook fires `STOPPING`. `STARTING` (before world creation) and `STOPPED` (after world shutdown) are fired by `LifecycleHooks` in the game layer. If a listener throws an exception, only that listener is disabled and reported as `PLEXUS-EVENT-001`.
 
 Listeners execute in `EventPriority` order (`HIGHEST`→`LOWEST`), and in registration order within the same priority. Decision events (events where listeners return `EventResult` or `InteractionResult`) terminate at the first listener that returns a value other than `PASS`, and subsequent listeners are not invoked. If a decision listener returns `null`, it is reported as `PLEXUS-EVENT-003` and disabled.
 

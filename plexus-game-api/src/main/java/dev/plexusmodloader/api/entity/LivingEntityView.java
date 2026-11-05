@@ -1,8 +1,10 @@
 package dev.plexusmodloader.api.entity;
 
+import dev.plexusmodloader.api.content.attribute.AttributeOperation;
 import dev.plexusmodloader.api.resource.ResourceId;
 import dev.plexusmodloader.api.stability.ApiStability;
 import dev.plexusmodloader.api.stability.StabilityLevel;
+import java.util.OptionalDouble;
 
 /** An entity with health and status effects: players and mobs. Same rules as {@link EntityView}. */
 @ApiStability(StabilityLevel.PREVIEW)
@@ -47,6 +49,54 @@ public interface LivingEntityView extends EntityView {
 
     /** Whether the entity has the effect. */
     boolean hasEffect(ResourceId effect);
+
+    /**
+     * The current value of an attribute, such as {@code minecraft:armor} or a mod attribute, after modifiers. On the
+     * client, the value of a mod attribute is the server's only when it is {@code syncedToClients}; otherwise the client
+     * entity still carries the attribute and reports its default value, which says nothing about the server's.
+     *
+     * @return the value, or empty when this entity does not carry the attribute
+     * @throws IllegalArgumentException for an unknown attribute
+     */
+    OptionalDouble attribute(ResourceId attribute);
+
+    /**
+     * The base value of an attribute, before modifiers.
+     *
+     * @return the base value, or empty when this entity does not carry the attribute
+     * @throws IllegalArgumentException for an unknown attribute
+     */
+    OptionalDouble attributeBase(ResourceId attribute);
+
+    /**
+     * Sets the base value of an attribute; the game keeps the value inside the attribute's range. Saved with the
+     * entity.
+     *
+     * @throws IllegalArgumentException for an unknown attribute, or one this entity does not carry
+     * @throws IllegalStateException on the client side
+     */
+    void setAttributeBase(ResourceId attribute, double value);
+
+    /**
+     * Adds a modifier to an attribute, replacing one with the same {@code modifier} ID.
+     *
+     * @param modifier the modifier's ID, in the mod's namespace by convention
+     * @param persistent whether the modifier is saved with the entity; a non-persistent one ends when the entity is
+     *     unloaded
+     * @throws IllegalArgumentException for an unknown attribute, or one this entity does not carry
+     * @throws IllegalStateException on the client side
+     */
+    void addAttributeModifier(
+            ResourceId attribute, ResourceId modifier, double amount, AttributeOperation operation, boolean persistent);
+
+    /**
+     * Removes a modifier from an attribute.
+     *
+     * @return whether the entity had it
+     * @throws IllegalArgumentException for an unknown attribute
+     * @throws IllegalStateException on the client side
+     */
+    boolean removeAttributeModifier(ResourceId attribute, ResourceId modifier);
 
     /**
      * Launches a projectile, such as a mod projectile or {@code minecraft:snowball}, from the eyes in

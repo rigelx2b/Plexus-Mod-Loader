@@ -26,7 +26,7 @@ If `-PmodName` is omitted, it is generated from the mod ID; if `-PmodPackage` is
 
 `settings.gradle.kts` and the `dev.plexusmodloader.mod` plugin search for Plexus Mod Loader in the following order. No separate preparation is needed.
 
-1. The website's public Maven repository `https://www.plexusmc.net/maven/` (only the `dev.plexusmodloader` group and the previous `dev.polymodloader` group)
+1. The website's public Maven repository `https://www.plexusmc.net/maven/` (only the `dev.plexusmodloader` group)
 2. Maven Local: Local builds published from the Plexus Mod Loader repository via `.\gradlew.bat publishToMavenLocal` and `.\gradlew.bat -p build-logic publishToMavenLocal`
 3. Gradle Plugin Portal, Maven Central (other libraries)
 
@@ -53,13 +53,13 @@ Blocks and items specified in `plexusResources` in `build.gradle.kts` have their
 
 | File | Description |
 |---|---|
-| `src/main/resources/poly.mod.json` | Mod ID, name, version, entrypoints, dependencies |
+| `src/main/resources/plexus.mod.json` | Mod ID, name, version, entrypoints, dependencies |
 | `src/main/java/com/example/mymod/MyMod.java` | Entrypoint (`CommonModInitializer`). Examples of 1 item, 1 block, and 2 game tests |
 | `build.gradle.kts` | `plexusResources` (resources to generate), log lines to check in `worldCreateSaveTest` |
 | `src/main/resources/assets/my_mod/` | Textures and manually written models and translations. Place data (recipes, loot tables, tags) in `data/my_mod/` |
 | `settings.gradle.kts` | Project name |
 | `gradle.properties` | `plexusMinecraft=<version>`: Minecraft version to use for running and testing (if absent, Plexus Mod Loader default version) |
 
-`"minecraft"` in `plexus.mod.json` is the version the mod runs on. If you only use the Native API, writing something like `26.*` or `>=26.2 <27` allows it to be used on newer versions without rebuilding. Mods that rely on game code of a specific version should specify it exactly, such as `26.2`.
+`"minecraft"` in `plexus.mod.json` is the version the mod runs on. If you only use the Native API, list the versions you support, as the template does (`1.20.1`, `1.20.4`, `1.21.1`, `1.21.11` and `26.*`), or write a range such as `>=26.2 <27` to allow newer versions without rebuilding. Mods that rely on game code of a specific version should specify it exactly, such as `26.2`.
 
 Available APIs can be found in the API Reference on the website (`https://www.plexusmc.net/docs/api-reference/`) (`docs/API_CATALOG.md` is not present in the public repository). IDEs also download the JavaDoc jar for public API modules from the Maven repository. All APIs are currently `PREVIEW`.

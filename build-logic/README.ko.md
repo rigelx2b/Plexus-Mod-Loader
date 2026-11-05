@@ -16,7 +16,7 @@
 | **`plexus.minecraft-versions`** | 루트 프로젝트 | `gradle/minecraft-versions.properties` 검사, `newMinecraftVersion`·`minecraftVersionDiff`·`remapMinecraft` 작업 |
 | **`plexus.mod-template`** | 루트 프로젝트 | 신규 Native 모드 프로젝트 템플릿 생성(`newPlexusMod`) 및 배포 패키징 |
 | **`plexus.sdk-repository`** | 루트 프로젝트 | Plexus SDK 아티팩트 빌드 및 로컬 Maven 배포(`publishSdk`) |
-| **`dev.plexusmodloader.mod`** (이전 ID `dev.polymodloader.mod`도 같은 플러그인) | 모드 프로젝트(`templates/plexus-mod-template`) | Plexus 모드 빌드: 공개 API 의존성, `poly.mod.json` 검증, 리소스 생성 |
+| **`dev.plexusmodloader.mod`** | 모드 프로젝트(`templates/plexus-mod-template`) | Plexus 모드 빌드: 공개 API 의존성, `plexus.mod.json` 검증, 리소스 생성 |
 
 ---
 

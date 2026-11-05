@@ -28,10 +28,7 @@ public final class ModDependencyResolver {
     /** ID under which the Plexus Mod Loader runtime itself can be depended on. */
     public static final String RUNTIME_MOD_ID = "plexus";
 
-    /** Legacy runtime ID for backward compatibility with Plexus mods. */
-    public static final String LEGACY_RUNTIME_MOD_ID = "poly";
-
-    private static final Set<String> RESERVED_IDS = Set.of(RUNTIME_MOD_ID, LEGACY_RUNTIME_MOD_ID, "minecraft", "java");
+    private static final Set<String> RESERVED_IDS = Set.of(RUNTIME_MOD_ID, "minecraft", "java");
 
     /** {@code 1} or {@code 1.2}, optionally followed by a pre-release or build part. */
     private static final Pattern SHORT_VERSION = Pattern.compile("(\\d+)(?:\\.(\\d+))?([-+].*)?");
@@ -114,7 +111,7 @@ public final class ModDependencyResolver {
                 String dependencyId = dependency.getKey();
                 VersionRange range = dependency.getValue();
                 SemanticVersion available;
-                if (dependencyId.equals(RUNTIME_MOD_ID) || dependencyId.equals(LEGACY_RUNTIME_MOD_ID)) {
+                if (dependencyId.equals(RUNTIME_MOD_ID)) {
                     available = runtimeVersion;
                 } else if (byId.containsKey(dependencyId)) {
                     available = byId.get(dependencyId).version();
@@ -147,11 +144,17 @@ public final class ModDependencyResolver {
                     continue;
                 }
                 if (!range.contains(available)) {
+                    boolean loaderItself = dependencyId.equals(RUNTIME_MOD_ID);
                     problems.add(new DependencyProblem(
                             DependencyProblemCode.DEPENDENCY_VERSION_MISMATCH,
                             id,
                             "requires '" + dependencyId + "' " + range + " but version " + available
-                                    + " is installed"));
+                                    + " is installed"
+                                    + (loaderItself
+                                            ? "; the mod was built for another Plexus Mod Loader version, so"
+                                                    + " install a build of it that declares a range containing "
+                                                    + available
+                                            : "")));
                 }
             }
             for (String conflict : mod.conflicts()) {

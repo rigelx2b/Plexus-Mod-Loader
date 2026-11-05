@@ -31,7 +31,8 @@
    - SpongePowered Mixin 0.8.7 (FabricMC 포크) 및 MixinExtras 0.5.5를 단일 서비스로 가동합니다.
    - Quilt 모드의 mixin 구성도 함께 바인딩하여 단일 패스(Single-pass)로 클래스를 변환합니다.
 
-### 4) 진입점 생명주기 관리
+### 4) 진입점 생명주기 관리 및 언어 어댑터
+- **언어 어댑터(Language Adapters):** Fabric의 `languageAdapters` 및 Quilt의 `quilt_loader.language_adapters`에 선언된 사용자 정의 언어 어댑터(`org.quiltmc.loader.api.LanguageAdapter` 또는 `net.fabricmc.loader.api.LanguageAdapter` 구현체)를 지원합니다. 양쪽 로더의 어댑터를 단일 런타임 저장소에서 통합 관리하여 상호 로더 간 진입점 생성을 지원하며, 어댑터를 찾을 수 없는 경우 Quilt 모드는 `PLEXUS-COMPAT-312`, Fabric 모드는 `PLEXUS-COMPAT-114`로 안전하게 차단합니다.
 - **`pre_launch` / `preLaunch`:** Mixin 준비 직후 및 게임 초기화 직전에 호출.
 - **`main` / `client` / `server`:** 마인크래프트 내부 초기화 지점에서 각 로더 인터페이스 계약에 맞추어 호출.
 
@@ -67,5 +68,5 @@
 
 ## 4. 제약 사항
 - 호스트 패치가 처리기의 일을 이미 하는 주입은 `HOST_COVERS` 규칙으로만 덜어냅니다(자동 아님, ADR-0032). 덜어낸 처리기의 기능은 Fabric 단독 실행과 다를 수 있습니다(MinecraftForge 옆: 위치별 파티클·벽 안 스프라이트, 자동 블록 아이템 모델).
-- Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 존재하지 않으므로, QSL에 직접 의존하는 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-303`)와 함께 제외됩니다.
+- Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 없으므로, QSL 모듈이 필요한 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-114`와 `308`)와 함께 제외되고, QSL 진입점은 실행하지 않습니다(`303`). 예외로, 클래스가 Fabric 초기화 인터페이스를 구현한 QSL 진입점은 Fabric 진입점으로 실행하며, 그 모드의 `quilt_base` 의존은 충족된 것으로 봅니다(`PLEXUS-COMPAT-311`).
 - 모드가 Fabric Loader나 Quilt Loader의 비공개 내부 패키지(`net.fabricmc.loader.impl.*` 등)에 직접 접근하는 경우 링크 검증 단계(`PLEXUS-COMPAT-111`)에서 거부될 수 있습니다.

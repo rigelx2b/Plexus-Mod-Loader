@@ -1,0 +1,94 @@
+package dev.plexusmodloader.game.layer.v1_20_1.content;
+
+import dev.plexusmodloader.api.content.block.entity.BlockEntityDefinition;
+import dev.plexusmodloader.api.content.block.entity.BlockEntityView;
+import dev.plexusmodloader.api.data.DataTree;
+import dev.plexusmodloader.api.inventory.InventoryView;
+import dev.plexusmodloader.api.world.BlockPos;
+import dev.plexusmodloader.api.world.WorldView;
+import dev.plexusmodloader.game.layer.v1_20_1.Views;
+import java.util.Optional;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.Container;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
+
+/** The mod data a Plexus Mod Loader block entity carries, and the view handed to mods; shared by both classes. */
+final class BlockEntityData {
+
+    private static final String KEY = "plexus_data";
+    private static final String VERSION_KEY = "plexus_data_version";
+
+    private final BlockEntity owner;
+    private final BlockEntityDefinition definition;
+    private DataTree data = DataTree.create();
+
+    BlockEntityData(BlockEntity owner, BlockEntityDefinition definition) {
+        this.owner = owner;
+        this.definition = definition;
+    }
+
+    boolean syncToClients() {
+        return definition.syncToClients();
+    }
+
+    void save(CompoundTag output) {
+        output.put(KEY, Nbt.toTag(data));
+        if (definition.dataVersion() > 0) {
+            output.putInt(VERSION_KEY, definition.dataVersion());
+        }
+    }
+
+    void load(CompoundTag input) {
+        data = input.contains(KEY, Tag.TAG_COMPOUND) ? Nbt.fromTag(input.getCompound(KEY)) : DataTree.create();
+        int version = input.getInt(VERSION_KEY);
+        if (version < definition.dataVersion() && definition.migration().isPresent()) {
+            definition.migration().get().migrate(data, version);
+            owner.setChanged();
+        }
+    }
+
+    void markChanged() {
+        owner.setChanged();
+        if (definition.syncToClients()
+                && owner.getLevel() != null
+                && !owner.getLevel().isClientSide()) {
+            owner.getLevel()
+                    .sendBlockUpdated(
+                            owner.getBlockPos(), owner.getBlockState(), owner.getBlockState(), Block.UPDATE_ALL);
+        }
+    }
+
+    BlockEntityView view() {
+        return new View();
+    }
+
+    private final class View implements BlockEntityView {
+
+        @Override
+        public WorldView world() {
+            return Views.world(owner.getLevel());
+        }
+
+        @Override
+        public BlockPos pos() {
+            return Views.pos(owner.getBlockPos());
+        }
+
+        @Override
+        public DataTree data() {
+            return data;
+        }
+
+        @Override
+        public Optional<InventoryView> inventory() {
+            return owner instanceof Container container ? Optional.of(Inventories.view(container)) : Optional.empty();
+        }
+
+        @Override
+        public void markChanged() {
+            BlockEntityData.this.markChanged();
+        }
+    }
+}

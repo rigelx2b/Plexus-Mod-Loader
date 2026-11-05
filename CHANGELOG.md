@@ -1,14 +1,67 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-11-05
 
 ### Summary
 
-Reworded the in-game messages displayed to players when mods are not loaded across English and Korean localizations.
+Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions with client-side Mojang remapping, advances the Plexus Mod Loader major release to 2.0.0 requiring the '>=2.0.0 <3.0.0' dependency range, introduces tick, attribute, and client input events to the Native API, expands Quilt mod compatibility, drops legacy 'poly' compatibility layers (ADR-0036), and adds initial loader comparison benchmark tasks.
+
+### What's New
+
+- Supported Minecraft Versions: Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 are now supported versions (ADR-0033, ADR-0035), executed via client-side on-demand remapping to Mojang official names (ADR-0019) without redistributing remapped jars.
+- Version Compatibility Boundaries: On pre-26.1 obfuscated versions (1.20.1, 1.20.4, 1.21.1, 1.21.11), Forge and NeoForge mods are left out (Forge `PLEXUS-COMPAT-206`, NeoForge `PLEXUS-COMPAT-216`; ADR-0033, ADR-0035). Plexus mods run there. Fabric's intermediary names are not translated yet, so a Fabric or Quilt mod runs only if it needs none of them: most released mods for these versions are left out with `PLEXUS-COMPAT-112` or `PLEXUS-COMPAT-126` (real mod sets: 2 of 10 Fabric mods on 1.20.1, 16 or 17 of 42 on the others). ADR-0034, which covers NeoForge on 1.20.1, 1.20.4, and 1.21.1, is still proposed.
+- Native API: Added `ServerEvents.TICK_END`, `WorldEvents.TICK_START`, and `WorldEvents.TICK_END` firing at the end of each server tick and at the start and end of each level dimension tick.
+- Native API: Added custom attribute definitions via `ContentRegistrar.attribute` and `AttributeDefinition`, as well as runtime attribute queries and modifications through `LivingEntityView`.
+- Native API: Added `ClientEvents.KEY_INPUT`, `ClientEvents.MOUSE_BUTTON`, and `ClientEvents.MOUSE_SCROLL` observing keyboard and mouse inputs.
+- Quilt Compatibility: Runs Quilt mods whose QSL entrypoints implement Fabric initializer interfaces (`PLEXUS-COMPAT-311`), treating dependencies on `quilt_base` as met.
+- Quilt Compatibility: Runs Quilt mods requiring external language adapters when provided by loaded mods, rejecting missing adapters with `PLEXUS-COMPAT-312`.
+- Windowing: The early loading window now opens as a background UI element on macOS.
+- Benchmarks: Added `frameBenchmarkPureFabric` comparing client frame times against vanilla and pure Fabric Loader KnotClient, and added `startupBenchmarkPureNeoForge` and `tickBenchmarkPureNeoForge` (Minecraft 26.2) comparing against standalone NeoForge dedicated servers.
+- Architecture Decisions: Proposed ADR-0034 (NeoForge on 1.20.1, 1.20.4, and 1.21.1; awaiting owner confirmation), accepted ADR-0035 promoting early versions with client-side remapping, and accepted ADR-0036 dropping legacy 'poly' compatibility layers.
 
 ### Improvements & Fixes
 
-- The title screen line, notice dialog, and loading screen now say "Not yet supported by Plexus Mod Loader" instead of "can't run them yet", alongside refreshed Korean wording.
+- Breaking Changes (Mod Developers): Dropped legacy 'poly' compatibility fallbacks; 'poly.mod.json' is no longer discovered or parsed (jars containing only 'poly.mod.json' fail mod discovery with `PLEXUS-DISCOVERY-002`), runtime bytecode remapping for legacy package 'dev.polymodloader.*' is removed, loader dependency ID 'poly' is removed, system/Gradle properties 'poly.*'/'poly<Name>' are ignored, and Gradle plugin ID marker 'dev.polymodloader.mod' is removed (ADR-0036).
+- Breaking Changes (Mod Developers): Native mods must use 'plexus.mod.json', apply Gradle plugin 'dev.plexusmodloader.mod', and declare the 'plexus' dependency range as '>=2.0.0 <3.0.0'.
+- Breaking Changes (Runtime & System): Dropped reading 'config/poly/backups.properties' and legacy backup directory names, renamed system replacement 'poly:game_brand' to 'plexus:game_brand', renamed worldgen structure piece to 'plexus:code_structure_piece', and removed installer legacy 'polymodloader-<version>' launcher profile handling.
+- Game Layer: Implemented the Native API common (server) layer and the client layer in `plexus-game-v1_20_1`, `plexus-game-v1_20_4`, and `plexus-game-v1_21_1` (version adapter rules and hooks for content, commands, networking, world services, generated data, tags, attributes, entities, worldgen, input events, HUD, screens, renderers, particles, and tooltips), replacing the former boot skeletons. Rules are checked against the remapped game classes by `BuiltInRulesTest`.
+- Game Layer: Added `GameTestMain` entrypoints for Minecraft 1.20.1 and 1.20.4, which have no `net.minecraft.gametest.Main`, so headless GameTest runs work there. Minecraft 1.20.1 has no configuration network phase, so declared configuration exchanges run as login queries.
+- Game Layer: A mod jar written in the later data layout now works on 1.20.1, 1.20.4, and 1.21.1 (`LaterFormatPack`): older folder names such as `tags/blocks` and `loot_tables` are answered from the later files, and `models/item/<name>.json` from `items/<name>.json`. A definition that cannot become a model is `PLEXUS-RESOURCE-011`.
+- Game Layer: A world with a mod's dimension no longer asks for a backup as an experimental world on versions before 26.1 (rule `plexus:mod_dimension_count`), and mod packs count as built in on 1.20.x.
+- Build & Verification: Refined `serverBootSmokeTest` transformation rule count assertions per version family, expecting 52 rules on 1.20.1, 54 on 1.20.4 and 1.21.1, 53 on 1.21.11, and 54 on 26.x.
+- Benchmarks: Excluded 26.2-format enchantment data pack mods from `startupBenchmarkQuilt` and `tickBenchmarkQuilt` to prevent world loading issues on 26.3.
+- SDK: The `plexus-gradle-plugin` jar now bundles `META-INF/LICENSE` and `META-INF/THIRD_PARTY_NOTICES.md`, verified by `verifySdkRepository`.
+- Discovery: Nested jar entries prefixed with dots are safely extracted to `nested.jar` within their hash directory instead of failing mod discovery.
+- Forge: Forge files are downloaded over HTTP/1.1, because a Forge installer download stalled over HTTP/2.
+- UI: Refreshed dialog and loading screen notices to clearly state "Not yet supported by Plexus Mod Loader" alongside updated Korean translations.
+
+### 주요 변경
+
+- Minecraft 1.20.1, 1.20.4, 1.21.1, 1.21.11을 정식 지원 버전으로 승격했습니다(ADR-0033, ADR-0035). 플레이어 PC에서 Mojang 공식 매핑을 받아 게임 jar를 온디맨드로 다시 매핑하여 실행하며, 매핑과 결과 jar는 재배포하지 않습니다.
+- 26.1 이전 난독화 버전(1.20.1, 1.20.4, 1.21.1, 1.21.11)에서는 Forge 및 NeoForge 모드를 지원하지 않으며 감지 시 빠집니다(Forge는 `PLEXUS-COMPAT-206`, NeoForge는 `PLEXUS-COMPAT-216`, ADR-0033, ADR-0035). Plexus 모드는 실행됩니다. Fabric의 intermediary 이름은 아직 번역하지 않으므로 Fabric·Quilt 모드는 그 이름이 필요 없을 때만 실행되고, 이 버전들에 나온 모드 대부분은 `PLEXUS-COMPAT-112`나 `PLEXUS-COMPAT-126`으로 빠집니다(실제 모드 묶음: 1.20.1은 Fabric 모드 10개 중 2개, 나머지는 42개 중 16~17개). 1.20.1, 1.20.4, 1.21.1의 NeoForge를 다루는 ADR-0034는 아직 제안 상태입니다.
+- Native API 대규모 확장:
+  - 서버 및 차원별 틱 이벤트(`ServerEvents.TICK_END`, `WorldEvents.TICK_START`, `WorldEvents.TICK_END`) 추가.
+  - 엔티티 속성 등록 및 변경(`ContentRegistrar.attribute`, `AttributeDefinition`, `LivingEntityView`).
+  - 클라이언트 키보드 및 마우스 입력 관찰 이벤트(`ClientEvents.KEY_INPUT`, `MOUSE_BUTTON`, `MOUSE_SCROLL`).
+- Quilt 호환성 개선: Fabric 초기화자 인터페이스를 구현한 QSL 진입점 실행(`PLEXUS-COMPAT-311`) 및 언어 어댑터 제공 시 진입점 지원(`PLEXUS-COMPAT-312`).
+- macOS 초기 로딩 창 지원 추가.
+- 순수 단일 로더(Fabric Loader, NeoForge)와의 비교 벤치마크 작업(`frameBenchmarkPureFabric`, `startupBenchmarkPureNeoForge`, `tickBenchmarkPureNeoForge`)을 추가했습니다. 아직 측정하지 않았으므로 이 버전에서는 성능 비교 수치를 주장하지 않습니다.
+- SDK 및 빌드 개선: `plexus-gradle-plugin` 라이선스 파일 포함, 중첩 jar 추출 경로 처리, 로드되지 않은 모드 안내 문구 개선.
+- Forge 파일을 HTTP/1.1로 받습니다. HTTP/2에서 Forge 설치 파일 다운로드가 멈춘 적이 있습니다.
+- 1.20.1, 1.20.4, 1.21.1 게임 계층(`plexus-game-v1_20_1`, `plexus-game-v1_20_4`, `plexus-game-v1_21_1`)에 공통(서버) 계층과 클라이언트 계층을 구현했습니다. 콘텐츠·명령·네트워킹·월드 서비스·생성 데이터·태그·속성·엔티티·월드 생성, 입력 이벤트·HUD·화면·렌더러·파티클·툴팁 훅이 포함되며, 변환 규칙은 다시 매핑한 게임 클래스에 대해 `BuiltInRulesTest`로 확인했습니다. `clientWorldReloadTest`와 `launcherProfileTest`는 네 버전(1.20.1, 1.20.4, 1.21.1, 1.21.11)의 게임 창에서 통과했습니다. 사람이 직접 하는 `runClient` 확인은 하지 않았습니다.
+- 1.20.1과 1.20.4에는 `net.minecraft.gametest.Main`이 없어 `GameTestMain` 진입점을 추가했습니다. 1.20.1에는 구성(configuration) 네트워크 단계가 없어 선언된 구성 교환을 로그인 쿼리로 실행합니다.
+- 모드 개발자 안내 및 레거시 "poly" 호환 해제(Breaking Changes, ADR-0036):
+  - 2.0.0 릴리스부터 Plexus 모드의 `"plexus"` 의존성 버전 범위가 `">=2.0.0 <3.0.0"`으로 변경되었습니다. 기존 `"<2.0.0"` 범위를 선언한 모드는 2.0.0에서 로드되지 않으므로 메타데이터 범위를 수정하여 다시 빌드해야 합니다.
+  - 과거 리브랜딩 과정에서 임시 유지되었던 옛 이름 "poly" 호환 계층이 완전히 제거되었습니다.
+  - `poly.mod.json` 메타데이터 탐색이 중단되며, 해당 파일만 있는 jar는 `PLEXUS-DISCOVERY-002`로 로드되지 않습니다(`plexus.mod.json` 필수).
+  - 옛 패키지 `dev.polymodloader.*`를 참조하는 모드의 런타임 바이트코드 리매핑이 제거되었습니다(`dev.plexusmodloader.*` 패키지로 재컴파일 필요).
+  - 의존성 ID `"poly"`가 제거되었습니다(`"plexus"` 필수).
+  - `poly.*` 시스템 속성 및 `poly<Name>` Gradle 속성을 더 이상 읽지 않습니다.
+  - 레거시 플러그인 ID `dev.polymodloader.mod` 마커가 제거되었습니다(`dev.plexusmodloader.mod` 사용).
+  - 시스템 ID `poly:game_brand`가 제거되었습니다(`plexus:game_brand` 사용).
+  - `config/poly/backups.properties` 및 옛 백업 폴더명을 더 이상 읽지 않습니다(디스크의 기존 파일은 삭제되지 않음).
+  - CodeWorldgen 구조 조각 ID가 `poly:code_structure_piece`에서 `plexus:code_structure_piece`로 변경되었습니다.
+  - 설치기의 옛 `polymodloader-<버전>` 프로필 처리 로직이 제거되었습니다.
 
 ## 1.10.0 — 2026-11-01
 

@@ -5,7 +5,6 @@ import dev.plexusmodloader.devtools.gradle.mod.ModResourceTasks;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.util.List;
 import java.util.Properties;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -18,7 +17,7 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion;
 import org.gradle.jvm.toolchain.JavaToolchainService;
 
 /**
- * Plugin for Plexus Mod projects (mods built on Plexus Mod Loader's Native API) ({@code plugins { id("dev.plexusmodloader.mod") }}; the former ID {@code dev.polymodloader.mod} applies it too).
+ * Plugin for Plexus Mod projects (mods built on Plexus Mod Loader's Native API) ({@code plugins { id("dev.plexusmodloader.mod") }}).
  *
  * <ul>
  *   <li>Java toolchain matching the Minecraft version the mod runs on: Plexus Mod Loader's default, or the one set
@@ -66,13 +65,6 @@ public final class PlexusModPlugin implements Plugin<Project> {
 
     @Override
     public void apply(Project project) {
-        // Gradle properties of mod projects written for 1.4.x (polyMinecraft, polyTests) keep working.
-        for (String name : List.of("Minecraft", "Tests")) {
-            Object former = project.findProperty("poly" + name);
-            if (former != null && project.findProperty("plexus" + name) == null) {
-                project.getExtensions().getExtraProperties().set("plexus" + name, former);
-            }
-        }
         Properties versions = versions();
         String plexusVersion = versions.getProperty("plexus");
         // The Minecraft version to run: gradle.properties plexusMinecraft=<version>, or Plexus Mod Loader's default.
@@ -82,10 +74,7 @@ public final class PlexusModPlugin implements Plugin<Project> {
         project.getPluginManager().apply(JavaLibraryPlugin.class);
         // -PplexusLocalSdk: Maven Local first, so a local build of a version the SDK repository already has wins.
         boolean localFirst =
-                project.getProviders()
-                        .gradleProperty(LOCAL_SDK_PROPERTY)
-                        .orElse(project.getProviders().gradleProperty("polyLocalSdk"))
-                        .isPresent();
+                project.getProviders().gradleProperty(LOCAL_SDK_PROPERTY).isPresent();
         if (localFirst) {
             project.getRepositories().mavenLocal();
         }
@@ -136,11 +125,10 @@ public final class PlexusModPlugin implements Plugin<Project> {
         project.getDependencies().add("plexusMetadataValidator", SDK_GROUP + ":" + METADATA_MODULE + ":" + plexusVersion);
 
         JavaToolchainService toolchains = project.getExtensions().getByType(JavaToolchainService.class);
-        java.io.File plexusJson = project.file("src/main/resources/plexus.mod.json");
-        java.io.File targetJson = plexusJson.exists() ? plexusJson : project.file("src/main/resources/poly.mod.json");
+        java.io.File targetJson = project.file("src/main/resources/plexus.mod.json");
         TaskProvider<JavaExec> validate = project.getTasks().register("validatePlexusModJson", JavaExec.class, task -> {
             task.setGroup("verification");
-            task.setDescription("Validates src/main/resources/plexus.mod.json or poly.mod.json with Plexus Mod Loader's metadata reader.");
+            task.setDescription("Validates src/main/resources/plexus.mod.json with Plexus Mod Loader's metadata reader.");
             task.setClasspath(validator);
             task.getMainClass().set("dev.plexusmodloader.runtime.metadata.ModMetadataValidatorMain");
             task.args(targetJson.getAbsolutePath());

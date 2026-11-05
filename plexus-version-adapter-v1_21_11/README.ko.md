@@ -31,7 +31,7 @@ Minecraft 1.21.11 전용 지식을 담습니다. 클라이언트/서버 진입�
 
 ## 26.1과 다른 점
 
-**실험 버전입니다**(ADR-0019). `plexus-version-adapter-v26_1`을 복사했습니다. 다시 매핑한 1.21.11 jar에서 `javap`로 찾아 대상을 바꾼 규칙은 다음과 같습니다.
+**지원 버전입니다**(ADR-0033, 실험 버전에서 승격. 다시 매핑한 jar는 ADR-0019). `plexus-version-adapter-v26_1`을 복사했습니다. 다시 매핑한 1.21.11 jar에서 `javap`로 찾아 대상을 바꾼 규칙은 다음과 같습니다.
 
 - `plexus:use_entity`: `Player.interactOn(Entity, InteractionHand)`
 - `plexus:client_hud`: `Gui.render`

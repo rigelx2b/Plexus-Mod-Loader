@@ -29,15 +29,30 @@ import org.xml.sax.SAXException;
 /**
  * Checks a Maven repository written by {@code publishSdk} (ADR-0008): every expected artifact of the version
  * is there and listed in its {@code maven-metadata.xml}, JavaDoc only where expected, no other Plexus Mod Loader
- * artifact of that version, every Plexus Mod Loader dependency of a POM inside the repository, and, for every
- * version in the repository, no {@code -sources.jar} and no {@code .java} file inside any archive.
+ * artifact of that version, the license and third-party notices inside every jar of that version, every Plexus Mod
+ * Loader dependency of a POM inside the repository, and, for every version in the repository, no {@code -sources.jar}
+ * and no {@code .java} file inside any archive.
  */
 public final class SdkRepositoryCheck {
 
     /** The group of Plexus Mod Loader's own artifacts; dependencies in it must be in the repository. */
     public static final String GROUP = "dev.plexusmodloader";
 
+    /** The group before the rename. Versions published there earlier stay; nothing new goes in. */
+    private static final String FORMER_GROUP = "dev.polymodloader";
+
+    /** What every published jar carries: the license and the third-party notices (see {@code plexus.java-conventions}). */
+    private static final List<String> LICENSE_ENTRIES = List.of("META-INF/LICENSE", "META-INF/THIRD_PARTY_NOTICES.md");
+
     private SdkRepositoryCheck() {}
+
+    private static boolean hasEntry(Path archive, String entry) {
+        try (ZipFile zip = new ZipFile(archive.toFile())) {
+            return zip.getEntry(entry) != null;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     /**
      * An artifact {@code publishSdk} publishes.
@@ -84,6 +99,15 @@ public final class SdkRepositoryCheck {
         if (!artifact.packaging().equals("pom")
                 && !Files.isRegularFile(versionDirectory.resolve(base + "." + artifact.packaging()))) {
             problems.add(coordinates + ": no " + base + "." + artifact.packaging());
+        }
+        Path jar = versionDirectory.resolve(base + ".jar");
+        if (artifact.packaging().equals("jar") && Files.isRegularFile(jar)) {
+            for (String notice : LICENSE_ENTRIES) {
+                if (!hasEntry(jar, notice)) {
+                    problems.add(coordinates + ": " + base + ".jar has no " + notice
+                            + ", which every jar carries (MPL 2.0 section 3.2)");
+                }
+            }
         }
         boolean javadoc = Files.isRegularFile(versionDirectory.resolve(base + "-javadoc.jar"));
         if (javadoc != artifact.javadoc()) {
@@ -138,8 +162,9 @@ public final class SdkRepositoryCheck {
 
     /**
      * Other Plexus Mod Loader artifacts of this version: test mods, examples or the installer published by mistake.
-     * Only {@value #GROUP} and its subgroups are looked at; artifacts of the group before the rename
-     * ({@code dev.polymodloader}) stay in the repository as published.
+     * Artifacts of {@value #GROUP} and its subgroups must be part of the SDK. A pom of this version under the group
+     * used before the rename ({@code dev.polymodloader}) is a problem too, because nothing is published there any more;
+     * poms of other versions under it stay in the repository as published.
      */
     private static void checkNoOtherArtifacts(
             Path repository, String version, Map<String, Artifact> expected, List<String> problems) {
@@ -156,6 +181,10 @@ public final class SdkRepositoryCheck {
                 boolean ours = group.equals(GROUP) || group.startsWith(GROUP + ".");
                 if (ours && !expected.containsKey(group + ":" + name)) {
                     problems.add(group + ":" + name + ":" + version + " is in the repository but not part of the SDK");
+                }
+                if (group.equals(FORMER_GROUP) || group.startsWith(FORMER_GROUP + ".")) {
+                    problems.add(group + ":" + name + ":" + version
+                            + " is published under the former group, which Plexus Mod Loader no longer publishes to");
                 }
             }
         } catch (IOException e) {

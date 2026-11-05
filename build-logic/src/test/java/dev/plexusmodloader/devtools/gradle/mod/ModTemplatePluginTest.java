@@ -16,9 +16,9 @@ class ModTemplatePluginTest {
     }
 
     @Test
-    void formerPluginIdBecomesTheCurrentOne() {
-        assertEquals(
-                "    id(\"dev.plexusmodloader.mod\") version \"0.2.0\"",
-                ModTemplatePlugin.withPluginVersion("    id(\"dev.polymodloader.mod\") version \"0.1.0-alpha.2\"", "0.2.0"));
+    void formerPluginIdIsNotRewritten() {
+        String former = "    id(\"dev.polymodloader.mod\") version \"0.1.0-alpha.2\"";
+
+        assertEquals(former, ModTemplatePlugin.withPluginVersion(former, "0.2.0"));
     }
 }

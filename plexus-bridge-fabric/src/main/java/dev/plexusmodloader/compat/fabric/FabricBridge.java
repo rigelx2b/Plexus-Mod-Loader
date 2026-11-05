@@ -65,7 +65,7 @@ public final class FabricBridge implements ModLoaderBridge {
             Map.of("main", "common", "client", "client", "server", "server", "preLaunch", "preLaunch");
 
     /** Prefix of the ID a mod provides for each language adapter it declares ({@code languageAdapters}). */
-    static final String LANGUAGE_ADAPTER_PREFIX = "fabric-language-adapter:";
+    public static final String LANGUAGE_ADAPTER_PREFIX = "fabric-language-adapter:";
 
     /** Version of the Fabric Loader API jar on Plexus Mod Loader's class path, from {@code fabric-bridge.properties}. */
     static final String FABRIC_LOADER_VERSION = BundledVersions.FABRIC_LOADER;

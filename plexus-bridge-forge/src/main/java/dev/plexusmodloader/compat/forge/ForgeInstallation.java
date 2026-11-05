@@ -205,6 +205,7 @@ final class ForgeInstallation {
     /** The default downloader: HTTPS through the JDK's client, following redirects. */
     static Downloader httpDownloader() {
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();

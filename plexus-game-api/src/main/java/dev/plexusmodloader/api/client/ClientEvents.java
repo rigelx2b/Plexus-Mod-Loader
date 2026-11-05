@@ -37,5 +37,27 @@ public final class ClientEvents {
     public static final EventKey<ItemTooltipListener> ITEM_TOOLTIP =
             EventKey.of("plexus:client/item_tooltip", ItemTooltipListener.class);
 
+    /**
+     * A key of the game window was pressed, released, or repeated, before the game handles it; also while a screen is
+     * open. Observe only: the game still handles the key. Fabric API: {@code ScreenKeyboardEvents} (screens only);
+     * NeoForge: {@code InputEvent.Key}.
+     */
+    public static final EventKey<KeyInputListener> KEY_INPUT =
+            EventKey.of("plexus:client/key_input", KeyInputListener.class);
+
+    /**
+     * A mouse button was pressed or released over the game window, before the game handles it; also while a screen
+     * is open. Observe only. NeoForge: {@code InputEvent.MouseButton.Pre}.
+     */
+    public static final EventKey<MouseButtonListener> MOUSE_BUTTON =
+            EventKey.of("plexus:client/mouse_button", MouseButtonListener.class);
+
+    /**
+     * The mouse wheel or touchpad scrolled over the game window, before the game handles it. Observe only. NeoForge:
+     * {@code InputEvent.MouseScrollingEvent}.
+     */
+    public static final EventKey<MouseScrollListener> MOUSE_SCROLL =
+            EventKey.of("plexus:client/mouse_scroll", MouseScrollListener.class);
+
     private ClientEvents() {}
 }

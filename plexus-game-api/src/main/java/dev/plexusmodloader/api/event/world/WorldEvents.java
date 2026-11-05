@@ -6,8 +6,10 @@ import dev.plexusmodloader.api.stability.StabilityLevel;
 
 /**
  * Server-side dimension events. Per dimension and server start the order is {@link #LOADED}, {@link
- * #READY}, {@link #SAVING} (on every save), {@link #UNLOADED}. Fabric API: {@code ServerWorldEvents};
- * NeoForge: {@code LevelEvent.Load}, {@code Unload}, {@code Save}.
+ * #READY} (on the dimension's first tick), {@link #TICK_START} and {@link #TICK_END} (repeatedly on
+ * every tick), {@link #SAVING} (on every save), {@link #UNLOADED}. Fabric API: {@code
+ * ServerWorldEvents}, {@code ServerTickEvents}; NeoForge: {@code LevelEvent.Load}, {@code Unload},
+ * {@code Save}, {@code LevelTickEvent}.
  */
 @ApiStability(StabilityLevel.PREVIEW)
 public final class WorldEvents {
@@ -32,10 +34,29 @@ public final class WorldEvents {
 
     /**
      * A dimension ticks for the first time after it was loaded or created; a good moment to read
-     * {@code WorldView.storage}. Fired once per dimension per server start.
+     * {@code WorldView.storage}. Fired once per dimension per server start, immediately before
+     * {@link #TICK_START}.
      */
     public static final EventKey<WorldReadyListener> READY =
             EventKey.of("plexus:world/ready", WorldReadyListener.class);
+
+    /**
+     * A dimension begins ticking on the server thread, before scheduled tasks and before the game's
+     * internal dimension tick.
+     *
+     * <p>On a dimension's very first tick, {@link #READY} fires first (once per dimension per server
+     * start). {@link #TICK_START} then fires, followed by scheduled dimension tasks (tasks queued via
+     * {@code WorldView.schedule}), and finally the game's internal dimension tick logic.
+     */
+    public static final EventKey<WorldTickListener> TICK_START =
+            EventKey.of("plexus:world/tick_start", WorldTickListener.class);
+
+    /**
+     * A dimension finished ticking on the server thread, after all scheduled tasks, entities, and
+     * blocks of the dimension have finished ticking for this tick.
+     */
+    public static final EventKey<WorldTickListener> TICK_END =
+            EventKey.of("plexus:world/tick_end", WorldTickListener.class);
 
     /** A chunk finished loading (from disk or newly generated) on the server. */
     public static final EventKey<ChunkListener> CHUNK_LOADED =

@@ -68,4 +68,17 @@ class TickBenchmarkTaskTest {
         assertTrue(tick.contains("minecraft:glass replace minecraft:air"));
         assertTrue(!tick.contains("minecraft:stone"), tick);
     }
+
+    @Test
+    void runResultSerializesToJsonWithGcAndMemoryMetrics() {
+        TickBenchmarkTask.RunResult result = new TickBenchmarkTask.RunResult(
+                1000, 10.5, 15.2, 18.0, 35.0, 0.2, 1280.0, 160.0, 15, 250.0, 30.0);
+        String json = result.toJson();
+        JsonObject parsed = JsonParser.parseString(json).getAsJsonObject();
+        assertEquals(1000, parsed.get("ticks").getAsInt());
+        assertEquals(10.5, parsed.get("p50Millis").getAsDouble());
+        assertEquals(1280.0, parsed.get("peakHeapMiB").getAsDouble());
+        assertEquals(160.0, parsed.get("peakHeapAfterGcMiB").getAsDouble());
+        assertEquals(15, parsed.get("collections").getAsInt());
+    }
 }

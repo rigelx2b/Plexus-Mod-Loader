@@ -49,7 +49,7 @@ class LauncherProfileInstallerTest {
                 installer(payload()).install(minecraft, "26.2", true, JavaMemory.LAUNCHER_DEFAULT, progress::add);
 
         Path runtime = minecraft.resolve(
-                "libraries/dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar");
+                "libraries/dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar");
         assertTrue(Files.isRegularFile(runtime));
         assertEquals(new String(RUNTIME_JAR, StandardCharsets.UTF_8), Files.readString(runtime));
         // The vanilla version was never played in this folder.
@@ -72,7 +72,7 @@ class LauncherProfileInstallerTest {
         JsonObject artifact =
                 libraries.get(0).getAsJsonObject().getAsJsonObject("downloads").getAsJsonObject("artifact");
         assertEquals(
-                "dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
+                "dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
                 artifact.get("path").getAsString());
         assertEquals(sha1(RUNTIME_JAR), artifact.get("sha1").getAsString());
         assertEquals("", artifact.get("url").getAsString());
@@ -130,7 +130,7 @@ class LauncherProfileInstallerTest {
     @Test
     void replacesADamagedLibrary() throws Exception {
         Path runtime = minecraft.resolve(
-                "libraries/dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar");
+                "libraries/dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar");
         Files.createDirectories(runtime.getParent());
         Files.writeString(runtime, "half a download");
 
@@ -147,7 +147,7 @@ class LauncherProfileInstallerTest {
                 "dev.plexusmodloader.bootstrap.PlexusLauncherMain",
                 List.of(new InstallerPayload.Library(
                         "dev.plexusmodloader:plexus-runtime-impl:0.1.0",
-                        "dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
+                        "dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
                         sha1("something else".getBytes(StandardCharsets.UTF_8)),
                         RUNTIME_JAR.length)),
                 path -> new ByteArrayInputStream(RUNTIME_JAR));
@@ -158,7 +158,7 @@ class LauncherProfileInstallerTest {
 
         assertTrue(problem.getMessage().contains("is damaged"), problem.getMessage());
         assertFalse(Files.exists(minecraft.resolve(
-                "libraries/dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar")));
+                "libraries/dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar")));
     }
 
     @Test
@@ -206,7 +206,7 @@ class LauncherProfileInstallerTest {
     }
 
     @Test
-    void uninstallAlsoRemovesAProfileInstalledByOneFourX() throws Exception {
+    void uninstallLeavesAProfileInstalledByOneFourXAlone() throws Exception {
         Files.writeString(minecraft.resolve("launcher_profiles.json"), """
                 {"profiles": {"vanilla": {}, "polymodloader-26.2": {"name": "Poly Mod Loader 26.2"}}}
                 """);
@@ -214,7 +214,25 @@ class LauncherProfileInstallerTest {
         installer(payload()).uninstall(minecraft, "26.2", line -> {});
 
         JsonObject profiles = json(minecraft.resolve("launcher_profiles.json")).getAsJsonObject("profiles");
-        assertEquals(List.of("vanilla"), List.copyOf(profiles.keySet()));
+        assertEquals(List.of("vanilla", "polymodloader-26.2"), List.copyOf(profiles.keySet()));
+    }
+
+    @Test
+    void installLeavesAProfileInstalledByOneFourXAlone() throws Exception {
+        Files.writeString(minecraft.resolve("launcher_profiles.json"), """
+                {"profiles": {"polymodloader-26.2": {"name": "Poly Mod Loader 26.2", "javaArgs": "-Xmx2G"}}}
+                """);
+
+        installer(payload()).install(minecraft, "26.2", true, JavaMemory.parse("4G", "1G"), line -> {});
+
+        JsonObject profiles = json(minecraft.resolve("launcher_profiles.json")).getAsJsonObject("profiles");
+        assertEquals(List.of("polymodloader-26.2", "plexusmodloader-26.2"), List.copyOf(profiles.keySet()));
+        assertEquals(
+                "-Xmx2G",
+                profiles.getAsJsonObject("polymodloader-26.2").get("javaArgs").getAsString());
+        assertEquals(
+                "-Xms1G -Xmx4G",
+                profiles.getAsJsonObject("plexusmodloader-26.2").get("javaArgs").getAsString());
     }
 
     @Test
@@ -238,12 +256,12 @@ class LauncherProfileInstallerTest {
     @Test
     void writesTheMemoryIntoTheProfileAndKeepsOtherJavaArguments() throws Exception {
         Files.writeString(minecraft.resolve("launcher_profiles.json"), """
-                {"profiles": {"polymodloader-26.2": {"name": "Poly Mod Loader 26.2", "javaArgs": "-Xmx2G -XX:+UseZGC"}}}
+                {"profiles": {"plexusmodloader-26.2": {"name": "Plexus Mod Loader 26.2", "javaArgs": "-Xmx2G -XX:+UseZGC"}}}
                 """);
 
         installer(payload()).install(minecraft, "26.2", true, JavaMemory.parse("4G", "1G"), line -> {});
         JsonObject profiles = json(minecraft.resolve("launcher_profiles.json")).getAsJsonObject("profiles");
-        // A profile installed by 1.4.x moves to the current key and name and keeps the player's settings.
+        // The existing profile keeps the player's other settings.
         assertEquals(List.of("plexusmodloader-26.2"), List.copyOf(profiles.keySet()));
         JsonObject plexus = profiles.getAsJsonObject("plexusmodloader-26.2");
         assertEquals("-XX:+UseZGC -Xms1G -Xmx4G", plexus.get("javaArgs").getAsString());
@@ -304,14 +322,14 @@ class LauncherProfileInstallerTest {
         assertEquals(
                 List.of(
                         "-Dplexus.launchTarget=client",
-                        "-javaagent:${library_directory}/dev/polymodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar"),
+                        "-javaagent:${library_directory}/dev/plexusmodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar"),
                 jvm);
         for (var library : version.getAsJsonArray("libraries")) {
             String name = library.getAsJsonObject().get("name").getAsString();
             assertFalse(name.startsWith("net.minecraftforge:"), name);
         }
         assertTrue(Files.isRegularFile(
-                minecraft.resolve("libraries/dev/polymodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar")));
+                minecraft.resolve("libraries/dev/plexusmodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar")));
     }
 
     @Test
@@ -340,7 +358,7 @@ class LauncherProfileInstallerTest {
                  "agent": {"library": "dev.plexusmodloader:plexus-bootstrap:0.1.0",
                            "class": "dev.plexusmodloader.bootstrap.SystemClassPathAgent"},
                  "libraries": [{"name": "dev.plexusmodloader:plexus-bootstrap:0.1.0",
-                                "path": "dev/polymodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar",
+                                "path": "dev/plexusmodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar",
                                 "sha1": "00", "size": 3}]}
                 """), path -> new ByteArrayInputStream(new byte[0]));
 
@@ -350,7 +368,7 @@ class LauncherProfileInstallerTest {
                         "dev.plexusmodloader.bootstrap.SystemClassPathAgent")),
                 parsed.agent());
         assertEquals(
-                "dev/polymodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar",
+                "dev/plexusmodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar",
                 parsed.agentLibrary().orElseThrow().path());
     }
 
@@ -377,7 +395,7 @@ class LauncherProfileInstallerTest {
 
     private static InstallerPayload payload() {
         Map<String, byte[]> jars = Map.of(
-                "dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar", RUNTIME_JAR,
+                "dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar", RUNTIME_JAR,
                 "org/ow2/asm/asm/9.11.1/asm-9.11.1.jar", ASM_JAR);
         return new InstallerPayload(
                 "0.1.0",
@@ -386,7 +404,7 @@ class LauncherProfileInstallerTest {
                 List.of(
                         new InstallerPayload.Library(
                                 "dev.plexusmodloader:plexus-runtime-impl:0.1.0",
-                                "dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
+                                "dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
                                 sha1(RUNTIME_JAR),
                                 RUNTIME_JAR.length),
                         new InstallerPayload.Library(
@@ -401,7 +419,7 @@ class LauncherProfileInstallerTest {
     private static InstallerPayload payloadWithAgent() {
         InstallerPayload base = payload();
         byte[] bootstrap = "bootstrap bytes".getBytes(StandardCharsets.UTF_8);
-        String path = "dev/polymodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar";
+        String path = "dev/plexusmodloader/plexus-bootstrap/0.1.0/plexus-bootstrap-0.1.0.jar";
         List<InstallerPayload.Library> libraries = new ArrayList<>(base.libraries());
         libraries.add(new InstallerPayload.Library(
                 "dev.plexusmodloader:plexus-bootstrap:0.1.0", path, sha1(bootstrap), bootstrap.length));

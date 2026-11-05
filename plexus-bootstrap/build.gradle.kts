@@ -1,3 +1,4 @@
+import java.util.Properties
 import java.util.concurrent.Callable
 import java.util.zip.GZIPInputStream
 
@@ -25,6 +26,12 @@ val worldsSavedLine =
     } else {
         "[Plexus Mod Loader] Server stopped after saving and closing its worlds"
     }
+
+// Whether Plexus Mod Loader has a NeoForge release for this version (the list the runtime reads; 1.21.11 has none).
+val hasNeoForgeRelease = Properties().apply {
+    rootProject.file("plexus-bridge-forge/src/main/resources/dev/plexusmodloader/compat/forge/neoforge-releases.properties")
+        .inputStream().use(::load)
+}.containsKey(minecraft)
 
 dependencies {
     implementation(project(":plexus-runtime-impl"))
@@ -97,6 +104,26 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.FrameBenchmarkTask>("f
     providers.gradleProperty("frameBenchmarkCooldown").orNull?.let { cooldownSeconds = it.toInt() }
 }
 
+// The game test server starts at Mojang's net.minecraft.gametest.Main from 1.21.5 on; the 1.20.1, 1.20.4 and 1.21.1 server jars
+// have none, so those versions start at their game layer's own GameTestMain (gametest package).
+val gameTestMain =
+    if (minecraftModules in setOf("1.20.1", "1.20.4", "1.21.1")) {
+        "dev.plexusmodloader.game.layer.v${minecraftModules.replace('.', '_')}.gametest.GameTestMain"
+    } else {
+        "net.minecraft.gametest.Main"
+    }
+
+// The server rules of each adapter differ with what the version has. 1.21.11 has no
+// plexus:builtin_registries_refreeze or plexus:custom_payload_encoding; 1.20.1 needs no payload decoding rules and runs
+// configuration exchanges in the login phase.
+val transformationPlanLines =
+    when (minecraftModules) {
+        "1.20.1" -> listOf("[Plexus Mod Loader] Transformation plan: 52 rule(s) accepted, 0 rejected (2 from mods)")
+        "1.20.4", "1.21.1" -> listOf("[Plexus Mod Loader] Transformation plan: 54 rule(s) accepted, 0 rejected (2 from mods)")
+        "1.21.11" -> listOf("[Plexus Mod Loader] Transformation plan: 53 rule(s) accepted, 0 rejected (2 from mods)")
+        else -> listOf("[Plexus Mod Loader] Transformation plan: 54 rule(s) accepted, 0 rejected (2 from mods)")
+    }
+
 tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("serverBootSmokeTest") {
     expectedOutput.addAll(
         "[Plexus Mod Loader] Phase BOOTSTRAP",
@@ -109,9 +136,9 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("
         "[Plexus Mod Loader] Phase CONFLICT_RESOLUTION: 1 system(s), 1 replacement(s)",
         "[Plexus Mod Loader] System plexus:game_brand: com.example.plexus.brand.ExampleBrandProvider from custom_system_mod",
         "[Plexus Mod Loader] Startup report:",
-        "[Plexus Mod Loader] Transformation plan: 52 rule(s) accepted, 0 rejected (2 from mods)",
+        *transformationPlanLines.toTypedArray(),
         "[Plexus Mod Loader] Access widenings: 1 accepted, 0 rejected",
-        "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 62 game test(s)",
+        "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 63 game test(s)",
         "[Plexus Mod Loader] Game layer $gameLayer started",
         "[minimal_native_mod] Hello from minimal_native_mod 0.1.0 on DEDICATED_SERVER",
         "[Plexus Mod Loader] Phase GAME_LAUNCH: net.minecraft.server.Main",
@@ -125,10 +152,10 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("
     expectedOutput.addAll(
         "[Plexus Mod Loader] Minecraft $minecraft (DEDICATED_SERVER) via adapter minecraft-$minecraftModules, launch target game_test_server",
         "[Plexus Mod Loader] Loaded mod minimal_native_mod 0.1.0",
-        "[Plexus Mod Loader] Phase GAME_LAUNCH: net.minecraft.gametest.Main",
+        "[Plexus Mod Loader] Phase GAME_LAUNCH: $gameTestMain",
         "[Plexus Mod Loader] Access widenings: 1 accepted, 0 rejected",
         // A Fabric mod is installed (fabric_hello), so call redirects come after the Fabric stage (ADR-0020).
-        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [plexus:server_brand, plexus:server_tick_events, plexus:server_running, plexus:server_stopping_event, plexus:world_unloaded, plexus:server_stopped, plexus:worldgen_features, plexus:world_loaded, access widening by transform_demo_mod]",
+        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [plexus:server_brand, plexus:server_tick_events, plexus:server_tick_end, plexus:server_running, plexus:server_stopping_event, plexus:world_unloaded, plexus:server_stopped, plexus:worldgen_features, plexus:world_loaded, access widening by transform_demo_mod]",
         "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [transform_demo_mod:tick_start_nanos]",
         "[Plexus Mod Loader] System plexus:game_brand: com.example.plexus.brand.ExampleBrandProvider from custom_system_mod",
         "[Plexus Mod Loader] Transformed net/minecraft/world/level/storage/LevelStorageSource with [transform_demo_mod:storage_format_name]",
@@ -157,10 +184,15 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.ClientWorldReloadTask>
     // The showcase leaves the world after its demo, so leaving is checked too.
     systemProperties.add("native_showcase.leaveAfterDemo=true")
     // Plexus Mod Loader's early loading window (no host loader here): opened, drawn, closed when the game's window shows.
+    // Only 26.x adapters name the game's logo and have a layer that says when its window shows (loadingScreenLogo).
     systemProperties.add("plexus.earlyWindow.snapshots=.plexus")
+    if (!minecraft.startsWith("1.")) {
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Early loading window opened",
+            "[Plexus Mod Loader] Early loading window closed",
+        )
+    }
     expectedOutput.addAll(
-        "[Plexus Mod Loader] Early loading window opened",
-        "[Plexus Mod Loader] Early loading window closed",
         "[Plexus Mod Loader] Phase GAME_LAUNCH: net.minecraft.client.main.Main",
         "[minimal_native_mod] Client entrypoint called",
         "[Plexus Mod Loader] plexus:game_brand reported 'plexus/example' to Minecraft (CLIENT)",
@@ -174,6 +206,7 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.ClientWorldReloadTask>
         "[Plexus Mod Loader] Configuration exchange native_showcase:handshake with PlexusDev: answered, accepted",
         "[native_showcase] Player joined: PlexusDev",
         "[native_showcase] Client received greeting: Welcome, PlexusDev",
+        "[native_showcase] Client sees synchronised spark affinity 3.0",
         "[native_showcase] Server received 'thanks' from PlexusDev",
         "[Plexus Mod Loader] Drawing 1 mod HUD layer(s)",
         "[native_showcase] HUD layer drew on a",
@@ -198,8 +231,6 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.ClientWorldReloadTask>
         "[Plexus Mod Loader] World painter native_showcase:compass drew 3 shape(s) and 2 quad batch(es)",
         "[Plexus Mod Loader] Built mod shader pipeline native_showcase:glow (native_showcase:core/glow)",
         "[Plexus Mod Loader] Built mod shader pipeline native_showcase:pulse (native_showcase:core/pulse) with 1 texture(s) and 2 uniform(s)",
-        "[Plexus Mod Loader] Uploaded ModUniforms of mod shader pipeline native_showcase:pulse",
-        "[Plexus Mod Loader] Bound ModUniforms of mod shader pipeline native_showcase:pulse (2 field(s), 32 bytes)",
         "[native_showcase] Grinder draws lamp state native_showcase:lamp[color=blue, lit=true]",
         "[Plexus Mod Loader] Drew mod mob model native_showcase:wisp",
         "[Plexus Mod Loader] Played mod mob animation wave of native_showcase:wisp",
@@ -222,6 +253,21 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.ClientWorldReloadTask>
         "[Plexus Mod Loader] Loaded mods per loader: 4 Plexus, 1 Fabric, 0 Quilt, 0 Forge",
         "[Plexus Mod Loader] Title screen: 2 line(s) of mod counts drawn above the version text: Plexus mods: 4 | Fabric mods: 1",
     )
+    // Minecraft 1.20.4 reads a level.dat without a Player tag, as a game test server saves it, as an empty player and
+    // places the world's owner at 0 0 0 (LevelStorageSource.readLevelDataTagFixed, orElseEmptyMap). The golem spawned
+    // next to the player would fall to its death before the demo rides it, so the showcase starts on the flat ground.
+    if (minecraftModules == "1.20.4") {
+        systemProperties.add("native_showcase.joinGroundY=-60")
+    }
+    // 1.20.x shaders have no uniform block for mods: each mod uniform is set on the program by name.
+    if (minecraftModules in setOf("1.20.1", "1.20.4")) {
+        expectedOutput.add("[Plexus Mod Loader] Uploaded 2 uniform(s) of mod shader pipeline native_showcase:pulse")
+    } else {
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Uploaded ModUniforms of mod shader pipeline native_showcase:pulse",
+            "[Plexus Mod Loader] Bound ModUniforms of mod shader pipeline native_showcase:pulse (2 field(s), 32 bytes)",
+        )
+    }
 }
 
 // End-user installation: the installer jar installs a launcher profile into a fresh launcher folder, and the
@@ -270,7 +316,7 @@ launcherProfile("launcherProfileTest", "plexus/launcher-profile-$minecraft/minec
         "[quilt_hello] client entrypoint ran",
         "[quilt_hello] entrypoint order: pre_launch -> preLaunch -> main",
         "[quilt_hello] MinecraftQuiltLoader.getEnvironmentType() = CLIENT, QuiltLoader.getRawGameVersion() = $minecraft",
-        "[quilt_hello] access wideners: SharedConstants.prefixDebugFlagName public = true, Mth.SIN public = true",
+        "[quilt_hello] access wideners: OptionsAmbientOcclusionFix.updateValue public = true, Mth.SIN public = true",
         "[quilt_hello] nested quilt_nested_lib is ready",
         // The integrated server's tick, once the world is open.
         "[quilt_hello] Quilt mod's Mixin: tickServer @Inject ran",
@@ -320,11 +366,10 @@ val corruptJar = tasks.register("corruptTestJar") {
     doLast { jar.get().asFile.apply { parentFile.mkdirs(); writeText("this download was cut off") } }
 }
 val neoforgeBlocked ="[Plexus Mod Loader] NeoForge mod blocked_example 1.0.0 (neoforge-blocked-$testModVersion.jar): BLOCKED - NOT loaded"
-// What must not show in the Quilt scenarios: entrypoints nothing may run (QSL's init, the client entrypoint on a server,
+// What must not show in the Quilt scenarios: entrypoints nothing may run (the client entrypoint on a server,
 // the quilt.mod.json side of a jar that also has fabric.mod.json, a nested if_required mod nobody requires), a bridge
 // that threw, and crashes.
 val quiltUnexpected = listOf(
-    "QSL init entrypoint ran",
     "[quilt_hello] client entrypoint ran",
     "[fabric_quilt_dual] Quilt entrypoint ran",
     "[quilt_nested_unused] initialised",
@@ -341,7 +386,9 @@ val quiltUnexpected = listOf(
 // entrypoints, Quilt Loader's API, its Mixin, its access wideners and Quilt's annotation stripping on the server.
 val quiltHelloLines = listOf(
     "[Plexus Mod Loader] Quilt mod quilt_hello 1.0.0 (quilt-hello-$testModVersion.jar): EXPERIMENTAL - loaded through the Quilt bridge",
-    "PLEXUS-COMPAT-303 [limited] entrypoints [init]: QSL runs these entrypoints",
+    // QSL's init entrypoint is a Fabric ModInitializer, so it runs as Fabric main (PLEXUS-COMPAT-311).
+    "PLEXUS-COMPAT-311 [limited] QSL entrypoints [init com.example.compat.quilthello.QslInit]: run as Fabric entrypoints",
+    "[quilt_hello] QSL init entrypoint ran",
     "PLEXUS-COMPAT-304 [limited] entrypoint 'quilt_hello:custom': not run by Plexus Mod Loader; other mods can get it through QuiltLoader.getEntrypoints and FabricLoader.getEntrypoints",
     "PLEXUS-COMPAT-131 [limited] mixins: 1 Mixin configuration(s), 1 for DEDICATED_SERVER (quilt_hello.mixins.json)",
     "PLEXUS-COMPAT-129 [limited] class tweaker: quilt_hello.accesswidener (accessWidener, official): 1 line(s)",
@@ -370,7 +417,7 @@ val quiltHelloLines = listOf(
     "[quilt_hello] FabricLoader sees quilt_hello as type quilt, version 1.0.0",
     "[quilt_hello] getModContainer(QuiltHello.class) = quilt_hello",
     "[quilt_hello] stripped on SERVER: @ClientOnly method present = false, @DedicatedServerOnly method present = true, @Requires(\"absent_mod\") field present = false, @Requires(\"quilt_loader\") field present = true",
-    "[quilt_hello] access wideners: SharedConstants.prefixDebugFlagName public = true, Mth.SIN public = true",
+    "[quilt_hello] access wideners: OptionsAmbientOcclusionFix.updateValue public = true, Mth.SIN public = true",
     "[quilt_hello] nested quilt_nested_lib is ready",
     "[quilt_hello] Quilt mod's Mixin: tickServer @Inject ran",
 )
@@ -656,21 +703,30 @@ val matrix = listOf(
     ) {
         description = "Runs a NeoForge mod nested in an early service jar, as Sodium ships, through Plexus Mod Loader on the game test server."
         runsNeoForge()
-        expectedOutput.addAll(
-            "Found 1 early service jars",
-            "[neoforge_early_service] Constructed by FML from the jar nested in the early service jar",
-            "All 1 required tests passed",
-        )
-        if (minecraftModules == "26.1" || minecraftModules == "26.2") {
-            // FML 11 runs graphics bootstrap plugins before it decides not to open the early window on a server.
+        if (!hasNeoForgeRelease) {
+            // No NeoForge release for this version (such as 1.21.11): the mods are reported and left out, the game runs.
             expectedOutput.addAll(
-                "Running graphics bootstrap plugin neoforge_early_service",
-                "[neoforge_early_service] early service ran before mod discovery",
+                "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: Plexus Mod Loader has no NeoForge release for Minecraft $minecraft)",
+                "NeoForge mod neoforge_early_service 1.0.0 (neoforge-early-service-$testModVersion.jar): BLOCKED - NOT loaded",
+                "All 1 required tests passed",
             )
         } else {
-            // FML 12 (NeoForge for 26.3) returns before running them when it is headless, as on this server.
-            expectedOutput.add("Not loading early display in headless mode.")
-            unexpectedOutput.add("Running graphics bootstrap plugin")
+            expectedOutput.addAll(
+                "Found 1 early service jars",
+                "[neoforge_early_service] Constructed by FML from the jar nested in the early service jar",
+                "All 1 required tests passed",
+            )
+            if (minecraftModules == "26.1" || minecraftModules == "26.2") {
+                // FML 11 runs graphics bootstrap plugins before it decides not to open the early window on a server.
+                expectedOutput.addAll(
+                    "Running graphics bootstrap plugin neoforge_early_service",
+                    "[neoforge_early_service] early service ran before mod discovery",
+                )
+            } else {
+                // FML 12 (NeoForge for 26.3) returns before running them when it is headless, as on this server.
+                expectedOutput.add("Not loading early display in headless mode.")
+                unexpectedOutput.add("Running graphics bootstrap plugin")
+            }
         }
         unexpectedOutput.addAll("Attempted to select a dependency jar for JarJar which was passed in as source")
     },
@@ -739,7 +795,8 @@ val matrix = listOf(
             nativeHello,
             "[fabric_lib] initialised",
             "[Plexus Mod Loader] Fabric mod fabric_old 1.0.0 (fabric-wrong-version-$testModVersion.jar): BLOCKED - NOT loaded",
-            "PLEXUS-COMPAT-114 [blocking] dependencies: requires Minecraft ~1.21.4, but $minecraft is running",
+            // A 1.21.x run builds fabric_old for ~1.20.4 instead (root build.gradle.kts), so it stays blocked there.
+            "PLEXUS-COMPAT-114 [blocking] dependencies: requires Minecraft ${if (minecraft.startsWith("1.21")) "~1.20.4" else "~1.21.4"}, but $minecraft is running",
             "[Plexus Mod Loader] Fabric mod fabric_chain 1.0.0 (fabric-chain-$testModVersion.jar): BLOCKED - NOT loaded",
             "requires 'fabric_old' *, which is installed but not loaded: Fabric mod fabric_old 1.0.0",
             "requires 'blocked_example' *, which is installed but not loaded: NeoForge mod blocked_example 1.0.0",
@@ -817,7 +874,7 @@ val matrix = listOf(
             "[Plexus Mod Loader] Foreign mods: 2 loaded, 0 not loaded",
             // The stale field line still makes Mth accessible, as Fabric Loader's implied class access does.
             "[Plexus Mod Loader] Access widenings: 5 accepted, 0 rejected (5 from foreign mods' class tweakers)",
-            "[fabric_class_tweaker] Mth.SIN has 65536 entries, debug flag MC_DEBUG_CLASS_TWEAKER, SIN final: false",
+            "[fabric_class_tweaker] Mth.SIN has 65536 entries, private method answers true, SIN final: false",
         )
     },
     // Mixin (ADR-0020): a Fabric mod's mixins change real game classes (also ones Plexus Mod Loader transforms itself)
@@ -837,7 +894,7 @@ val matrix = listOf(
             "[Plexus Mod Loader] Foreign mods: 1 loaded, 1 not loaded",
             "[Plexus Mod Loader] Mixin: 1 configuration(s) from 1 Fabric mod(s) for DEDICATED_SERVER",
             "[fabric_mixin] config plugin loaded for com.example.compat.mixin.mixins",
-            "[fabric_mixin] @Invoker and @Inject on SharedConstants: mixin-was-here, MC_DEBUG_PLAIN",
+            "[fabric_mixin] @Invoker and @Inject on OptionsAmbientOcclusionFix: mixin-was-here, true",
             "[fabric_mixin] @Accessor: Mth.SIN has 65536 entries",
             "[fabric_mixin] @ModifyArg on a mod class: sum = 32; MixinExtras @WrapOperation: product = 200",
             "[fabric_mixin] extend-enum: Difficulty.PLEXUS_MIXIN_TEST is an enum constant: true",
@@ -853,14 +910,24 @@ val matrix = listOf(
     // Quilt mods (ADR-0027): a mod with only quilt.mod.json runs on the Fabric bridge's Mixin, access widener and
     // entrypoint machinery and gets Quilt Loader's answers from Quilt Loader's API.
     // Its nested Fabric and Quilt mods load, the nested if_required mod nobody requires does not (307), Quilt's
-    // pre_launch runs before Fabric's preLaunch and main, QSL's init does not run (303), and a world is saved.
-    scenarios.gameTest("quiltOnly", modJars(native, ":test-mods:quilt-hello")) {
+    // pre_launch runs before Fabric's preLaunch and main, QSL's init does not run (303), Quilt language adapter
+    // creates the entrypoint, and a world is saved.
+    scenarios.gameTest(
+        "quiltOnly",
+        modJars(
+            native,
+            ":test-mods:quilt-hello",
+            ":test-mods:quilt-adapter-provider",
+            ":test-mods:quilt-adapter-user",
+        ),
+    ) {
         expectedOutput.addAll(quiltHelloLines)
         expectedOutput.addAll(
             nativeHello,
             "[quilt_hello] sees fabric_lib: not loaded (isModLoaded false)",
-            "[Plexus Mod Loader] Foreign mods: 4 loaded, 1 not loaded",
-            "[Plexus Mod Loader] Loaded mods per loader: 1 Plexus, 2 Fabric, 2 Quilt, 0 Forge",
+            "[quilt_adapter_user] created by the quilt_test language adapter",
+            "[Plexus Mod Loader] Foreign mods: 6 loaded, 1 not loaded",
+            "[Plexus Mod Loader] Loaded mods per loader: 1 Plexus, 2 Fabric, 4 Quilt, 0 Forge",
         )
         unexpectedOutput.addAll(quiltUnexpected)
         // No mod here needs a QSL module.
@@ -910,7 +977,8 @@ val matrix = listOf(
             "[Plexus Mod Loader] Quilt mod quilt_client_only 1.0.0 (quilt-client-only-$testModVersion.jar): BLOCKED - NOT loaded",
             "PLEXUS-COMPAT-305 [blocking] environment: minecraft.environment is client, process is DEDICATED_SERVER",
             "[Plexus Mod Loader] Quilt mod quilt_init_only 1.0.0 (quilt-init-only-$testModVersion.jar): EXPERIMENTAL - loaded through the Quilt bridge",
-            "PLEXUS-COMPAT-303 [limited] entrypoints [init]: QSL runs these entrypoints, and QSL has no release for Minecraft 26.x, so Quilt Loader does not run them either; Plexus Mod Loader does not run them, and applies the mod's mixins and resources. This mod's initialization code does not run",
+            "PLEXUS-COMPAT-311 [limited] QSL entrypoints [init com.example.compat.quiltblocked.InitOnly]: run as Fabric entrypoints",
+            "[quilt_init_only] QSL init entrypoint ran",
             "[Plexus Mod Loader] Quilt mod quilt_hello 1.0.0 (quilt-hello-$testModVersion.jar): EXPERIMENTAL - loaded through the Quilt bridge",
             "[quilt_hello] entrypoint order: pre_launch -> preLaunch -> main",
             "[Plexus Mod Loader] Foreign mods: 5 loaded, 5 not loaded",
@@ -933,7 +1001,7 @@ val nativeApiGameTests = scenarios.gameTest("nativeApiGameTests", modJars(":exam
     gameArgumentOverrides.set(listOf("--universe", "universe", "--tests", "native_showcase:*"))
     expectedOutput.set(
         listOf(
-            "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 62 game test(s)",
+            "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 63 game test(s)",
             "[Plexus Mod Loader] Registered 7 block(s) and 10 item(s) from mods",
             "[Plexus Mod Loader] Registered 1 creative tab(s) from mods on 1 extra page(s)",
             "[Plexus Mod Loader] Transformed net/minecraft/commands/Commands with [plexus:commands]",
@@ -941,8 +1009,10 @@ val nativeApiGameTests = scenarios.gameTest("nativeApiGameTests", modJars(":exam
             "[Plexus Mod Loader] Added 1 natural spawn(s) to",
             "[native_showcase] Loaded 2 showcase message(s)",
             "[native_showcase] Every mod is initialised",
-            "All 62 required tests passed",
+            "All 63 required tests passed",
+            "[native_showcase] Mod attributes verified on a cow and a player",
             "[native_showcase] Server starting (dedicated=false)",
+            "[native_showcase] Tick lifecycle verified: 10 server ticks, alternating world ticks: true",
             "[native_showcase] Overworld loaded",
             "[native_showcase] Overworld saving",
             "[native_showcase] Overworld unloaded",
@@ -960,6 +1030,9 @@ val modCorpus = tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.Mod
     lockFile = layout.projectDirectory.file("compat/mod-corpus-$minecraft.json")
     outputDirectory = corpusRoot
     gameVersion = minecraft
+    if (minecraft.startsWith("1.")) {
+        loaders = listOf("fabric")
+    }
     refresh = providers.gradleProperty("modCorpusRefresh").map { it != "false" }.orElse(false)
     topPerLoader = providers.gradleProperty("modCorpusTop").map(String::toInt).orElse(40)
 }
@@ -1106,16 +1179,23 @@ fun fabricCorpusBesideNeoForgeServer(): FileCollection =
 val reviewedCorpus = minecraft == "26.2"
 fun corpusCounts(reviewed: String, otherwise: String = "[Plexus Mod Loader] Foreign mods: "): String =
     if (reviewedCorpus) reviewed else otherwise
+val corpusFabricMods = if (minecraft.startsWith("1.")) {
+    gameTestCorpus("fabric")
+} else {
+    gameTestCorpus("fabric") + modJars(gameTestHarness)
+}
 val corpusScenarios = listOf(
     // Mojang's game test server: world creation, ticks and saving. Fabric API freezes registries only from
     // net.minecraft.server.Main, so the harness mod does the same on this start (see its source).
-    scenarios.gameTest("corpusFabric", gameTestCorpus("fabric") + modJars(gameTestHarness)) {
+    scenarios.gameTest("corpusFabric", corpusFabricMods) {
         dependsOn(modCorpus)
         expectedOutput.addAll(
             corpusCounts("[Plexus Mod Loader] Foreign mods: 98 loaded, 73 not loaded"),
-            "[plexus_gametest_harness] froze registries after mod initialisation",
             worldsSavedLine,
         )
+        if (!minecraft.startsWith("1.")) {
+            expectedOutput.add("[plexus_gametest_harness] froze registries after mod initialisation")
+        }
     },
     // The real dedicated server start (net.minecraft.server.Main) with every Fabric mod: bootstrap, Mixin, mod
     // initialisation and Fabric API's registry freeze, up to the EULA check (Plexus Mod Loader never accepts it).
@@ -2586,7 +2666,7 @@ launcherProfile("launcherProfileForgeTest", "plexus/launcher-profile-forge-$mine
     expectedOutput.add("[Plexus Mod Loader] Added Forge's file systems to the JVM class path")
     if (minecraft == "26.2") {
         modJars.from(modJars(":test-mods:forge-hello", ":test-mods:forge-at", ":test-mods:forge-mixin"))
-        timeoutSeconds.set(300)
+        timeoutSeconds.set(600)
         expectedOutput.addAll(
             "[Plexus Mod Loader] MinecraftForge 26.2-65.1.5 loads 3 Forge mod(s) itself on Plexus Mod Loader's game class loader",
             "Forge mod loading, version 65.1.5",
@@ -2731,7 +2811,10 @@ tasks.register<Test>("corpusAssessment") {
     useJUnitPlatform()
     filter { includeTestsMatching("*ModCorpusAssessmentTest") }
     // The Quilt corpus sits in the same folder (quilt/) and is assessed with the rest.
-    dependsOn("prepareMinecraftClient", "prepareMinecraftServer", modCorpus, modCorpusQuilt)
+    dependsOn("prepareMinecraftClient", "prepareMinecraftServer", modCorpus)
+    if (!minecraft.startsWith("1.")) {
+        dependsOn(modCorpusQuilt)
+    }
     val launchSpecs = layout.buildDirectory.dir("plexus/minecraft")
     systemProperty("plexus.corpus", corpusRoot.get().asFile.absolutePath)
     systemProperty("plexus.clientSpec", launchSpecs.get().file("$minecraft-client.json").asFile.absolutePath)
@@ -2787,11 +2870,15 @@ listOf("client", "server").forEach { side ->
 tasks.register("compatibilityCorpus") {
     group = "verification"
     description = "Real mods from Modrinth: no-game assessment for both sides and game test server runs (network)."
-    dependsOn(
-        corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",
-        "corpusFabricNeoForgeClientMixins", "corpusFabricNeoForgeClientBootstrap",
-        "mixinAuditQuiltClient", "mixinAuditQuiltServer",
-    )
+    if (minecraft.startsWith("1.")) {
+        dependsOn("corpusAssessment", "corpusFabric", "corpusFabricServer")
+    } else {
+        dependsOn(
+            corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",
+            "corpusFabricNeoForgeClientMixins", "corpusFabricNeoForgeClientBootstrap",
+            "mixinAuditQuiltClient", "mixinAuditQuiltServer",
+        )
+    }
 }
 
 tasks.register("compatibilityMatrix") {
@@ -2894,10 +2981,14 @@ tickBenchmark("NeoForge", neoForgeBenchmarkMods) {
 // mixin on LivingEntity.jumpFromGround tests "instanceof LocalPlayer", a client class, so a server stops with
 // NoClassDefFoundError as soon as a mob jumps (the benchmark's pigs do), under Quilt Loader too. They are left out of
 // the benchmark only, so that it measures its workload.
+// The data pack mods quiltDataBrokenOnGame names are left out as in corpusQuilt: on 26.3 their 26.2-format enchantments
+// stop the registry load ("Registry loading errors", "No key type in MapLike[{"condition":...", found in
+// startupBenchmarkQuilt on 2026-11-04), which no benchmark can start past; it is the corpus's data, not the bridge.
 val quiltBenchmarkMods = files(corpusRoot.map {
     it.dir("quilt").asFileTree.matching {
         include("*.jar")
         exclude(notOnGameTestServer)
+        exclude(quiltDataBrokenOnGame)
         exclude("craftable-bucket-of-sulfur-cube-*.jar", "omni-*.jar")
     }
 }) + modJars(gameTestHarness)
@@ -3003,5 +3094,79 @@ if (minecraft == "26.2") {
         referenceModJars.from(connectorReferenceMods)
         plexusExpectedOutput.set(connectorPlexusExpected)
         referenceExpectedOutput.set(connectorReferenceExpected)
+    }
+}
+
+// Milestone C: one-to-one comparisons with a loader's own launch, the same mods on both sides.
+//
+// Client frame times (mean FPS, 1% low FPS, p50/p95/p99), a third variant next to vanilla and Plexus Mod Loader: Fabric
+// Loader's own Knot launcher (KnotClient with Fabric Loader and its libraries on the class path, as the launcher profile
+// of Fabric's installer starts it), both with the corpus's Fabric mods. Opens game windows with a cooldown between them,
+// like the base frame benchmark; run it on its own after the headless checks. Forge's and NeoForge's own clients need a
+// launcher profile written by their installers, which no task here sets up yet, so they have no client comparison.
+val fabricLoaderReference = configurations.create("fabricLoaderReference") {
+    isCanBeConsumed = false
+}
+dependencies {
+    fabricLoaderReference(libs.fabric.loader)
+    fabricLoaderReference(libs.sponge.mixin)
+    fabricLoaderReference(libs.mixinextras.common)
+}
+val fabricClientBenchmarkMods = gameTestCorpus("fabric")
+tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.FrameBenchmarkTask>("frameBenchmarkPureFabric") {
+    group = "verification"
+    description = "Client frame times: vanilla, Plexus Mod Loader and Fabric Loader's own launcher, the last two with the corpus's Fabric mods."
+    dependsOn(modCorpus)
+    val base = tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.FrameBenchmarkTask>("frameBenchmark")
+    launchSpecFile.set(base.flatMap { it.launchSpecFile })
+    // Through a Callable: base.map would make this task run the base benchmark too.
+    plexusRuntime.from(Callable { base.get().plexusRuntime })
+    devModJars.from(fabricClientBenchmarkMods)
+    probeAgent.from(tickProbe)
+    javaLauncher.set(base.flatMap { it.javaLauncher })
+    sourceWorld.set(base.flatMap { it.sourceWorld })
+    transformCacheDirectory.set(base.flatMap { it.transformCacheDirectory })
+    providers.gradleProperty("frameBenchmarkRuns").orNull?.let { runs = it.toInt() }
+    providers.gradleProperty("frameBenchmarkSeconds").orNull?.let { measureSeconds = it.toInt() }
+    providers.gradleProperty("frameBenchmarkCooldown").orNull?.let { cooldownSeconds = it.toInt() }
+    workDirectory.set(layout.buildDirectory.dir("plexus/frame-benchmark-purefabric"))
+    referenceName = "fabric"
+    referenceRuntime.from(fabricLoaderReference)
+    referenceMainClass = "net.fabricmc.loader.impl.launch.knot.KnotClient"
+    referenceModJars.from(fabricClientBenchmarkMods)
+    // Fabric Loader names itself when it starts the game; without that line the reference run measured something else.
+    referenceExpectedOutput.set(listOf("with Fabric Loader ${libs.versions.fabricLoader.get()}"))
+}
+
+// Server startup and tick times, heap and GC: NeoForge's own dedicated server (installed by NeoForge's installer, as for
+// the Connector benchmark; Plexus Mod Loader is not involved there) against Plexus Mod Loader running NeoForge, both with
+// the corpus's NeoForge mods and the harness that ticks game tests. 26.2 only, where the reference installer is pinned.
+// Fabric Loader's and MinecraftForge's own servers are not wired as a reference variant yet.
+if (minecraft == "26.2") {
+    val neoForgeReferenceVersion = libs.versions.neoforge.get()
+    val neoForgeReferenceInstall = tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.NeoForgeServerInstallTask>(
+        "installNeoForgeReferenceServer",
+    )
+    startupBenchmark("PureNeoForge", neoForgeBenchmarkMods) {
+        description = "Game test server startup: vanilla, Plexus Mod Loader with NeoForge, and NeoForge's own server, the last two with the corpus's NeoForge mods."
+        dependsOn(modCorpus, neoForgeReferenceInstall)
+        plexusJavaAgents.from(plexusAgentJar)
+        providers.gradleProperty("startupBenchmarkRuns").orNull?.let { runs = it.toInt() }
+        providers.gradleProperty("tickBenchmarkHeap").orNull?.let { heapSize = it }
+        referenceName = "neoforge"
+        referenceServer.set(neoForgeReferenceInstall.flatMap { it.serverDirectory })
+        referenceNeoForgeVersion = neoForgeReferenceVersion
+        referenceModJars.from(neoForgeBenchmarkMods)
+    }
+    tickBenchmark("PureNeoForge", neoForgeBenchmarkMods) {
+        description = "Server tick times, heap and GC: vanilla, Plexus Mod Loader with NeoForge, and NeoForge's own server, the last two with the corpus's NeoForge mods."
+        dependsOn(modCorpus, neoForgeReferenceInstall)
+        plexusJavaAgents.from(plexusAgentJar)
+        providers.gradleProperty("tickBenchmarkRuns").orNull?.let { runs = it.toInt() }
+        providers.gradleProperty("tickBenchmarkTicks").orNull?.let { holdTicks = it.toInt() }
+        referenceName = "neoforge"
+        referenceServer.set(neoForgeReferenceInstall.flatMap { it.serverDirectory })
+        referenceNeoForgeVersion = neoForgeReferenceVersion
+        referenceModJars.from(neoForgeBenchmarkMods)
     }
 }

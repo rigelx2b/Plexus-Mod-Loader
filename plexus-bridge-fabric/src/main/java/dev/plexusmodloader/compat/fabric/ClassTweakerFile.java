@@ -42,7 +42,7 @@ import java.util.regex.Pattern;
  */
 final class ClassTweakerFile {
 
-    /** The only namespace a class tweaker may use on Minecraft 26.2: Mojang's names, which the game runs with. */
+    /** The only namespace a class tweaker may use on a supported Minecraft version: Mojang's names, which the game runs with. */
     static final String RUNTIME_NAMESPACE = "official";
 
     private static final Pattern V1_DELIMITER = Pattern.compile("\\s+");

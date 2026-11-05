@@ -52,7 +52,7 @@ class PlexusResourcesBuildTest {
         write(directory, "build.gradle.kts", BUILD_SCRIPT);
         write(
                 directory,
-                "src/main/resources/poly.mod.json",
+                "src/main/resources/plexus.mod.json",
                 "{\"schemaVersion\": 1, \"id\": \"ruby_mod\", \"version\": \"0.1.0\", \"minecraft\": [\"26.*\"]}\n");
         write(directory, "src/main/resources/assets/ruby_mod/lang/en_us.json", "{\"item.ruby_mod.ruby\": \"Shiny Ruby\"}\n");
         return directory;
@@ -89,7 +89,7 @@ class PlexusResourcesBuildTest {
             "assets/ruby_mod/items/ruby_block.json",
             "data/ruby_mod/loot_table/blocks/ruby_block.json",
             "data/minecraft/tags/block/mineable/pickaxe.json",
-            "poly.mod.json"
+            "plexus.mod.json"
         }) {
             assertTrue(Files.isRegularFile(resources.resolve(path)), path);
         }
@@ -98,6 +98,28 @@ class PlexusResourcesBuildTest {
                 .getAsJsonObject();
         assertEquals("Shiny Ruby", lang.get("item.ruby_mod.ruby").getAsString());
         assertEquals("Ruby Block", lang.get("block.ruby_mod.ruby_block").getAsString());
+    }
+
+    @Test
+    void theFormerMetadataFileNameIsNotRead(TestInfo test) throws IOException {
+        Path project = project(test);
+        Files.move(
+                project.resolve("src/main/resources/plexus.mod.json"),
+                project.resolve("src/main/resources/poly.mod.json"));
+
+        BuildResult result = runner(project, "generatePlexusResources").buildAndFail();
+
+        assertTrue(result.getOutput().contains("plexus.mod.json, which does not exist"), result.getOutput());
+    }
+
+    @Test
+    void theFormerExtensionNameIsNotKnown(TestInfo test) throws IOException {
+        Path project = project(test);
+        write(project, "build.gradle.kts", BUILD_SCRIPT.replace("plexusResources {", "polyResources {"));
+
+        BuildResult result = runner(project, "generatePlexusResources").buildAndFail();
+
+        assertTrue(result.getOutput().contains("polyResources"), result.getOutput());
     }
 
     @Test

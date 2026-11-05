@@ -469,6 +469,11 @@ class CrossLoaderModResolverTest {
     };
 
     private static ForeignMod quilt(String id, String version, BridgedDependency... dependencies) {
+        return quilt(id, version, List.of(), dependencies);
+    }
+
+    private static ForeignMod quilt(
+            String id, String version, List<String> provides, BridgedDependency... dependencies) {
         return new ForeignMod(
                 Path.of(id + ".jar"),
                 QUILT_BRIDGE,
@@ -478,7 +483,7 @@ class CrossLoaderModResolverTest {
                         version,
                         List.of(),
                         List.of(),
-                        List.of(),
+                        provides,
                         List.of(dependencies),
                         CompatibilityStatus.EXPERIMENTAL));
     }
@@ -718,5 +723,28 @@ class CrossLoaderModResolverTest {
                 List.of("PLEXUS-COMPAT-122"), result.mods().get(2).assessment().blockingCodes());
         assertEquals(List.of(), result.mods().get(3).assessment().blockingCodes());
         assertEquals("1.10.0", result.loadableVersions().get("lib"));
+    }
+
+    @Test
+    void quiltModLanguageAdapterResolution() {
+        ForeignMod quiltUser = quilt("quilt_user", "1.0.0", requires("fabric-language-adapter:kotlin", "*"));
+        ForeignMod fabricProvider = mod("fabric_kotlin", "1.0.0", List.of("fabric-language-adapter:kotlin"));
+        ForeignMod quiltProvider = quilt("quilt_kotlin", "1.0.0", List.of("fabric-language-adapter:kotlin"));
+
+        // Unresolved adapter -> 312
+        CrossLoaderModResolver.Result unresolved = resolve(List.of(quiltUser), Map.of());
+        assertEquals(
+                List.of("PLEXUS-COMPAT-312"), find(unresolved, "quilt_user").blockingCodes());
+        assertTrue(find(unresolved, "quilt_user").findings().getFirst().detail().contains("kotlin"));
+
+        // Resolved by Fabric mod -> loads
+        CrossLoaderModResolver.Result fabricResolved = resolve(List.of(quiltUser, fabricProvider), Map.of());
+        assertEquals(List.of(), find(fabricResolved, "quilt_user").blockingCodes());
+        assertEquals(List.of(), find(fabricResolved, "fabric_kotlin").blockingCodes());
+
+        // Resolved by Quilt mod -> loads
+        CrossLoaderModResolver.Result quiltResolved = resolve(List.of(quiltUser, quiltProvider), Map.of());
+        assertEquals(List.of(), find(quiltResolved, "quilt_user").blockingCodes());
+        assertEquals(List.of(), find(quiltResolved, "quilt_kotlin").blockingCodes());
     }
 }

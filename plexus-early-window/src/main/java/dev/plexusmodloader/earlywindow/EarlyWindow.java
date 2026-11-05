@@ -12,9 +12,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -30,22 +31,28 @@ import java.util.function.Consumer;
 public final class EarlyWindow implements AutoCloseable {
 
     private static final String MAIN_CLASS = EarlyWindowMain.class.getName();
+    static final long WATCHDOG_TIMEOUT_MILLIS = 5_000L;
+
+    private static final Set<String> JVM_OPTION_ENV_VARS =
+            Set.of("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS");
 
     private final Process process;
     private final Writer input;
     private final Consumer<String> log;
+    private final long startedAt;
     private boolean closed;
 
-    private EarlyWindow(Process process, Consumer<String> log) {
+    EarlyWindow(Process process, Consumer<String> log, long startedAt) {
         this.process = process;
         this.input = process == null ? null : new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8);
         this.log = log;
         this.closed = process == null;
+        this.startedAt = startedAt;
     }
 
     /** A window that shows nothing, for launches without one. */
     public static EarlyWindow none() {
-        return new EarlyWindow(null, line -> {});
+        return new EarlyWindow(null, line -> {}, 0);
     }
 
     /**
@@ -60,27 +67,15 @@ public final class EarlyWindow implements AutoCloseable {
             log.accept("Early loading window not shown: Java executable or classpath not found");
             return none();
         }
-        List<String> command = new ArrayList<>(List.of(
-                java.get().toString(),
-                "-Xms8m",
-                "-Xmx64m",
-                "-XX:+UseSerialGC",
-                "-XX:TieredStopAtLevel=1",
-                "-Djava.awt.headless=false",
-                "-Dfile.encoding=UTF-8",
-                "-Dstdout.encoding=UTF-8",
-                "-Dstderr.encoding=UTF-8"));
-        if (!isMac()) {
-            // The game's window is sized in screen pixels on Windows and Linux; so is this one.
-            command.add("-Dsun.java2d.uiScale=1");
-        }
-        command.addAll(List.of("-cp", classPath.get(), MAIN_CLASS));
-        command.addAll(settings.toArguments());
+        List<String> command = buildCommandLine(java.get(), classPath.get(), settings, Platform.current());
         try {
-            Process process =
-                    new ProcessBuilder(command).redirectErrorStream(true).start();
+            ProcessBuilder processBuilder = new ProcessBuilder(command).redirectErrorStream(true);
+            applyEnvironment(processBuilder.environment(), sanitizeEnvironment(processBuilder.environment()));
+            Process process = processBuilder.start();
+            long startedAt = System.currentTimeMillis();
             forwardOutput(process, log);
-            EarlyWindow window = new EarlyWindow(process, log);
+            EarlyWindow window = new EarlyWindow(process, log, startedAt);
+            window.watchStartup();
             Runtime.getRuntime().addShutdownHook(new Thread(window::destroy, "Plexus early window shutdown"));
             return window;
         } catch (IOException | RuntimeException e) {
@@ -89,9 +84,84 @@ public final class EarlyWindow implements AutoCloseable {
         }
     }
 
+    static List<String> buildCommandLine(Path java, String classPath, EarlyWindowSettings settings, Platform platform) {
+        List<String> command = new ArrayList<>(List.of(
+                java.toString(),
+                "-Xms8m",
+                "-Xmx64m",
+                "-XX:+UseSerialGC",
+                "-XX:TieredStopAtLevel=1",
+                "-Djava.awt.headless=false",
+                "-Dfile.encoding=UTF-8",
+                "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8"));
+        if (platform == Platform.MAC) {
+            command.add("-Dapple.awt.UIElement=true");
+        } else {
+            // The game's window is sized in screen pixels on Windows and Linux; so is this one.
+            command.add("-Dsun.java2d.uiScale=1");
+        }
+        command.addAll(List.of("-cp", classPath, MAIN_CLASS));
+        command.addAll(settings.toArguments());
+        return List.copyOf(command);
+    }
+
+    static boolean isJvmOptionEnvVar(String name) {
+        for (String var : JVM_OPTION_ENV_VARS) {
+            if (var.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static String sanitizeJvmOptions(String options) {
+        if (options == null || !options.contains("-XstartOnFirstThread")) {
+            return options;
+        }
+        return options.replaceAll("(?:^|\\s+)-XstartOnFirstThread(?=\\s|$)", "").strip();
+    }
+
+    static Map<String, String> sanitizeEnvironment(Map<String, String> environment) {
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : environment.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (isJvmOptionEnvVar(key)) {
+                if (value != null) {
+                    String cleaned = sanitizeJvmOptions(value);
+                    if (!cleaned.isBlank()) {
+                        sanitized.put(key, cleaned);
+                    }
+                }
+            } else {
+                sanitized.put(key, value);
+            }
+        }
+        return Map.copyOf(sanitized);
+    }
+
+    static void applyEnvironment(Map<String, String> target, Map<String, String> desired) {
+        target.keySet().removeIf(key -> isJvmOptionEnvVar(key) && !desired.containsKey(key));
+        target.putAll(desired);
+    }
+
+    void watchStartup() {
+        if (process == null) {
+            return;
+        }
+        process.onExit().thenAccept(p -> {
+            synchronized (this) {
+                if (!closed && (System.currentTimeMillis() - startedAt < WATCHDOG_TIMEOUT_MILLIS)) {
+                    log.accept("Early loading window process exited prematurely with code " + p.exitValue());
+                }
+            }
+        });
+    }
+
     /** Whether the window's process runs. */
     public synchronized boolean isRunning() {
-        return !closed && process.isAlive();
+        return !closed && process != null && process.isAlive();
     }
 
     /** Opens the window. */
@@ -125,17 +195,21 @@ public final class EarlyWindow implements AutoCloseable {
         if (closed) {
             return;
         }
-        send(EarlyWindowProtocol.close());
         closed = true;
-        try {
-            input.close();
-        } catch (IOException e) {
-            // The process has gone already; it closes its window when it ends.
+        if (input != null) {
+            try {
+                input.write(EarlyWindowProtocol.close());
+                input.write('\n');
+                input.flush();
+                input.close();
+            } catch (IOException e) {
+                // The process has gone already; it closes its window when it ends.
+            }
         }
     }
 
     private synchronized void send(String line) {
-        if (closed) {
+        if (closed || input == null) {
             return;
         }
         try {
@@ -174,16 +248,21 @@ public final class EarlyWindow implements AutoCloseable {
 
     /** The Java that runs this process; on Windows its {@code javaw.exe}, which opens no console window. */
     static Optional<Path> javaCommand() {
-        Optional<Path> running =
-                ProcessHandle.current().info().command().map(Path::of).filter(Files::isRegularFile);
-        Path bin = running.map(Path::getParent).orElse(Path.of(System.getProperty("java.home"), "bin"));
-        if (isWindows()) {
+        return javaCommand(
+                Path.of(System.getProperty("java.home")),
+                ProcessHandle.current().info().command().map(Path::of).filter(Files::isRegularFile),
+                Platform.current());
+    }
+
+    static Optional<Path> javaCommand(Path javaHome, Optional<Path> running, Platform platform) {
+        Path bin = running.map(Path::getParent).orElse(javaHome.resolve("bin"));
+        if (platform == Platform.WINDOWS) {
             Path javaw = bin.resolve("javaw.exe");
             if (Files.isRegularFile(javaw)) {
                 return Optional.of(javaw);
             }
         }
-        Path java = bin.resolve(isWindows() ? "java.exe" : "java");
+        Path java = bin.resolve(platform == Platform.WINDOWS ? "java.exe" : "java");
         return Files.isRegularFile(java) ? Optional.of(java) : running;
     }
 
@@ -228,13 +307,5 @@ public final class EarlyWindow implements AutoCloseable {
             return Optional.empty();
         }
         return Optional.empty();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
-    }
-
-    private static boolean isMac() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("mac");
     }
 }

@@ -50,6 +50,20 @@ class ModDependencyResolverTest {
     }
 
     @Test
+    void aModBuiltForAnOlderLoaderRangeIsRejectedWithAClearReason() {
+        List<ModMetadata> mods =
+                List.of(mod("old_mod", "1.0.0", ModEnvironment.BOTH, Map.of("plexus", ">=1.0.0 <2.0.0")));
+        SemanticVersion runtime = SemanticVersion.parse("2.0.0").orElseThrow();
+
+        ModDependencyResolver.Result result = resolver.resolve(mods, "26.2", GameSide.CLIENT, runtime);
+
+        assertEquals(List.of(DependencyProblemCode.DEPENDENCY_VERSION_MISMATCH), codes(result));
+        String message = result.problems().getFirst().message();
+        assertTrue(message.contains("requires 'plexus' >=1.0.0 <2.0.0 but version 2.0.0 is installed"), message);
+        assertTrue(message.contains("built for another Plexus Mod Loader version"), message);
+    }
+
+    @Test
     void detectsCycles() {
         List<ModMetadata> mods = List.of(
                 mod("first", "1.0.0", ModEnvironment.BOTH, Map.of("second", "*")),

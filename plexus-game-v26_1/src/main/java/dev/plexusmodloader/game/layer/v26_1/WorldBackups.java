@@ -30,10 +30,6 @@ final class WorldBackups {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
     private static final Path POLICY = Path.of("config", "plexus", "backups.properties");
-    /** Where 1.4.x kept the policy and the record; read when the current file does not exist yet. */
-    private static final Path LEGACY_POLICY = Path.of("config", "poly", "backups.properties");
-
-    private static final String LEGACY_DIRECTORY = "poly";
     private static final String ON_MOD_CHANGE = "backup-on-mod-change";
     private static final String KEEP = "max-backups-per-world";
 
@@ -47,11 +43,8 @@ final class WorldBackups {
             }
             Path record =
                     server.getWorldPath(LevelResource.ROOT).resolve("plexus").resolve("mods.properties");
-            Path legacyRecord = server.getWorldPath(LevelResource.ROOT)
-                    .resolve(LEGACY_DIRECTORY)
-                    .resolve("mods.properties");
             try {
-                Map<String, String> previous = read(Files.exists(record) ? record : legacyRecord);
+                Map<String, String> previous = read(record);
                 List<String> changes = changes(previous, current);
                 if (!changes.isEmpty()) {
                     Properties policy = policy();
@@ -119,10 +112,6 @@ final class WorldBackups {
 
     private static Properties policy() throws IOException {
         Properties policy = new Properties();
-        if (!Files.exists(POLICY) && Files.exists(LEGACY_POLICY)) {
-            Files.createDirectories(POLICY.getParent());
-            Files.copy(LEGACY_POLICY, POLICY);
-        }
         if (Files.exists(POLICY)) {
             try (InputStream input = Files.newInputStream(POLICY)) {
                 policy.load(input);

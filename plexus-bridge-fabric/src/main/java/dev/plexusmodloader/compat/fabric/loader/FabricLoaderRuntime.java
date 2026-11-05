@@ -58,6 +58,9 @@ import net.fabricmc.loader.impl.util.DefaultLanguageAdapter;
 public final class FabricLoaderRuntime {
 
     private static final OfficialMappingResolver MAPPING_RESOLVER = new OfficialMappingResolver();
+    /** The QSL entrypoint key of each phase key Plexus Mod Loader runs. */
+    private static final Map<String, String> QSL_KEYS =
+            Map.of("main", "init", "client", "client_init", "server", "server_init");
 
     private final GameSide side;
     private final String gameVersion;
@@ -273,6 +276,19 @@ public final class FabricLoaderRuntime {
                 }
             }
         }
+        // A Quilt mod's QSL entrypoint that the Quilt bridge runs as this phase (its class implements the Fabric
+        // interface, PLEXUS-COMPAT-311); other mods asking for the key do not see it.
+        String qslKey = QSL_KEYS.get(key);
+        for (Declarations mod : familyMods) {
+            if (qslKey == null || !mod.loader().equals("Quilt")) {
+                continue;
+            }
+            for (FabricFamilyMod.Entrypoint declaration : mod.entrypoints().getOrDefault(qslKey, List.of())) {
+                if (declaration.value().equals(value) && declaration.adapter().equals(adapter)) {
+                    return create(qslKey, mod.mod(), declaration, type);
+                }
+            }
+        }
         throw new EntrypointException(
                 "no loaded Fabric or Quilt mod declares the " + key + " entrypoint " + value, (Throwable) null);
     }
@@ -358,13 +374,45 @@ public final class FabricLoaderRuntime {
             return existing;
         }
         try {
-            LanguageAdapter adapter = (LanguageAdapter) Class.forName(className, true, gameClassLoader)
-                    .getDeclaredConstructor()
-                    .newInstance();
+            Class<?> adapterClass = Class.forName(className, true, gameClassLoader);
+            LanguageAdapter adapter;
+            if (LanguageAdapter.class.isAssignableFrom(adapterClass)) {
+                adapter =
+                        (LanguageAdapter) adapterClass.getDeclaredConstructor().newInstance();
+            } else if (org.quiltmc.loader.api.LanguageAdapter.class.isAssignableFrom(adapterClass)) {
+                org.quiltmc.loader.api.LanguageAdapter quiltAdapter = (org.quiltmc.loader.api.LanguageAdapter)
+                        adapterClass.getDeclaredConstructor().newInstance();
+                adapter = new QuiltLanguageAdapterBridge(quiltAdapter);
+            } else {
+                throw new ClassCastException(className
+                        + " implements neither net.fabricmc.loader.api.LanguageAdapter nor"
+                        + " org.quiltmc.loader.api.LanguageAdapter");
+            }
             LanguageAdapter raced = adapters.putIfAbsent(name, adapter);
             return raced == null ? adapter : raced;
         } catch (ReflectiveOperationException | ClassCastException | LinkageError e) {
             throw new LanguageAdapterException("cannot create language adapter '" + name + "' (" + className + ")", e);
+        }
+    }
+
+    /**
+     * A Quilt language adapter ({@code quilt_loader.language_adapters}) behind Fabric's interface: Quilt and Fabric
+     * entrypoints share one store (ADR-0027), so a Quilt adapter is asked with the mod's Quilt container.
+     */
+    private record QuiltLanguageAdapterBridge(org.quiltmc.loader.api.LanguageAdapter quiltAdapter)
+            implements LanguageAdapter {
+
+        @Override
+        public <T> T create(ModContainer mod, String value, Class<T> type) throws LanguageAdapterException {
+            String id = mod.getMetadata().getId();
+            org.quiltmc.loader.api.ModContainer quiltContainer = org.quiltmc.loader.impl.QuiltLoaderImpl.INSTANCE
+                    .getModContainer(id)
+                    .orElseThrow(() -> new LanguageAdapterException("Quilt Loader has no mod container for " + id));
+            try {
+                return quiltAdapter.create(quiltContainer, value, type);
+            } catch (org.quiltmc.loader.api.LanguageAdapterException e) {
+                throw new LanguageAdapterException(e.getMessage(), e);
+            }
         }
     }
 

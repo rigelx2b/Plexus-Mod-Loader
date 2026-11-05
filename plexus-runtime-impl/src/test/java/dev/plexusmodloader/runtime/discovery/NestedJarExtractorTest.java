@@ -156,6 +156,21 @@ class NestedJarExtractorTest {
     }
 
     @Test
+    void anEntryNamedLikeAParentFolderStaysInItsHashFolder() throws IOException {
+        byte[] library = jar(Map.of("org/example/Util.class", new byte[] {1, 2, 3}));
+        ForeignMod bundle = topLevel("bundle.jar", fabricMod("bundle", "1.0.0", Map.of("META-INF/jars/..", library)));
+
+        NestedJarExtractor.Result result = extractor().expand(List.of(bundle));
+
+        assertTrue(result.mods().getFirst().assessment().status().loadable());
+        assertEquals(1, result.otherFiles().size());
+        Path extracted = result.otherFiles().getFirst().jar();
+        assertEquals("nested.jar", extracted.getFileName().toString());
+        assertTrue(Files.isRegularFile(extracted));
+        assertEquals(directory.resolve("cache"), extracted.getParent().getParent());
+    }
+
+    @Test
     void aNestedJarThatIsNotAModIsReportedApart() throws IOException {
         byte[] library = jar(Map.of("org/example/Util.class", new byte[] {1, 2, 3}));
         ForeignMod bundle =

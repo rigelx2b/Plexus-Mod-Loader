@@ -10,6 +10,7 @@ import dev.plexusmodloader.api.event.world.WorldEvents;
 import dev.plexusmodloader.api.event.world.WorldListener;
 import dev.plexusmodloader.api.world.WorldView;
 import dev.plexusmodloader.game.version.layer.GameLayerContext;
+import java.util.function.BooleanSupplier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
@@ -49,6 +50,15 @@ public final class LifecycleHooks {
             for (ServerLevel level : server.getAllLevels()) {
                 publishWorld(context, WorldEvents.LOADED, level);
             }
+        }
+    }
+
+    /** Before each return of {@code MinecraftServer.tickServer(BooleanSupplier)}. */
+    public static void onServerTickEnd(MinecraftServer server, BooleanSupplier hasTimeLeft) {
+        GameLayerContext context = listening(ServerEvents.TICK_END);
+        if (context != null) {
+            ServerView view = new GameServerView(server);
+            context.events().publish(ServerEvents.TICK_END, listener -> listener.onServerTick(view));
         }
     }
 

@@ -11,6 +11,7 @@ import dev.plexusmodloader.api.client.ModScreen;
 import dev.plexusmodloader.api.content.entity.EntityDefinition;
 import dev.plexusmodloader.api.content.particle.ParticleDefinition;
 import dev.plexusmodloader.api.entity.PlayerView;
+import dev.plexusmodloader.api.event.EventKey;
 import dev.plexusmodloader.api.resource.ResourceId;
 import dev.plexusmodloader.api.world.WorldView;
 import dev.plexusmodloader.game.layer.v26_1.LayerState;
@@ -45,12 +46,16 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.MouseHandler;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.client.multiplayer.ClientConfigurationPacketListenerImpl;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -142,6 +147,54 @@ public final class ClientHooks {
                 LOGGER.error("[Plexus Mod Loader] PLEXUS-CLIENT-004 could not add mod key bindings to the controls", e);
             }
         });
+    }
+
+    /** Head of {@code KeyboardHandler.keyPress(long, int, KeyEvent)}: {@code ClientEvents.KEY_INPUT}. */
+    public static void onKeyPress(KeyboardHandler handler, long window, int action, KeyEvent event) {
+        GameLayerContext context = inputListeners(window, ClientEvents.KEY_INPUT);
+        if (context != null) {
+            InputCodes.action(action).ifPresent(keyAction -> {
+                ClientView view = new MinecraftView(Minecraft.getInstance());
+                int key = InputCodes.key(event.key());
+                context.events().publish(ClientEvents.KEY_INPUT, l -> l.onKeyInput(view, key, keyAction));
+            });
+        }
+    }
+
+    /** Head of {@code MouseHandler.onButton(long, MouseButtonInfo, int)}: {@code ClientEvents.MOUSE_BUTTON}. */
+    public static void onMouseButton(MouseHandler handler, long window, MouseButtonInfo info, int action) {
+        GameLayerContext context = inputListeners(window, ClientEvents.MOUSE_BUTTON);
+        int button = InputCodes.mouseButton(info.button());
+        if (context != null && button >= 0) {
+            InputCodes.action(action).ifPresent(keyAction -> {
+                ClientView view = new MinecraftView(Minecraft.getInstance());
+                context.events().publish(ClientEvents.MOUSE_BUTTON, l -> l.onMouseButton(view, button, keyAction));
+            });
+        }
+    }
+
+    /** Head of {@code MouseHandler.onScroll(long, double, double)}: {@code ClientEvents.MOUSE_SCROLL}. */
+    public static void onMouseScroll(MouseHandler handler, long window, double horizontal, double vertical) {
+        GameLayerContext context = inputListeners(window, ClientEvents.MOUSE_SCROLL);
+        if (context != null) {
+            ClientView view = new MinecraftView(Minecraft.getInstance());
+            context.events().publish(ClientEvents.MOUSE_SCROLL, l -> l.onMouseScroll(view, horizontal, vertical));
+        }
+    }
+
+    /**
+     * The context when {@code key} has listeners and the input is for the game window, else null.
+     */
+    private static GameLayerContext inputListeners(long window, EventKey<?> key) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null || !context.events().hasListeners(key)) {
+            return null;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || window != minecraft.getWindow().handle()) {
+            return null;
+        }
+        return context;
     }
 
     /** Before the return of {@code Minecraft.tick()}. */

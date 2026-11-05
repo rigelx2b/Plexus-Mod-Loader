@@ -2,6 +2,7 @@ import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import java.util.Properties
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
 
 plugins {
     id("plexus.java-conventions")
@@ -16,6 +17,10 @@ tasks.compileJava {
 
 dependencies {
     implementation(libs.gson)
+    // Remaps the game jar of an obfuscated version (before 26.1) to Mojang names on the player's machine (ADR-0019
+    // point 4). ASM is BSD-3-Clause and already ships in the Plexus Mod Loader runtime; the installer jar now carries it too.
+    implementation(libs.asm)
+    implementation(libs.asm.commons)
 }
 
 // The Plexus Mod Loader runtime the installer copies into the launcher's libraries/ folder: the launcher main
@@ -129,10 +134,10 @@ configurations.create("installerJarElements") {
 //     game test server: the launch jar's Java agent opens java.lang.invoke to FML's modules, FML constructs the mods, a
 //     world is created and a GameTest passes
 //  7. the same mods on the dedicated server: NeoForge starts the game, up to the EULA check
-// forge-hello is built for the build's version; on another version, phases 2 and 3 run Forge without mods
-// (-Dplexus.forge=always), as forgeWorldTest does. neoforge-hello is built for the build's version; on another
-// version, phases 6 and 7 run NeoForge without it. Phase 6 also has neoforge-early-service, a mod nested in an early
-// service jar as Sodium ships, which FML loads from the mods folder.
+// forge-hello is built for the build's version and needs Minecraft 26.2 or later (Forge 65); on another version, phases
+// 2 and 3 run Forge without mods (-Dplexus.forge=always), as forgeWorldTest does. neoforge-hello is built for the build's
+// version and needs 26.2 or later; on another version, phases 6 and 7 run NeoForge without it. Phase 6 also has
+// neoforge-early-service, a mod nested in an early service jar as Sodium ships, which FML loads from the mods folder.
 val serverJava = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
 val forgeTestMod = configurations.create("serverInstallTestForgeMod") {
     isCanBeConsumed = false
@@ -203,7 +208,11 @@ tasks.register("serverInstallTest") {
     if (minecraft !in supportedMinecraft) {
         throw GradleException("serverInstallMinecraft=$minecraft is not one of $supportedMinecraft")
     }
-    val withForgeMod = minecraft == built
+    // forge-hello needs Forge [65,) and neoforge-hello NeoForge [26.2,) (their mods.toml), which Plexus Mod Loader runs
+    // from Minecraft 26.2 on; Forge on 26.1, 26.1.1 and 26.1.2 is 62 to 64. On those versions the test mods cannot load,
+    // so phases 2, 3, 6 and 7 run the loaders without them even when -PplexusMinecraft names the version.
+    val testModsRunHere = minecraft.split('.').map { it.toInt() }.let { it[0] > 26 || (it[0] == 26 && it[1] >= 2) }
+    val withForgeMod = minecraft == built && testModsRunHere
     inputs.property("minecraft", minecraft)
     val workDirectory = projectDir
     val forgeMod = forgeTestMod.incoming.files
@@ -217,14 +226,22 @@ tasks.register("serverInstallTest") {
     doLast {
         val server = folder.get().asFile
         server.deleteRecursively()
+        // Forge and NeoForge run mods on 26.1 and later only (forge-releases.properties, neoforge-releases.properties; ADR-0021,
+        // ADR-0034): a version before 26.1 has no release there, so its Forge and NeoForge phases are not applicable.
+        // Quilt mods are Fabric-family mods, which Plexus Mod Loader blocks on versions before 26.1 (intermediary names,
+        // ADR-0019), so its phases are not applicable there either. The phases that are applicable always run.
+        val obfuscatedVersion = minecraft.substringBefore('.').toInt() < 26
         val forgeVersion = Properties()
             .apply { forgeReleases.asFile.inputStream().use { load(it) } }
             .getProperty(minecraft)?.trim()?.split(Regex("\\s+"))?.first()
-            ?: throw GradleException("serverInstallTest: Plexus Mod Loader has no Forge release for Minecraft $minecraft")
         val neoForgeVersion = Properties()
             .apply { neoForgeReleases.asFile.inputStream().use { load(it) } }
             .getProperty(minecraft)?.trim()?.split(Regex("\\s+"))?.first()
-            ?: throw GradleException("serverInstallTest: Plexus Mod Loader has no NeoForge release for Minecraft $minecraft")
+        if (!obfuscatedVersion && (forgeVersion == null || neoForgeVersion == null)) {
+            throw GradleException("serverInstallTest: Plexus Mod Loader has no Forge release ($forgeVersion) or NeoForge" +
+                " release ($neoForgeVersion) for Minecraft $minecraft")
+        }
+        val skipped = mutableListOf<String>()
 
         /**
          * Runs [command] in [directory], streaming its output to [logFile]; kills it (and what it started) after
@@ -260,6 +277,16 @@ tasks.register("serverInstallTest") {
             }
         }
 
+        /** The log says "Transformation plan: N rule(s) accepted, M rejected"; a rejected rule means the game does not match. */
+        fun noRejectedRules(phase: String, log: String, logFile: File) {
+            val plan = Regex("Transformation plan: (\\d+) rule\\(s\\) accepted, (\\d+) rejected").find(log)
+                ?: throw GradleException("serverInstallTest $phase: no 'Transformation plan' line in the server log $logFile")
+            if (plan.groupValues[1].toInt() == 0 || plan.groupValues[2].toInt() != 0) {
+                throw GradleException("serverInstallTest $phase: ${plan.value} (expected rules accepted and none rejected)," +
+                    " see the server log $logFile")
+            }
+        }
+
         val (installLog, installExit) = run(workDirectory, null, 600, java.get(), "-jar", jar.get().asFile.absolutePath,
             "install-server", "--dir", server.absolutePath, "--minecraft", minecraft, "--max-memory", "2G")
         if (installExit != 0) {
@@ -277,14 +304,49 @@ tasks.register("serverInstallTest") {
             ),
             // Not "Forge" alone: the mod counts per loader name it ("0 Forge").
             listOf("MinecraftForge", "Forge's file systems", "PLEXUS-COMPAT-206"))
+        noRejectedRules("phase 1 (no mods)", plain, plainLog)
         if (!server.resolve("eula.txt").readText().contains("eula=false")) {
             throw GradleException("serverInstallTest phase 1: eula.txt is not left at eula=false")
         }
         if (server.resolve(".plexus/forge").exists()) {
             throw GradleException("serverInstallTest phase 1: Forge's files were prepared without a Forge mod")
         }
+        if (obfuscatedVersion) {
+            // The server runs on the jar the installer remapped to Mojang names (ADR-0019), not on Mojang's jar.
+            val remapped = server.resolve("versions/$minecraft/server-$minecraft-mojang.jar")
+            if (!remapped.isFile || !server.resolve("versions/$minecraft/server-mappings-$minecraft.txt").isFile) {
+                throw GradleException("serverInstallTest phase 1: the installer left no remapped server jar $remapped")
+            }
+        }
+
+        if (obfuscatedVersion) {
+            // 1b. Still no mods, on Mojang's game test server (net.minecraft.gametest.Main, 1.21.10 and later): the
+            // remapped server creates a world and passes a GameTest. Versions before 1.21.10 have no such entry point.
+            val jarFile = ZipFile(server.resolve("versions/$minecraft/server-$minecraft-mojang.jar"))
+            val hasGameTestMain = jarFile.use { it.getEntry("net/minecraft/gametest/Main.class") != null }
+            if (hasGameTestMain) {
+                val plainGameTestLog = server.resolve("phase1b-plain-game-test.log")
+                val (plainGameTest, plainGameTestExit) = run(server, plainGameTestLog, 600, java.get(), "-Xmx2G",
+                    "-Dplexus.launchTarget=game_test_server", "-jar", "plexusmodloader-server.jar",
+                    "--universe", "universe", "--tests", "minecraft:always_pass")
+                check("phase 1b (no mods, game test server)", plainGameTest, plainGameTestExit, plainGameTestLog,
+                    listOf(
+                        "[Plexus Mod Loader] Minecraft $minecraft (DEDICATED_SERVER) via adapter minecraft-$minecraft, launch target game_test_server",
+                        "[Plexus Mod Loader] Phase GAME_LAUNCH: net.minecraft.gametest.Main",
+                        "All 1 required tests passed",
+                    ),
+                    listOf("MinecraftForge", "PLEXUS-COMPAT-206"))
+                noRejectedRules("phase 1b (no mods, game test server)", plainGameTest, plainGameTestLog)
+            } else {
+                skipped.add("phase 1b (game test server): Minecraft $minecraft has no net.minecraft.gametest.Main")
+            }
+        }
 
         // 2. A Forge mod on the game test server, started the same way.
+        if (forgeVersion == null) {
+            skipped.add("phases 2-3 (Forge): Plexus Mod Loader runs Forge on 26.1 and later; there is no Forge release for $minecraft")
+        }
+        if (forgeVersion != null) {
         val forgeMods = if (withForgeMod) 1 else 0
         val forgeAlways = if (withForgeMod) listOf() else listOf("-Dplexus.forge=always")
         if (withForgeMod) {
@@ -319,15 +381,20 @@ tasks.register("serverInstallTest") {
                 "You need to agree to the EULA in order to run the server",
             ),
             listOf("PLEXUS-COMPAT-206"))
+        }
         // 4. The Quilt test mod alone (the Forge mod taken out) on the game test server: Quilt Loader's API, the mod's
         //    entrypoints, Mixin and access wideners, a world and a GameTest; Forge is not started.
         server.resolve("mods").listFiles()?.forEach { it.delete() }
+        if (obfuscatedVersion) {
+            skipped.add("phases 4-5 (Quilt): quilt-hello depends on Minecraft 26.1.x or 26.2.x (its quilt.mod.json), and" +
+                " Fabric-family mods built for intermediary names are not remapped on versions before 26.1 (ADR-0019)")
+        } else {
         quiltMod.files.forEach { it.copyTo(server.resolve("mods").resolve(it.name)) }
         val quiltLines = listOf(
             "[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 2 Fabric, 2 Quilt, 0 Forge",
             "[quilt_hello] entrypoint order: pre_launch -> preLaunch -> main",
             "[quilt_hello] MinecraftQuiltLoader.getEnvironmentType() = SERVER, QuiltLoader.getRawGameVersion() = $minecraft",
-            "[quilt_hello] access wideners: SharedConstants.prefixDebugFlagName public = true, Mth.SIN public = true",
+            "[quilt_hello] access wideners: OptionsAmbientOcclusionFix.updateValue public = true, Mth.SIN public = true",
             "[quilt_hello] nested quilt_nested_lib is ready",
         )
         val quiltAbsent = listOf("MinecraftForge", "PLEXUS-COMPAT-002", "[quilt_hello] client entrypoint ran")
@@ -349,10 +416,14 @@ tasks.register("serverInstallTest") {
         check("phase 5 (Quilt mod, dedicated server)", quiltDedicated, quiltDedicatedExit, quiltDedicatedLog,
             quiltLines + listOf("You need to agree to the EULA in order to run the server"),
             quiltAbsent)
+        }
 
         // 6. NeoForge mods instead of the Quilt mod, on the game test server, started the same way. NeoForge ticks game
         // tests only in development; the harness ticks them (neoForgeGameTest).
         server.resolve("mods").listFiles()?.forEach { it.delete() }
+        if (neoForgeVersion == null) {
+            skipped.add("phases 6-7 (NeoForge): Plexus Mod Loader runs NeoForge on 26.1 and later; there is no NeoForge release for $minecraft")
+        } else {
         val neoForgeJars = neoForgeMods.files.filter { withForgeMod || !it.name.startsWith("neoforge-hello") }
         neoForgeJars.forEach { it.copyTo(server.resolve("mods").resolve(it.name)) }
         val neoForgeGameTestLog = server.resolve("phase6-neoforge-game-test.log")
@@ -389,15 +460,22 @@ tasks.register("serverInstallTest") {
                 "You need to agree to the EULA in order to run the server",
             ),
             listOf("PLEXUS-COMPAT-216", "MinecraftForge"))
+        }
         if (!server.resolve("eula.txt").readText().contains("eula=false")) {
-            throw GradleException("serverInstallTest phase 7: eula.txt is not left at eula=false")
+            throw GradleException("serverInstallTest: eula.txt is not left at eula=false")
         }
 
         val forgeRun = if (withForgeMod) "forge_hello" else "Forge without mods"
         val neoForgeRun = if (withForgeMod) "neoforge_hello" else "NeoForge with the game test harness"
-        println("serverInstallTest passed on Minecraft $minecraft: no mods up to the EULA check without Forge; $forgeRun" +
-            " on the game test server (world, GameTest) and on the dedicated server up to the EULA check; quilt_hello" +
-            " and $neoForgeRun each on the game test server and on the dedicated server up to the EULA check; eula.txt" +
-            " left at eula=false")
+        if (obfuscatedVersion) {
+            println("serverInstallTest passed on Minecraft $minecraft: the installer remapped the server to Mojang names;" +
+                " no mods up to the EULA check with no rejected transformation rule; eula.txt left at eula=false." +
+                " Not applicable on this version: ${skipped.joinToString("; ")}")
+        } else {
+            println("serverInstallTest passed on Minecraft $minecraft: no mods up to the EULA check without Forge; $forgeRun" +
+                " on the game test server (world, GameTest) and on the dedicated server up to the EULA check; quilt_hello" +
+                " and $neoForgeRun each on the game test server and on the dedicated server up to the EULA check; eula.txt" +
+                " left at eula=false")
+        }
     }
 }

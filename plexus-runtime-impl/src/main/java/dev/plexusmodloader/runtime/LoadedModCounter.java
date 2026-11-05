@@ -26,7 +26,7 @@ final class LoadedModCounter {
 
     /** Plexus Mod Loader itself, the game, Java, and the loaders' own entries in their mod lists. */
     static final Set<String> NOT_MODS =
-            Set.of("plexus", "poly", "minecraft", "java", "fabricloader", "quilt_loader", "forge", "neoforge");
+            Set.of("plexus", "minecraft", "java", "fabricloader", "quilt_loader", "forge", "neoforge");
 
     private LoadedModCounter() {}
 

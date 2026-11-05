@@ -53,14 +53,46 @@ class SdkRepositoryCheckTest {
     }
 
     @Test
-    void artifactsOfTheFormerGroupAreLeftAlone() throws IOException {
+    void aJarWithoutTheLicenseAndNoticesIsReported() throws IOException {
         publish("plexus-api", List.of(), true, "dev/plexusmodloader/Api.class");
         publish("plexus-impl", List.of("plexus-api"), false, "dev/plexusmodloader/Impl.class");
-        Path former = repository.resolve("dev/polymodloader/plexus-runtime-impl").resolve(VERSION);
+        archive(dir("plexus-impl").resolve("plexus-impl-" + VERSION + ".jar"), "dev/plexusmodloader/Impl.class");
+
+        List<String> problems = SdkRepositoryCheck.problems(repository, VERSION, EXPECTED);
+
+        assertEquals(2, problems.size(), problems.toString());
+        assertTrue(problems.get(0).contains("plexus-impl-1.0.0.jar has no META-INF/LICENSE"), problems.toString());
+        assertTrue(problems.get(1).contains("has no META-INF/THIRD_PARTY_NOTICES.md"), problems.toString());
+    }
+
+    @Test
+    void earlierVersionsOfTheFormerGroupAreLeftAlone() throws IOException {
+        publish("plexus-api", List.of(), true, "dev/plexusmodloader/Api.class");
+        publish("plexus-impl", List.of("plexus-api"), false, "dev/plexusmodloader/Impl.class");
+        Path former = repository.resolve("dev/polymodloader/plexus-runtime-impl/0.9.0");
         Files.createDirectories(former);
-        Files.writeString(former.resolve("plexus-runtime-impl-" + VERSION + ".pom"), "<project/>");
+        Files.writeString(former.resolve("plexus-runtime-impl-0.9.0.pom"), "<project/>");
 
         assertEquals(List.of(), SdkRepositoryCheck.problems(repository, VERSION, EXPECTED));
+    }
+
+    @Test
+    void aNewArtifactUnderTheFormerGroupOrPluginIdIsReported() throws IOException {
+        publish("plexus-api", List.of(), true, "dev/plexusmodloader/Api.class");
+        publish("plexus-impl", List.of("plexus-api"), false, "dev/plexusmodloader/Impl.class");
+        Path runtime = repository.resolve("dev/polymodloader/plexus-runtime-impl").resolve(VERSION);
+        Files.createDirectories(runtime);
+        Files.writeString(runtime.resolve("plexus-runtime-impl-" + VERSION + ".pom"), "<project/>");
+        Path marker = repository.resolve("dev/polymodloader/mod/dev.polymodloader.mod.gradle.plugin").resolve(VERSION);
+        Files.createDirectories(marker);
+        Files.writeString(marker.resolve("dev.polymodloader.mod.gradle.plugin-" + VERSION + ".pom"), "<project/>");
+
+        String problems = String.join("\n", SdkRepositoryCheck.problems(repository, VERSION, EXPECTED));
+
+        assertTrue(
+                problems.contains("dev.polymodloader:plexus-runtime-impl:1.0.0 is published under the former group"),
+                problems);
+        assertTrue(problems.contains("dev.polymodloader.mod:dev.polymodloader.mod.gradle.plugin:1.0.0"), problems);
     }
 
     @Test
@@ -96,11 +128,17 @@ class SdkRepositoryCheckTest {
     }
 
     private static void jar(Path file, String entry) throws IOException {
+        archive(file, entry, "META-INF/LICENSE", "META-INF/THIRD_PARTY_NOTICES.md");
+    }
+
+    private static void archive(Path file, String... entries) throws IOException {
         try (OutputStream output = Files.newOutputStream(file);
                 ZipOutputStream zip = new ZipOutputStream(output)) {
-            zip.putNextEntry(new ZipEntry(entry));
-            zip.write(1);
-            zip.closeEntry();
+            for (String entry : entries) {
+                zip.putNextEntry(new ZipEntry(entry));
+                zip.write(1);
+                zip.closeEntry();
+            }
         }
     }
 }

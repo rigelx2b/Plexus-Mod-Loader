@@ -34,7 +34,7 @@ This is the game layer for Minecraft 1.21.11 (ADR-0010). It instantiates Native 
 
 ## Differences from 26.1
 
-**This is an experimental version** (ADR-0019, `experimental` in `gradle/minecraft-versions.properties`). Because it is not a supported version, it is not included in the installer or SDK.
+**This is a supported version** (ADR-0033, promoted from experimental). It is listed in `supported` in `gradle/minecraft-versions.properties`, so the installer and SDK include it. The obfuscated game jar still runs remapped to Mojang names (ADR-0019).
 
 Copied from `plexus-game-v26_1` using `newMinecraftVersion -Pexperimental=true` and then adapted for 1.21.11. The remapped jar was verified with `javap`. The changes are in "1.21.11 Server PoC" in `docs/plans/MINECRAFT_1_21.md` (`docs/` is not in this public repository). A summary follows:
 

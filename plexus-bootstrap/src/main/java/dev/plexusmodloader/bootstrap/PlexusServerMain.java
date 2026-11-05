@@ -11,7 +11,6 @@ public final class PlexusServerMain {
     private PlexusServerMain() {}
 
     public static void main(String[] args) throws Throwable {
-        LegacyPropertyNames.copyToCurrentNames(System.getProperties());
         if (System.getProperty("plexus.launchTarget") == null) {
             System.setProperty("plexus.launchTarget", "dedicated_server");
         }

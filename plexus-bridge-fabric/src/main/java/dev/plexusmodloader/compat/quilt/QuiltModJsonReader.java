@@ -1,11 +1,11 @@
 package dev.plexusmodloader.compat.quilt;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
-import com.google.gson.Strictness;
+import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
@@ -32,8 +32,6 @@ import org.quiltmc.loader.api.ModLicense;
  * <ul>
  *   <li>{@code PLEXUS-COMPAT-300} (blocking): the file is one Quilt Loader refuses; nothing else is reported
  *   <li>{@code PLEXUS-COMPAT-301} (blocking): a loader plugin ({@code experimental_quilt_loader_plugin})
- *   <li>{@code PLEXUS-COMPAT-302} (blocking): a language adapter ({@code language_adapters}, or an entrypoint whose
- *       {@code adapter} is not {@code default})
  *   <li>{@code PLEXUS-COMPAT-303} (not blocking): QSL entrypoints ({@code init}, {@code client_init}, {@code
  *       server_init}), which nothing runs without QSL
  *   <li>{@code PLEXUS-COMPAT-304} (not blocking): any other entrypoint key Plexus Mod Loader does not run
@@ -41,6 +39,9 @@ import org.quiltmc.loader.api.ModLicense;
  *   <li>{@code PLEXUS-COMPAT-308} (not blocking): a required QSL module ({@link QuiltDependencyReader})
  *   <li>{@code PLEXUS-COMPAT-309} (not blocking): values Quilt Loader reads that have no effect in this launch
  * </ul>
+ *
+ * <p>Language adapters are not checked here: {@code CrossLoaderModResolver} blocks a mod whose adapter no loaded mod
+ * provides ({@code PLEXUS-COMPAT-312}).
  *
  * <p>Stateless; used while assessing a mod and, later, by the Quilt Loader API runtime. Never throws for the file's
  * contents.
@@ -52,6 +53,8 @@ public final class QuiltModJsonReader {
 
     /** The JSON5 form, which Quilt Loader refuses outside a development environment. */
     public static final String JSON5_FILE_NAME = "quilt.mod.json5";
+
+    private static final TypeAdapter<JsonElement> JSON_ELEMENTS = new Gson().getAdapter(JsonElement.class);
 
     private static final Pattern VALID_MOD_ID = Pattern.compile("^[a-z][a-z0-9-_]{1,63}$");
     private static final Pattern VALID_MAVEN_GROUP = Pattern.compile("^[a-zA-Z0-9-_.]+$");
@@ -140,14 +143,17 @@ public final class QuiltModJsonReader {
         }
     }
 
-    /** Strict JSON with one object at the root and nothing after it, as Quilt Loader's JSON reader wants. */
+    /**
+     * Strict JSON with one object at the root and nothing after it, as Quilt Loader's JSON reader wants. The reader
+     * keeps Gson's default mode: {@code Strictness} does not exist in the Gson 2.10 that Minecraft 1.20.x ships, and
+     * {@code JsonParser.parseReader} would turn the default mode lenient, so the element adapter reads the document.
+     */
     private static JsonObject parse(String text) throws QuiltMetadataException {
         try (JsonReader reader = new JsonReader(new StringReader(text))) {
-            reader.setStrictness(Strictness.STRICT);
             if (reader.peek() != JsonToken.BEGIN_OBJECT) {
                 throw new QuiltMetadataException("A quilt.mod.json must have an object at the root");
             }
-            JsonElement parsed = JsonParser.parseReader(reader);
+            JsonElement parsed = JSON_ELEMENTS.read(reader);
             if (reader.peek() != JsonToken.END_DOCUMENT) {
                 throw new QuiltMetadataException("Encountered additional data at end of document");
             }
@@ -374,25 +380,6 @@ public final class QuiltModJsonReader {
                     "loader plugin",
                     "declares a Quilt Loader plugin (experimental_quilt_loader_plugin); Quilt Loader runs it inside"
                             + " the loader, and Plexus Mod Loader does not provide the Quilt Loader plugin API"));
-        }
-        Set<String> adapters = new TreeSet<>();
-        entrypoints
-                .values()
-                .forEach(list -> list.stream()
-                        .map(QuiltModDescription.Entrypoint::adapter)
-                        .filter(adapter -> !adapter.equals("default"))
-                        .forEach(adapters::add));
-        if (!languageAdapters.isEmpty() || !adapters.isEmpty()) {
-            findings.add(new CompatibilityFinding(
-                    "PLEXUS-COMPAT-302",
-                    true,
-                    "language adapter",
-                    (languageAdapters.isEmpty() ? "" : "declares language adapters " + languageAdapters.keySet())
-                            + (!languageAdapters.isEmpty() && !adapters.isEmpty() ? " and " : "")
-                            + (adapters.isEmpty() ? "" : "has entrypoints that use the language adapter(s) " + adapters)
-                            + "; Quilt language adapters (such as Quilt Kotlin Libraries) have no release for"
-                            + " Minecraft 26.x and Plexus Mod Loader runs Quilt entrypoints with the default adapter"
-                            + " only"));
         }
         List<String> qslKeys =
                 entrypoints.keySet().stream().filter(QSL_KEYS::contains).toList();

@@ -1,8 +1,10 @@
 package dev.plexusmodloader.earlywindow;
 
+import java.awt.AWTError;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.HeadlessException;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -13,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.imageio.ImageIO;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
@@ -37,6 +40,11 @@ public final class EarlyWindowMain {
 
     private EarlyWindowMain() {}
 
+    @FunctionalInterface
+    interface WindowOpener {
+        JFrame open() throws HeadlessException, AWTError, UnsatisfiedLinkError, InternalError;
+    }
+
     public static void main(String[] args) throws Exception {
         EarlyWindowSettings settings = EarlyWindowSettings.fromArguments(List.of(args));
         LoadingScreenPainter painter = new LoadingScreenPainter(
@@ -57,11 +65,8 @@ public final class EarlyWindowMain {
             }
             switch (command) {
                 case EarlyWindowProtocol.Show show ->
-                    SwingUtilities.invokeAndWait(() -> {
-                        if (window.get() == null && !GraphicsEnvironment.isHeadless()) {
-                            window.set(open(settings, painter, state, started));
-                        }
-                    });
+                    SwingUtilities.invokeAndWait(() -> openWindowSafely(
+                            window, () -> open(settings, painter, state, started), System.err::println));
                 case EarlyWindowProtocol.Status status -> state.updateAndGet(now -> now.withStatus(status.text()));
                 case EarlyWindowProtocol.Progress progress ->
                     state.updateAndGet(now -> now.withProgress(progress.value()));
@@ -74,6 +79,19 @@ public final class EarlyWindowMain {
             }
         }
         exit(window);
+    }
+
+    static void openWindowSafely(AtomicReference<JFrame> window, WindowOpener opener, Consumer<String> errorHandler) {
+        if (window.get() != null) {
+            return;
+        }
+        try {
+            if (!GraphicsEnvironment.isHeadless()) {
+                window.set(opener.open());
+            }
+        } catch (HeadlessException | AWTError | UnsatisfiedLinkError | InternalError e) {
+            errorHandler.accept("Early loading window could not be opened (" + e + ")");
+        }
     }
 
     private static JFrame open(
@@ -126,7 +144,7 @@ public final class EarlyWindowMain {
         return frame;
     }
 
-    private static void snapshot(
+    static void snapshot(
             EarlyWindowSettings settings, LoadingScreenPainter painter, LoadingScreenState state, String file) {
         BufferedImage image = new BufferedImage(settings.width(), settings.height(), BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
@@ -148,7 +166,7 @@ public final class EarlyWindowMain {
         }
     }
 
-    private static void exit(AtomicReference<JFrame> window) {
+    static void closeWindow(AtomicReference<JFrame> window) {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 JFrame frame = window.get();
@@ -159,6 +177,10 @@ public final class EarlyWindowMain {
         } catch (InterruptedException | java.lang.reflect.InvocationTargetException e) {
             // Ending the process closes the window too.
         }
+    }
+
+    private static void exit(AtomicReference<JFrame> window) {
+        closeWindow(window);
         System.exit(0);
     }
 }

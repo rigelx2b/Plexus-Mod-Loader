@@ -23,9 +23,10 @@
 | `dev.plexusmodloader.api.resource` | 네임스페이스 리소스 식별자 (`ResourceId.of("mymod", "ruby")`) |
 | `dev.plexusmodloader.api.content.block` | 블록 정의, 재질, 경도, 드롭 테이블 및 이벤트 콜백 |
 | `dev.plexusmodloader.api.content.item` | 아이템 정의, 내구도, 창작 탭(Creative Tab) 바인딩 |
+| `dev.plexusmodloader.api.content.attribute` | 모드 속성 정의(범위, 기본값, 클라이언트 동기화, 플레이어 또는 모든 살아 있는 엔티티)와 수정자 연산 |
 | `dev.plexusmodloader.api.world` | `WorldView`, `BlockPos`, 차원 식별자, 블록 상태 조회 |
 | `dev.plexusmodloader.api.entity` | `EntityView`, `PlayerView`, 인벤토리 및 포지션 뷰 |
-| `dev.plexusmodloader.api.event` | 플레이어 접속/퇴장, 블록 파괴, 서버 틱 등 핵심 라이프사이클 이벤트 |
+| `dev.plexusmodloader.api.event` | 플레이어 접속/퇴장, 블록 파괴, 월드 틱 시작/종료, 서버 틱 등 핵심 라이프사이클 이벤트 |
 | `dev.plexusmodloader.api.command` | 플랫폼 무관 커맨드 트리 빌더 (`CommandNode`) 및 권한 제어 |
 | `dev.plexusmodloader.api.network` | 사용자 지정 페이로드 채널 등록, 바이너리 코덱 인코딩/디코딩 |
 | `dev.plexusmodloader.api.client` | 키 바인딩 등록, HUD 커스텀 오버레이 렌더링 |

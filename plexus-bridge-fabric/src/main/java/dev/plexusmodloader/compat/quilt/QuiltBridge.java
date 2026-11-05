@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import net.fabricmc.loader.impl.FabricLoaderImpl;
 import org.quiltmc.loader.api.Version;
 
@@ -152,9 +154,26 @@ public final class QuiltBridge implements ModLoaderBridge {
             widenings.addAll(tweaks.widenings());
             injections.addAll(tweaks.injections());
         }
+        QslEntrypoints qsl = QslEntrypoints.of(mod, side, jar);
+        boolean quiltBaseMet = qsl.meetsQuiltBase(mod);
+        qsl.adjustFindings(findings, quiltBaseMet);
         List<BridgedDependency> dependencies = new ArrayList<>();
-        mod.depends().forEach(dependency -> dependencies.add(dependency.bridged()));
+        mod.depends().stream()
+                .filter(dependency ->
+                        !(quiltBaseMet && dependency.bridged().modId().equals(QslEntrypoints.QUILT_BASE)))
+                .forEach(dependency -> dependencies.add(dependency.bridged()));
         mod.breaks().forEach(dependency -> dependencies.add(dependency.bridged()));
+        Set<String> adapters = new TreeSet<>();
+        mod.entrypoints()
+                .values()
+                .forEach(list -> list.stream()
+                        .map(QuiltModDescription.Entrypoint::adapter)
+                        .filter(adapter -> !adapter.equals("default"))
+                        .forEach(adapters::add));
+        for (String adapter : adapters) {
+            dependencies.add(new BridgedDependency(
+                    FabricBridge.LANGUAGE_ADAPTER_PREFIX + adapter, BridgedDependency.Kind.REQUIRED, "*", any -> true));
+        }
         List<String> providedIds = new ArrayList<>();
         Map<String, String> providedVersions = new LinkedHashMap<>();
         for (QuiltModDescription.Provided provided : mod.provides()) {
@@ -166,12 +185,18 @@ public final class QuiltBridge implements ModLoaderBridge {
                 providedVersions.put(provided.id(), provided.version());
             }
         }
+        for (String adapter : mod.languageAdapters().keySet()) {
+            String providedId = FabricBridge.LANGUAGE_ADAPTER_PREFIX + adapter;
+            if (!providedIds.contains(providedId)) {
+                providedIds.add(providedId);
+            }
+        }
         return BridgeAssessment.of(
                         loaderName(),
                         mod.id(),
                         mod.version(),
                         findings,
-                        entrypoints(mod, side),
+                        qsl.withRunnable(entrypoints(mod, side)),
                         providedIds,
                         dependencies,
                         mod.jars(),

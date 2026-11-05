@@ -7,7 +7,7 @@ pluginManagement {
         // The Plexus Mod Loader SDK: the dev.plexusmodloader.mod plugin and, through it, Plexus Mod Loader itself.
         maven("https://www.plexusmc.net/maven/") {
             name = "Plexus Mod Loader"
-            content { includeGroupByRegex("dev\\.(plexus|poly)modloader(\\..*)?") }
+            content { includeGroupByRegex("dev\\.plexusmodloader(\\..*)?") }
         }
         // A local Plexus Mod Loader build of a version the SDK repository does not have.
         if (!localFirst) mavenLocal()

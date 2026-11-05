@@ -3,21 +3,34 @@ package dev.plexusmodloader.compat.quilt;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.plexusmodloader.api.runtime.GameSide;
 import dev.plexusmodloader.compat.bridge.BridgeAssessment;
+import dev.plexusmodloader.compat.bridge.BridgeLaunchContext;
 import dev.plexusmodloader.compat.bridge.BridgedDependency;
 import dev.plexusmodloader.compat.bridge.BridgedEntrypoint;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
 import dev.plexusmodloader.compat.bridge.CompatibilityStatus;
 import dev.plexusmodloader.compat.bridge.ModJarContents;
+import dev.plexusmodloader.compat.fabric.loader.FabricLoaderRuntime;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import net.fabricmc.loader.api.EntrypointException;
+import net.fabricmc.loader.impl.FabricLoaderImpl;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.quiltmc.loader.impl.QuiltLoaderImpl;
 
 class QuiltBridgeTest {
 
@@ -187,16 +200,265 @@ class QuiltBridgeTest {
     }
 
     @Test
-    void languageAdaptersBlock() {
+    void languageAdaptersDeclarationAndResolution() {
         BridgeAssessment kotlin =
                 assess(withLoader("\"entrypoints\": {\"main\": {\"adapter\": \"kotlin\", \"value\": \"a.B\"}}"));
         BridgeAssessment declared = assess(withLoader("\"language_adapters\": {\"kotlin\": \"a.Adapter\"}"));
 
-        assertEquals(List.of("PLEXUS-COMPAT-302"), kotlin.blockingCodes());
-        assertTrue(detail(kotlin, "PLEXUS-COMPAT-302").contains("[kotlin]"));
-        assertEquals(List.of("PLEXUS-COMPAT-302"), declared.blockingCodes());
+        // Assess time: does not block prematurely
+        assertEquals(List.of(), kotlin.blockingCodes());
+        assertTrue(kotlin.dependencies().stream().anyMatch(d -> d.modId().equals("fabric-language-adapter:kotlin")));
+        assertEquals(List.of(), declared.blockingCodes());
+        assertTrue(declared.providedIds().contains("fabric-language-adapter:kotlin"));
+
+        // Self-provided adapter: the mod requires and provides the same adapter ID
+        BridgeAssessment selfProvided = assess(
+                withLoader(
+                        "\"language_adapters\": {\"custom\": \"a.Adapter\"}, \"entrypoints\": {\"main\": {\"adapter\": \"custom\", \"value\": \"a.B\"}}"));
+        assertEquals(List.of(), selfProvided.blockingCodes());
+        assertTrue(selfProvided.providedIds().contains("fabric-language-adapter:custom"));
+        assertTrue(
+                selfProvided.dependencies().stream().anyMatch(d -> d.modId().equals("fabric-language-adapter:custom")));
+
+        // Malformed declarations
         refused(withLoader("\"language_adapters\": []"), "language_adapters must be an object");
         refused(withLoader("\"language_adapters\": {\"kotlin\": 5}"), "must be a string");
+    }
+
+    public static final class TestQuiltAdapter implements org.quiltmc.loader.api.LanguageAdapter {
+        @Override
+        public <T> T create(org.quiltmc.loader.api.ModContainer mod, String value, Class<T> type) {
+            return type.cast(new TestInitializer("quilt:" + value));
+        }
+    }
+
+    public static final class TestFabricAdapter implements net.fabricmc.loader.api.LanguageAdapter {
+        @Override
+        public <T> T create(net.fabricmc.loader.api.ModContainer mod, String value, Class<T> type) {
+            return type.cast(new TestInitializer("fabric:" + value));
+        }
+    }
+
+    public static final class ThrowingAdapter implements org.quiltmc.loader.api.LanguageAdapter {
+        @Override
+        public <T> T create(org.quiltmc.loader.api.ModContainer mod, String value, Class<T> type)
+                throws org.quiltmc.loader.api.LanguageAdapterException {
+            throw new org.quiltmc.loader.api.LanguageAdapterException("forced adapter failure for " + value);
+        }
+    }
+
+    public static final class TestInitializer implements net.fabricmc.api.ModInitializer {
+        static String lastInitialized = null;
+        private final String tag;
+
+        public TestInitializer(String tag) {
+            this.tag = tag;
+        }
+
+        @Override
+        public void onInitialize() {
+            lastInitialized = tag;
+        }
+    }
+
+    private static Path writeJar(Path dir, String name, String metadataName, String metadata) throws IOException {
+        Path path = dir.resolve(name);
+        try (OutputStream file = Files.newOutputStream(path);
+                JarOutputStream jar = new JarOutputStream(file)) {
+            jar.putNextEntry(new JarEntry(metadataName));
+            jar.write(metadata.getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+        return path;
+    }
+
+    @Test
+    void invokeEntrypointsViaQuiltAndFabricAdapters(@TempDir Path tempDir) throws Exception {
+        String quiltJson = """
+                {"schema_version": 1,
+                 "quilt_loader": {
+                   "group": "dev.test", "id": "quilt_adapter_mod", "version": "1.0.0",
+                   "intermediate_mappings": "net.fabricmc:intermediary",
+                   "language_adapters": {
+                     "quilt_custom": "%1$s$TestQuiltAdapter",
+                     "quilt_throwing": "%1$s$ThrowingAdapter"
+                   },
+                   "entrypoints": {
+                     "main": [
+                       {"adapter": "quilt_custom", "value": "test_quilt_entry"},
+                       {"adapter": "quilt_throwing", "value": "test_throwing_entry"},
+                       {"adapter": "fabric_custom", "value": "test_fabric_entry"}
+                     ]
+                   }
+                 }
+                }
+                """.formatted(QuiltBridgeTest.class.getName());
+        String fabricJson = """
+                {"schemaVersion": 1, "id": "fabric_adapter_mod", "version": "1.0.0",
+                 "languageAdapters": {
+                   "fabric_custom": "%1$s$TestFabricAdapter"
+                 }
+                }
+                """.formatted(QuiltBridgeTest.class.getName());
+
+        Path quiltJar = writeJar(tempDir, "quilt-mod.jar", "quilt.mod.json", quiltJson);
+        Path fabricJar = writeJar(tempDir, "fabric-mod.jar", "fabric.mod.json", fabricJson);
+
+        BridgeLaunchContext context = new BridgeLaunchContext(
+                GameSide.DEDICATED_SERVER,
+                "26.2",
+                tempDir.resolve("game.jar"),
+                tempDir.resolve("game"),
+                List.of(),
+                QuiltBridgeTest.class.getClassLoader(),
+                List.of(
+                        new BridgeLaunchContext.LoadedMod(
+                                "Fabric",
+                                "fabric_adapter_mod",
+                                "1.0.0",
+                                "Fabric Mod",
+                                List.of(),
+                                fabricJar,
+                                null,
+                                null),
+                        new BridgeLaunchContext.LoadedMod(
+                                "Quilt", "quilt_adapter_mod", "1.0.0", "Quilt Mod", List.of(), quiltJar, null, null)));
+        FabricLoaderRuntime fabric = FabricLoaderRuntime.create(context, "0.19.5", Map.of("mixinextras", "0.5.5"));
+        FabricLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(fabric);
+        QuiltLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(
+                QuiltLoaderRuntime.create(context, fabric, "0.31.0-beta.4"));
+
+        // Entrypoint created by Quilt language adapter
+        bridge.invokeEntrypoint(
+                new BridgedEntrypoint("common", "test_quilt_entry", "quilt_custom"),
+                QuiltBridgeTest.class.getClassLoader());
+        assertEquals("quilt:test_quilt_entry", TestInitializer.lastInitialized);
+
+        // Entrypoint created by Fabric language adapter
+        bridge.invokeEntrypoint(
+                new BridgedEntrypoint("common", "test_fabric_entry", "fabric_custom"),
+                QuiltBridgeTest.class.getClassLoader());
+        assertEquals("fabric:test_fabric_entry", TestInitializer.lastInitialized);
+
+        // Adapter that throws LanguageAdapterException -> EntrypointException
+        assertThrows(
+                EntrypointException.class,
+                () -> bridge.invokeEntrypoint(
+                        new BridgedEntrypoint("common", "test_throwing_entry", "quilt_throwing"),
+                        QuiltBridgeTest.class.getClassLoader()));
+
+        // Unknown adapter key -> EntrypointException
+        assertThrows(
+                EntrypointException.class,
+                () -> bridge.invokeEntrypoint(
+                        new BridgedEntrypoint("common", "unknown_entry", "missing_adapter"),
+                        QuiltBridgeTest.class.getClassLoader()));
+    }
+
+    /** A QSL {@code init} entrypoint written against Fabric's interface, as five mods of the 26.x mod sets do. */
+    public static final class QslInit implements net.fabricmc.api.ModInitializer {
+        static int runs;
+
+        public QslInit() {}
+
+        @Override
+        public void onInitialize() {
+            runs++;
+        }
+    }
+
+    private static byte[] classBytes(Class<?> type) throws IOException {
+        try (var in = type.getResourceAsStream("/" + type.getName().replace('.', '/') + ".class")) {
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void qslEntrypointsWithFabricInterfacesRunAndMeetQuiltBase() throws IOException {
+        String init = QslInit.class.getName();
+        String json = withLoader("\"entrypoints\": {\"init\": \"" + init + "\"}, \"depends\": [\"quilt_base\"]");
+        byte[] bytes = classBytes(QslInit.class);
+        ModJarContents jar =
+                path -> path.equals(init.replace('.', '/') + ".class") ? Optional.of(bytes) : Optional.empty();
+
+        BridgeAssessment assessment = bridge.assess(json, GameSide.DEDICATED_SERVER, jar);
+
+        assertEquals(
+                List.of(), assessment.blockingCodes(), assessment.findings().toString());
+        assertTrue(
+                codes(assessment).contains("PLEXUS-COMPAT-311"),
+                codes(assessment).toString());
+        assertFalse(
+                codes(assessment).contains("PLEXUS-COMPAT-303"),
+                codes(assessment).toString());
+        assertFalse(
+                codes(assessment).contains("PLEXUS-COMPAT-308"),
+                codes(assessment).toString());
+        assertTrue(detail(assessment, "PLEXUS-COMPAT-311").contains("quilt_base"));
+        assertTrue(assessment.dependencies().stream().noneMatch(d -> d.modId().equals("quilt_base")));
+        assertTrue(assessment.entrypoints().contains(new BridgedEntrypoint("common", init, "default")));
+    }
+
+    @Test
+    void qslEntrypointsOnlyQslCanRunKeepTheirCodes() {
+        // The class is not in the jar, so its interfaces are unknown: QSL's own interface is assumed.
+        BridgeAssessment assessment = assess(
+                withLoader("\"entrypoints\": {\"init\": \"a.Init\"}, \"depends\": [\"quilt_base\"]"),
+                GameSide.DEDICATED_SERVER,
+                Map.of());
+
+        assertTrue(
+                codes(assessment).contains("PLEXUS-COMPAT-303"),
+                codes(assessment).toString());
+        assertTrue(
+                codes(assessment).contains("PLEXUS-COMPAT-308"),
+                codes(assessment).toString());
+        assertFalse(
+                codes(assessment).contains("PLEXUS-COMPAT-311"),
+                codes(assessment).toString());
+        assertTrue(assessment.dependencies().stream().anyMatch(d -> d.modId().equals("quilt_base")));
+        assertTrue(
+                assessment.entrypoints().stream().noneMatch(e -> e.className().equals("a.Init")));
+    }
+
+    @Test
+    void qslInitRunsThroughTheSharedEntrypointStore(@TempDir Path tempDir) throws Exception {
+        String quiltJson = """
+                {"schema_version": 1,
+                 "quilt_loader": {
+                   "group": "dev.test", "id": "qsl_init_mod", "version": "1.0.0",
+                   "intermediate_mappings": "net.fabricmc:intermediary",
+                   "entrypoints": {"init": "%s"}
+                 }
+                }
+                """.formatted(QslInit.class.getName());
+        BridgeAssessment read = assess(quiltJson);
+        assertEquals(List.of(), read.blockingCodes(), read.findings().toString());
+        Path quiltJar = writeJar(tempDir, "qsl-init.jar", "quilt.mod.json", quiltJson);
+        BridgeLaunchContext context = new BridgeLaunchContext(
+                GameSide.DEDICATED_SERVER,
+                "26.2",
+                tempDir.resolve("game.jar"),
+                tempDir.resolve("game"),
+                List.of(),
+                QuiltBridgeTest.class.getClassLoader(),
+                List.of(new BridgeLaunchContext.LoadedMod(
+                        "Quilt", "qsl_init_mod", "1.0.0", "QSL Init Mod", List.of(), quiltJar, null, null)));
+        FabricLoaderRuntime fabric = FabricLoaderRuntime.create(context, "0.19.5", Map.of("mixinextras", "0.5.5"));
+        FabricLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(fabric);
+        QuiltLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(
+                QuiltLoaderRuntime.create(context, fabric, "0.31.0-beta.4"));
+        int before = QslInit.runs;
+
+        bridge.invokeEntrypoint(
+                new BridgedEntrypoint("common", QslInit.class.getName(), "default"),
+                QuiltBridgeTest.class.getClassLoader());
+
+        assertEquals(before + 1, QslInit.runs);
+        assertTrue(
+                FabricLoaderImpl.INSTANCE.getEntrypoints("main", Object.class).stream()
+                        .noneMatch(QslInit.class::isInstance),
+                "other mods asking for main do not get the init entrypoint");
     }
 
     @Test

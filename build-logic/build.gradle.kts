@@ -30,6 +30,14 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// Like every other published jar (plexus.java-conventions), the plugin jar carries the license and the third-party
+// notices, which say where the source is (MPL 2.0 section 3.2); verifySdkRepository checks it.
+tasks.jar {
+    from(files("../LICENSE", "../THIRD_PARTY_NOTICES.md")) {
+        into("META-INF")
+    }
+}
+
 tasks.processResources {
     val values = mapOf(
         "plexus" to project.version.toString(),
@@ -78,13 +86,6 @@ gradlePlugin {
             displayName = "Plexus Mod Loader mod development"
             description = "Builds, validates, and runs Plexus mods against Minecraft through Plexus Mod Loader, and generates and checks their resource files."
         }
-        // The plugin ID before the rename (ADR-0008), so existing mod projects keep building with new versions.
-        create("plexusModLegacy") {
-            id = "dev.polymodloader.mod"
-            implementationClass = "dev.plexusmodloader.devtools.gradle.minecraft.PlexusModPlugin"
-            displayName = "Plexus Mod Loader mod development (legacy ID)"
-            description = "Former ID of dev.plexusmodloader.mod; applies the same plugin."
-        }
     }
 }
 
@@ -95,8 +96,8 @@ publishing {
 }
 
 // The public SDK repository (ADR-0008, `./gradlew publishSdk` in the main build runs `:publishSdk` here):
-// the plugin jar without sources, and the markers of dev.plexusmodloader.mod and its legacy ID
-// dev.polymodloader.mod only; the other plugin IDs are for this repository. publishToMavenLocal still installs everything, sources included.
+// the plugin jar without sources, and the marker of dev.plexusmodloader.mod only; the other plugin IDs are for this
+// repository. publishToMavenLocal still installs everything, sources included.
 val sdkRepository = rootDir.resolve("..").toPath()
     .resolve(providers.gradleProperty("plexusSdkRepo").getOrElse(".plexus/sdk-maven")).normalize().toFile()
 val sdkComponent = serviceOf<SoftwareComponentFactory>().adhoc("plexusSdk")
@@ -119,7 +120,7 @@ publishing {
         artifactId = "plexus-gradle-plugin"
     }
 }
-val sdkPublications = setOf("sdk", "plexusModPluginMarkerMaven", "plexusModLegacyPluginMarkerMaven")
+val sdkPublications = setOf("sdk", "plexusModPluginMarkerMaven")
 tasks.withType<PublishToMavenRepository>().configureEach {
     val toSdk = name.endsWith("ToPlexusSdkRepository")
     enabled = toSdk == sdkPublications.any { name.startsWith("publish${it.replaceFirstChar(Char::uppercase)}Publication") }
@@ -129,10 +130,9 @@ tasks.withType<PublishToMavenLocal>().configureEach {
 }
 tasks.register("publishSdk") {
     group = "publishing"
-    description = "Publishes the dev.plexusmodloader.mod plugin (and its legacy ID), without sources, into the SDK repository folder."
+    description = "Publishes the dev.plexusmodloader.mod plugin, without sources, into the SDK repository folder."
     dependsOn(
         "publishSdkPublicationToPlexusSdkRepository",
         "publishPlexusModPluginMarkerMavenPublicationToPlexusSdkRepository",
-        "publishPlexusModLegacyPluginMarkerMavenPublicationToPlexusSdkRepository",
     )
 }

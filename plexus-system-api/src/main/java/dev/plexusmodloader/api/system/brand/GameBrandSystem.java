@@ -7,7 +7,7 @@ import dev.plexusmodloader.api.system.PlexusSystem;
 import dev.plexusmodloader.api.system.SystemId;
 
 /**
- * System {@code plexus:game_brand} (legacy alias {@code plexus:game_brand}): the mod brand the game reports about itself — shown through the
+ * System {@code plexus:game_brand}: the mod brand the game reports about itself — shown through the
  * window title's "modded" marker, crash reports, and the server brand sent to clients.
  *
  * <ul>
@@ -25,9 +25,6 @@ public interface GameBrandSystem extends PlexusSystem {
 
     /** ID of this system. */
     SystemId ID = new SystemId("plexus:game_brand");
-
-    /** Legacy ID of this system for backward compatibility with Plexus mods. */
-    SystemId LEGACY_ID = new SystemId("poly:game_brand");
 
     /** The brand reported by {@code side}. */
     String brand(GameSide side);

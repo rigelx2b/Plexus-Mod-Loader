@@ -15,11 +15,19 @@ final class InstallerCommandLine {
     private final InstallerPayload payload;
     private final PrintStream out;
     private final PrintStream err;
+    private final ServerInstaller.Downloader downloader;
 
     InstallerCommandLine(InstallerPayload payload, PrintStream out, PrintStream err) {
+        this(payload, out, err, ServerInstaller.httpDownloader());
+    }
+
+    /** {@code downloader} fetches Mojang's files for a server or an obfuscated version; tests answer locally. */
+    InstallerCommandLine(
+            InstallerPayload payload, PrintStream out, PrintStream err, ServerInstaller.Downloader downloader) {
         this.payload = payload;
         this.out = out;
         this.err = err;
+        this.downloader = downloader;
     }
 
     String usage() {
@@ -98,7 +106,7 @@ final class InstallerCommandLine {
             err.println(e.getMessage());
             return 2;
         }
-        LauncherProfileInstaller installer = new LauncherProfileInstaller(payload, Clock.systemUTC());
+        LauncherProfileInstaller installer = new LauncherProfileInstaller(payload, Clock.systemUTC(), downloader);
         try {
             switch (command) {
                 case "install" -> {
@@ -112,7 +120,7 @@ final class InstallerCommandLine {
                             + "\" in the Minecraft Launcher.");
                 }
                 case "install-server" -> {
-                    List<String> warnings = new ServerInstaller(payload, ServerInstaller.httpDownloader())
+                    List<String> warnings = new ServerInstaller(payload, downloader)
                             .install(directory, minecraft, memory, out::println);
                     warnings.forEach(warning -> err.println("Warning: " + warning));
                     out.println("Plexus Mod Loader " + payload.plexusVersion() + " server for Minecraft " + minecraft

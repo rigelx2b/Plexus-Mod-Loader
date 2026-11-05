@@ -44,9 +44,6 @@ public record ModMetadata(
     /** File name Plexus Mod Loader looks for at the root of a mod jar. */
     public static final String FILE_NAME = "plexus.mod.json";
 
-    /** Legacy file name Plexus Mod Loader looked for, supported for backward compatibility. */
-    public static final String LEGACY_FILE_NAME = "poly.mod.json";
-
     public ModMetadata {
         minecraftVersions = List.copyOf(minecraftVersions);
         // Keep declaration order so diagnostics list problems in the order the author wrote them.

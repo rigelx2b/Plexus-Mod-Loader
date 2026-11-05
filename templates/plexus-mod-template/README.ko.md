@@ -26,7 +26,7 @@ Plexus 모드를 새로 시작하기 위한 독립 Gradle 프로젝트입니다.
 
 `settings.gradle.kts`와 `dev.plexusmodloader.mod` 플러그인은 Plexus 모드 로더를 다음 순서로 찾습니다. 따로 준비할 것은 없습니다.
 
-1. 웹사이트의 공개 Maven 저장소 `https://www.plexusmc.net/maven/` (`dev.plexusmodloader` 그룹과 이전 그룹 `dev.polymodloader`만)
+1. 웹사이트의 공개 Maven 저장소 `https://www.plexusmc.net/maven/` (`dev.plexusmodloader` 그룹만)
 2. Maven Local: Plexus 모드 로더 저장소에서 `.\gradlew.bat publishToMavenLocal`과 `.\gradlew.bat -p build-logic publishToMavenLocal`로 올린 로컬 빌드
 3. Gradle Plugin Portal, Maven Central(그 밖의 라이브러리)
 
@@ -53,13 +53,13 @@ IntelliJ IDEA에서는 폴더를 Gradle 프로젝트로 열고, `.run/runClient`
 
 | 파일 | 내용 |
 |---|---|
-| `src/main/resources/poly.mod.json` | 모드 ID, 이름, 버전, 엔트리포인트, 의존성 |
+| `src/main/resources/plexus.mod.json` | 모드 ID, 이름, 버전, 엔트리포인트, 의존성 |
 | `src/main/java/com/example/mymod/MyMod.java` | 엔트리포인트(`CommonModInitializer`). 아이템 1개, 블록 1개, 게임 테스트 2개 예시 |
 | `build.gradle.kts` | `plexusResources`(생성할 리소스), `worldCreateSaveTest`에서 확인할 로그 줄 |
 | `src/main/resources/assets/my_mod/` | 텍스처와 직접 쓰는 모델·번역. 데이터(레시피·전리품·태그)는 `data/my_mod/`에 둡니다 |
 | `settings.gradle.kts` | 프로젝트 이름 |
 | `gradle.properties` | `plexusMinecraft=<버전>`: 실행·테스트에 쓸 Minecraft 버전(없으면 Plexus 모드 로더 기본 버전) |
 
-`plexus.mod.json`의 `"minecraft"`는 모드가 도는 버전입니다. Native API만 쓰면 `26.*`나 `>=26.2 <27`처럼 적어 새 버전에서도 다시 빌드하지 않고 쓸 수 있습니다. 특정 버전의 게임 코드에 기대는 모드는 `26.2`처럼 정확히 적습니다.
+`plexus.mod.json`의 `"minecraft"`는 모드가 도는 버전입니다. Native API만 쓰면 템플릿처럼 지원하는 버전(`1.20.1`, `1.20.4`, `1.21.1`, `1.21.11`, `26.*`)을 나열하거나 `>=26.2 <27` 같은 범위로 적어 새 버전에서도 다시 빌드하지 않고 쓸 수 있습니다. 특정 버전의 게임 코드에 기대는 모드는 `26.2`처럼 정확히 적습니다.
 
 사용할 수 있는 API는 웹사이트의 API 레퍼런스(`https://www.plexusmc.net/docs/api-reference/`)에 있습니다(`docs/API_CATALOG.md`는 공개 저장소에 없습니다). IDE는 공개 API 모듈의 JavaDoc jar를 Maven 저장소에서 함께 다운로드합니다. 모든 API는 아직 `PREVIEW`입니다.

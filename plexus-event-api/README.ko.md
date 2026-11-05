@@ -26,7 +26,7 @@
 ```
 
 ## 대표 흐름
-`MinecraftServer.tickServer` 진입 훅이 서버마다 첫 틱에 `STARTED`를, 그 뒤 매 틱 `TICK`을 발생시킵니다. `stopServer` 진입 훅은 `STOPPING`을 발생시킵니다. `STARTING`(월드를 만들기 전)과 `STOPPED`(월드를 닫은 뒤)는 게임 계층의 `LifecycleHooks`가 발생시킵니다. 리스너가 예외를 던지면 그 리스너만 비활성화하고 `PLEXUS-EVENT-001`로 보고합니다.
+`MinecraftServer.tickServer` 진입 훅이 서버마다 첫 틱에 `STARTED`를, 그 뒤 매 틱 시작에 `TICK`을, 모든 레벨이 틱을 마친 반환 직전에 `TICK_END`를 발생시킵니다. `stopServer` 진입 훅은 `STOPPING`을 발생시킵니다. `STARTING`(월드를 만들기 전)과 `STOPPED`(월드를 닫은 뒤)는 게임 계층의 `LifecycleHooks`가 발생시킵니다. 리스너가 예외를 던지면 그 리스너만 비활성화하고 `PLEXUS-EVENT-001`로 보고합니다.
 
 리스너는 `EventPriority`(`HIGHEST`→`LOWEST`) 순서로, 같은 우선순위 안에서는 등록 순서로 실행됩니다. 결정 이벤트(리스너가 `EventResult`나 `InteractionResult`를 돌려주는 이벤트)는 처음으로 `PASS`가 아닌 값을 돌려준 리스너에서 끝나고, 그 뒤 리스너는 호출되지 않습니다. 결정 리스너가 `null`을 돌려주면 `PLEXUS-EVENT-003`으로 보고하고 비활성화합니다.
 

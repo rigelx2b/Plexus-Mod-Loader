@@ -109,9 +109,11 @@ final class ServerInstaller {
         }
         progress.accept(payload.libraries().size() + " Plexus Mod Loader libraries are in " + libraries);
         String serverJar;
+        List<Path> serverLibraries = new ArrayList<>();
         try (JarFile jar = new JarFile(bundler.toFile())) {
             for (String library : unbundle(jar, "META-INF/libraries.list", root.resolve("libraries"))) {
                 classPath.add("libraries/" + library);
+                serverLibraries.add(root.resolve("libraries").resolve(library));
             }
             List<String> servers = unbundle(jar, "META-INF/versions.list", root.resolve("versions"));
             if (servers.size() != 1) {
@@ -120,13 +122,22 @@ final class ServerInstaller {
             }
             serverJar = "versions/" + servers.get(0);
         }
+        if (ClientGameRemap.isObfuscated(minecraftVersion)) {
+            // A version before 26.1 is obfuscated: the server runs on its jar remapped to Mojang names, made here
+            // from Mojang's server mappings (ADR-0019). The obfuscated jar is not on the class path.
+            serverJar =
+                    remapServer(root, version, minecraftVersion, root.resolve(serverJar), serverLibraries, progress);
+        }
         classPath.add(serverJar);
         progress.accept("Minecraft " + minecraftVersion + " server is in " + root.resolve(serverJar));
 
         writeLaunchJar(root.resolve(LAUNCH_JAR), classPath);
-        int java = version.has("javaVersion")
-                ? object(version, "javaVersion").get("majorVersion").getAsInt()
-                : Runtime.version().feature();
+        // Plexus Mod Loader runs every version on Java 25 or newer, whatever Java the vanilla version asks for.
+        int java = Math.max(
+                ClientGameRemap.RUNTIME_JAVA,
+                version.has("javaVersion")
+                        ? object(version, "javaVersion").get("majorVersion").getAsInt()
+                        : Runtime.version().feature());
         writeScripts(root, minecraftVersion, java, memory);
         Files.createDirectories(root.resolve("mods"));
         progress.accept("Wrote " + LAUNCH_JAR + ", run.bat and run.sh; put mods into " + root.resolve("mods"));
@@ -135,6 +146,40 @@ final class ServerInstaller {
                     + " eula=true in eula.txt to accept it.");
         }
         return warnings;
+    }
+
+    /**
+     * Downloads the server mappings (checked by the SHA-1 in the version JSON) and remaps {@code serverJar}.
+     *
+     * @return the remapped jar, relative to {@code root} with forward slashes, for the launch jar's class path
+     */
+    private String remapServer(
+            Path root,
+            JsonObject version,
+            String minecraftVersion,
+            Path serverJar,
+            List<Path> libraries,
+            Consumer<String> progress)
+            throws InstallerException, IOException {
+        JsonObject offered = object(version, "downloads");
+        if (!offered.has("server_mappings")) {
+            throw new InstallerException("Mojang publishes no mappings for the Minecraft " + minecraftVersion
+                    + " server, so Plexus Mod Loader cannot remap it to Mojang names.");
+        }
+        Path mappings = root.resolve("versions")
+                .resolve(minecraftVersion)
+                .resolve("server-mappings-" + minecraftVersion + ".txt");
+        if (new VerifiedDownloads(downloader).fetch(object(offered, "server_mappings"), mappings)) {
+            progress.accept("Downloaded Mojang's server mappings for " + minecraftVersion);
+        }
+        Path remapped = root.resolve("versions")
+                .resolve(minecraftVersion)
+                .resolve("server-" + minecraftVersion + "-mojang.jar");
+        RemappedGameJar jar = RemappedGameJar.ensure(serverJar, mappings, libraries, remapped, progress);
+        if (jar.reused()) {
+            progress.accept("The remapped Minecraft " + minecraftVersion + " server is up to date");
+        }
+        return root.relativize(remapped.toAbsolutePath().normalize()).toString().replace('\\', '/');
     }
 
     /** The version JSON of {@code minecraftVersion}, from Mojang's manifest; both are kept next to the server. */

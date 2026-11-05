@@ -43,11 +43,9 @@ class ModProjectScaffolderTest {
         assertTrue(java.startsWith("package io.github.you.rubytools;"), java);
         assertTrue(java.contains("public final class RubyToolsMod implements CommonModInitializer"), java);
 
-        Path metaPath = target.resolve("src/main/resources/plexus.mod.json");
-        if (!Files.exists(metaPath)) {
-            metaPath = target.resolve("src/main/resources/poly.mod.json");
-        }
-        String metadata = Files.readString(metaPath, StandardCharsets.UTF_8);
+        assertFalse(Files.exists(target.resolve("src/main/resources/poly.mod.json")));
+        String metadata = Files.readString(
+                target.resolve("src/main/resources/plexus.mod.json"), StandardCharsets.UTF_8);
         assertTrue(metadata.contains("\"id\": \"ruby_tools\""), metadata);
         assertTrue(metadata.contains("\"name\": \"Ruby Tools\""), metadata);
         assertTrue(metadata.contains("\"io.github.you.rubytools.RubyToolsMod\""), metadata);
@@ -72,6 +70,35 @@ class ModProjectScaffolderTest {
                 }
             }
         }
+    }
+
+    @Test
+    void theNewProjectBuildsWithTheGivenPluginVersionNotThePlaceholder() throws IOException {
+        Path target = workspace.resolve("versioned");
+
+        ModProjectScaffolder.scaffold(TEMPLATE, target, RUBY, "2.0.0");
+
+        String build = Files.readString(target.resolve("build.gradle.kts"), StandardCharsets.UTF_8);
+        assertTrue(build.contains("id(\"dev.plexusmodloader.mod\") version \"2.0.0\""), build);
+        assertFalse(build.contains("0.1.0-alpha"), build);
+        // The other files are not touched by the version.
+        assertTrue(Files.readString(target.resolve("settings.gradle.kts"), StandardCharsets.UTF_8)
+                .contains("rootProject.name = \"ruby-tools\""));
+    }
+
+    @Test
+    void aFolderWithOnlyTheFormerMetadataFileNameIsNotTheTemplate() throws IOException {
+        Path template = workspace.resolve("former-template");
+        copyTemplate(template);
+        Files.move(
+                template.resolve("src/main/resources/plexus.mod.json"),
+                template.resolve("src/main/resources/poly.mod.json"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ModProjectScaffolder.scaffold(template, workspace.resolve("out"), RUBY));
+        assertThrows(IllegalArgumentException.class, () -> ModProjectScaffolder.renameInPlace(template, RUBY));
+        assertTrue(Files.exists(template.resolve("src/main/resources/poly.mod.json")));
     }
 
     @Test

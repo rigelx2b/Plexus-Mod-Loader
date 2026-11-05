@@ -1,0 +1,74 @@
+package dev.plexusmodloader.game.layer.v1_20_4.client;
+
+import dev.plexusmodloader.api.client.ClientEvents;
+import dev.plexusmodloader.api.client.TooltipLines;
+import dev.plexusmodloader.api.inventory.ItemStackRef;
+import dev.plexusmodloader.game.layer.v1_20_4.LayerState;
+import dev.plexusmodloader.game.layer.v1_20_4.content.ItemComponents;
+import dev.plexusmodloader.game.version.layer.GameLayerContext;
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+
+/** Fires {@link ClientEvents#ITEM_TOOLTIP} over the game's tooltip lines. Client thread only. */
+public final class ItemTooltips {
+
+    private ItemTooltips() {}
+
+    /**
+     * Before the return of {@code ItemStack.getTooltipLines(Player, TooltipFlag)}: a copy of the game's lines that
+     * listeners changed, or the game's own list when nobody listens. 1.20.4 has no tooltip-hiding component, so every
+     * stack's tooltip goes to the listeners.
+     */
+    public static List<Component> onTooltipLines(
+            ItemStack stack, Player player, TooltipFlag flag, List<Component> returned) {
+        GameLayerContext layer = LayerState.context().orElse(null);
+        if (layer == null || !layer.events().hasListeners(ClientEvents.ITEM_TOOLTIP)) {
+            return returned;
+        }
+        List<Component> lines = new ArrayList<>(returned);
+        TooltipLines view = new ComponentLines(lines);
+        ItemStackRef ref = ItemComponents.ref(stack, () -> {});
+        boolean advanced = flag.isAdvanced();
+        layer.events().publish(ClientEvents.ITEM_TOOLTIP, listener -> listener.onItemTooltip(ref, view, advanced));
+        return lines;
+    }
+
+    /** {@link TooltipLines} over the game's components; new lines are literal text. */
+    static final class ComponentLines implements TooltipLines {
+
+        private final List<Component> lines;
+
+        ComponentLines(List<Component> lines) {
+            this.lines = lines;
+        }
+
+        @Override
+        public int size() {
+            return lines.size();
+        }
+
+        @Override
+        public String get(int index) {
+            return lines.get(index).getString();
+        }
+
+        @Override
+        public void add(String line) {
+            lines.add(Component.literal(line));
+        }
+
+        @Override
+        public void add(int index, String line) {
+            lines.add(index, Component.literal(line));
+        }
+
+        @Override
+        public void remove(int index) {
+            lines.remove(index);
+        }
+    }
+}

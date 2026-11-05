@@ -23,9 +23,11 @@ import org.slf4j.LoggerFactory;
  * GameWindowListener}). A host loader (MinecraftForge, NeoForge) then opens no early window of its own.
  *
  * <p>The window opens only on the client, for a version adapter that names the game's logo and whose game layer tells
- * when the game's window shows ({@link GameVersionAdapter#loadingScreenLogo()}), not on macOS (not checked there), and
- * not with {@code -Dplexus.earlyWindow=off}. When the game's window never says it shows, the window closes on its own: 20
- * seconds after the game names its window, at the latest 3 minutes after the game starts.
+ * when the game's window shows ({@link GameVersionAdapter#loadingScreenLogo()}), and not with {@code
+ * -Dplexus.earlyWindow=off}. (On macOS the window opens with {@code -Dapple.awt.UIElement=true} and sanitized child
+ * environment; note that macOS early-window behaviour is not verified on real Apple hardware in this build environment).
+ * When the game's window never says it shows, the window closes on its own: 20 seconds after the game names its window,
+ * at the latest 3 minutes after the game starts.
  *
  * <p>Thread: the launch thread, and the game's render thread for {@link GameWindowListener}.
  */
@@ -55,14 +57,12 @@ final class StartupWindow implements GameWindowListener {
         return new StartupWindow(EarlyWindow.none(), Optional.empty(), 0);
     }
 
-    /** Starts the window's process, hidden until {@link #noHost()}; or a launch without one. */
+    /** Starts the window's process, hidden until {@link #shows()}; or a launch without one. */
     static StartupWindow start(
             LaunchConfiguration configuration, GameVersionAdapter adapter, String gameVersion, String[] gameArguments) {
         Optional<String> logo = adapter.loadingScreenLogo();
-        boolean mac = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("mac");
         if (configuration.side() != GameSide.CLIENT
                 || logo.isEmpty()
-                || mac
                 || System.getProperty("plexus.earlyWindow", "on").equals("off")) {
             return none();
         }

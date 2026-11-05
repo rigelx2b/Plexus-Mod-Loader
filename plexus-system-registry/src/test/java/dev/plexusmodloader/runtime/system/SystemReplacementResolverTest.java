@@ -55,19 +55,19 @@ class SystemReplacementResolverTest {
     }
 
     @Test
-    void legacySystemIdIsResolvedToCanonical() {
-        ModMetadata legacy = metadata(
-                "legacy_mod",
+    void formerPolySystemIdIsRejectedAsUnknown() {
+        ModMetadata former = metadata(
+                "former_mod",
                 List.of(),
-                List.of(new SystemReplacementDeclaration("plexus:game_brand", "com.example.LegacyProvider", false)));
+                List.of(new SystemReplacementDeclaration("poly:game_brand", "com.example.FormerProvider", false)));
 
-        SystemReplacementResolver.Result result = resolver.resolve(List.of(legacy), definitions);
+        SystemReplacementResolver.Result result = resolver.resolve(List.of(former), definitions);
 
-        assertEquals(List.of(), result.problems());
-        SystemReplacementResolver.SelectedReplacement selected =
-                result.replacements().get(GameBrandSystem.ID);
-        assertEquals("legacy_mod", selected.modId());
-        assertEquals("com.example.LegacyProvider", selected.providerClass());
+        assertTrue(result.replacements().isEmpty());
+        assertEquals(1, result.problems().size());
+        assertTrue(
+                result.problems().getFirst().startsWith("PLEXUS-SYSTEM-002 mod=former_mod"),
+                result.problems().getFirst());
     }
 
     @Test

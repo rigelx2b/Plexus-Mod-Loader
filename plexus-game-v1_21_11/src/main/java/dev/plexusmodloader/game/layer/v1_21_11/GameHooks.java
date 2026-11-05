@@ -23,9 +23,11 @@ import dev.plexusmodloader.game.layer.v1_21_11.worldgen.CodeWorldgen;
 import dev.plexusmodloader.game.layer.v1_21_11.worldgen.PlexusChunkGenerator;
 import dev.plexusmodloader.game.version.layer.GameLayerContext;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations;
+import java.lang.reflect.Method;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -81,6 +83,7 @@ import org.slf4j.LoggerFactory;
 public final class GameHooks {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
+    private static final int BUILT_IN_DIMENSIONS = 3;
 
     /** The block a player is breaking on this thread, between playerWillDestroy and destroyBlock's return. */
     private static final ThreadLocal<PendingBreak> PENDING_BREAK = new ThreadLocal<>();
@@ -215,6 +218,11 @@ public final class GameHooks {
     /** Head of {@code ServerLevel.tick(BooleanSupplier)}: runs scheduled tasks of that dimension. */
     public static void onLevelTick(ServerLevel level, BooleanSupplier hasTimeLeft) {
         WorldServices.tick(level);
+    }
+
+    /** Before each return of {@code ServerLevel.tick(BooleanSupplier)}. */
+    public static void onLevelTickEnd(ServerLevel level, BooleanSupplier hasTimeLeft) {
+        WorldServices.tickEnd(level);
     }
 
     /**
@@ -438,5 +446,29 @@ public final class GameHooks {
                         .anyMatch(pack -> pack.modId().equals(namespace)))
                 .orElse(false);
         return modDimension ? Lifecycle.stable() : null;
+    }
+
+    /**
+     * Stands in for {@code entries.size()} in {@code WorldDimensions.bake}, which calls a world stable only when it has
+     * exactly the three built-in dimensions; a mod's dimension would make every world ask for a backup when it opens.
+     * Returns the game's count of built-in dimensions when all of them are there, as 26.x asks, and a value that cannot
+     * match when one is missing. Each dimension's own stability still counts ({@link #onCheckDimensionStability}).
+     */
+    public static int onBakedDimensionCount(List<?> entries) {
+        Set<Object> missing = new HashSet<>(Set.of(LevelStem.OVERWORLD, LevelStem.NETHER, LevelStem.END));
+        try {
+            for (Object entry : entries) {
+                Method key = entry.getClass().getDeclaredMethod("key");
+                key.setAccessible(true);
+                missing.remove(key.invoke(entry));
+            }
+        } catch (ReflectiveOperationException e) {
+            LOGGER.error(
+                    "[Plexus Mod Loader] PLEXUS-WORLDGEN-006 cannot read a world's dimensions; a world with a mod's"
+                            + " dimension asks for a backup when it opens",
+                    e);
+            return entries.size();
+        }
+        return missing.isEmpty() ? BUILT_IN_DIMENSIONS : -1;
     }
 }
