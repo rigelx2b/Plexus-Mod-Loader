@@ -48,7 +48,7 @@ class PlexusRuntimeTest {
     @Test
     void launchesTheGameThroughTheTransformingClassLoaderAfterRunningModEntrypoints() throws Throwable {
         Path gameJar = gameJar();
-        Path modJar = modJar(">=1.0.0 <2.0.0", "test-1");
+        Path modJar = modJar(">=2.0.0 <3.0.0", "test-1");
 
         try (LaunchedGame game = new PlexusRuntime().launch(configuration(gameJar, modJar), new String[0])) {
             assertEquals("test-1", game.gameVersion());
@@ -61,6 +61,43 @@ class PlexusRuntimeTest {
                 System.getProperty("plexus.test.loader"),
                 "game classes come from the Plexus Mod Loader loader");
         assertEquals("test_mod", System.getProperty("plexus.test.mod"), "mod entrypoint ran with its context");
+    }
+
+    @Test
+    void aJarWithOnlyTheFormerPolyModJsonIsReportedAsNotAModAndNotLoaded() throws Throwable {
+        Path former = jar(
+                "former-mod.jar",
+                Map.of(
+                        "poly.mod.json",
+                        "{\"schemaVersion\": 1, \"id\": \"test_mod\"}".getBytes(StandardCharsets.UTF_8),
+                        "testmod/Init.class",
+                        entrypointClass()));
+
+        try (LaunchedGame game = new PlexusRuntime().launch(configuration(gameJar(), former), new String[0])) {
+            assertEquals("test-1", game.gameVersion());
+        }
+
+        assertNull(System.getProperty("plexus.test.mod"), "a jar with only poly.mod.json must not be loaded");
+        StartupReport report = StartupReport.read(directory.resolve(".plexus").resolve(StartupReport.FILE_NAME));
+        assertEquals(
+                List.of(new StartupReport.BlockedFile("former-mod.jar", "UNKNOWN", "NotAMod", "PLEXUS-DISCOVERY-002")),
+                report.blockedFiles());
+    }
+
+    @Test
+    void aModBuiltForTheOlderLoaderRangeIsBlockedBeforeItsCodeRuns() throws Exception {
+        Path gameJar = gameJar();
+        Path modJar = modJar(">=1.0.0 <2.0.0", "test-1");
+
+        PlexusLaunchException failure = assertThrows(
+                PlexusLaunchException.class,
+                () -> new PlexusRuntime().launch(configuration(gameJar, modJar), new String[0]));
+
+        assertEquals("DEPENDENCY_RESOLUTION", failure.phase());
+        String problem = failure.problems().getFirst();
+        assertTrue(problem.startsWith("PLEXUS-DEPENDENCY-003 mod=test_mod: requires 'plexus' >=1.0.0 <2.0.0"), problem);
+        assertTrue(problem.contains("built for another Plexus Mod Loader version"), problem);
+        assertNull(System.getProperty("plexus.test.mod"), "the mod's code must not run");
     }
 
     @Test
@@ -178,7 +215,7 @@ class PlexusRuntimeTest {
     @Test
     void reportsInvalidMetadataWithTheJarName() throws Exception {
         Path badMod =
-                jar("bad.jar", Map.of("poly.mod.json", "{\"schemaVersion\": 1}".getBytes(StandardCharsets.UTF_8)));
+                jar("bad.jar", Map.of("plexus.mod.json", "{\"schemaVersion\": 1}".getBytes(StandardCharsets.UTF_8)));
 
         PlexusLaunchException failure = assertThrows(
                 PlexusLaunchException.class,
@@ -238,7 +275,7 @@ class PlexusRuntimeTest {
         return jar(
                 "test-mod.jar",
                 Map.of(
-                        "poly.mod.json",
+                        "plexus.mod.json",
                         metadata.getBytes(StandardCharsets.UTF_8),
                         "testmod/Init.class",
                         entrypointClass()));
@@ -266,7 +303,7 @@ class PlexusRuntimeTest {
                   }]
                 }
                 """.formatted(expected);
-        return jar("transform-mod.jar", Map.of("poly.mod.json", metadata.getBytes(StandardCharsets.UTF_8)));
+        return jar("transform-mod.jar", Map.of("plexus.mod.json", metadata.getBytes(StandardCharsets.UTF_8)));
     }
 
     /** {@code public class StorageName { public static String name() { return "Anvil"; } }} */
@@ -306,7 +343,7 @@ class PlexusRuntimeTest {
         return jar(
                 id + ".jar",
                 Map.of(
-                        "poly.mod.json",
+                        "plexus.mod.json",
                         metadata.getBytes(StandardCharsets.UTF_8),
                         "testbrand/Provider.class",
                         brandProviderClass()));

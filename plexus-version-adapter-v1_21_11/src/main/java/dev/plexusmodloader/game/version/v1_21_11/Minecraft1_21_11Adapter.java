@@ -23,11 +23,11 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Adapter for Minecraft: Java Edition 1.21.11, an <b>experimental</b> version (ADR-0019): obfuscated, so it runs on
+ * Adapter for Minecraft: Java Edition 1.21.11, a <b>supported</b> version (ADR-0033, ADR-0019): obfuscated, so it runs on
  * the game jar remapped to Mojang names with Mojang's mappings, on Java 25 (its own version JSON asks for Java 21).
- * Copied from the 26.1 adapter. Rule targets are checked against the remapped 1.21.11 client jar (original SHA-1
- * {@code ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd}) by the game layer's {@code BuiltInRulesTest}; the ones that
- * differ from 26.1 were looked up with {@code javap} there.
+ * Copied from the 26.1 adapter and promoted to full support after dedicated server and GameTest verification. Rule
+ * targets are checked against the remapped 1.21.11 client jar (original SHA-1 {@code ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd})
+ * by the game layer's {@code BuiltInRulesTest}; the ones that differ from 26.1 were looked up with {@code javap} there.
  */
 public final class Minecraft1_21_11Adapter implements GameVersionAdapter {
 
@@ -330,6 +330,14 @@ public final class Minecraft1_21_11Adapter implements GameVersionAdapter {
                         "(Ljava/util/function/BooleanSupplier;)V",
                         new InvokeHookAtHead(GAME_HOOKS, "onLevelTick", HeadHookResult.CONTINUE)),
                 rule(
+                        "plexus:level_tick_end",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerLevel",
+                        "tick",
+                        "(Ljava/util/function/BooleanSupplier;)V",
+                        new InvokeHookBeforeReturn(GAME_HOOKS, "onLevelTickEnd"),
+                        "plexus:level_tick"),
+                rule(
                         "plexus:entity_attributes",
                         ALL_SIDES,
                         "net/minecraft/world/entity/ai/attributes/DefaultAttributes",
@@ -513,6 +521,17 @@ public final class Minecraft1_21_11Adapter implements GameVersionAdapter {
                         new InvokeHookAtHead(
                                 GAME_HOOKS, "onCheckDimensionStability", HeadHookResult.RETURN_IF_NON_NULL)),
                 rule(
+                        "plexus:mod_dimension_count",
+                        ALL_SIDES,
+                        "net/minecraft/world/level/levelgen/WorldDimensions",
+                        "bake",
+                        "(Lnet/minecraft/core/Registry;)Lnet/minecraft/world/level/levelgen/WorldDimensions$Complete;",
+                        new RedirectCall(
+                                new MethodTarget("java/util/List", "size", "()I"),
+                                0,
+                                GAME_HOOKS,
+                                "onBakedDimensionCount")),
+                rule(
                         "plexus:creative_tabs",
                         ALL_SIDES,
                         "net/minecraft/world/item/CreativeModeTab",
@@ -580,6 +599,27 @@ public final class Minecraft1_21_11Adapter implements GameVersionAdapter {
                         "tick",
                         "()V",
                         new InvokeHookBeforeReturn(CLIENT_HOOKS, "onClientTick")),
+                rule(
+                        "plexus:client_key_input",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/KeyboardHandler",
+                        "keyPress",
+                        "(JILnet/minecraft/client/input/KeyEvent;)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onKeyPress", HeadHookResult.CONTINUE)),
+                rule(
+                        "plexus:client_mouse_button",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/MouseHandler",
+                        "onButton",
+                        "(JLnet/minecraft/client/input/MouseButtonInfo;I)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onMouseButton", HeadHookResult.CONTINUE)),
+                rule(
+                        "plexus:client_mouse_scroll",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/MouseHandler",
+                        "onScroll",
+                        "(JDD)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onMouseScroll", HeadHookResult.CONTINUE)),
                 rule(
                         "plexus:client_hud",
                         CLIENT_ONLY,
@@ -777,6 +817,18 @@ public final class Minecraft1_21_11Adapter implements GameVersionAdapter {
                                 "(Ljava/util/function/BooleanSupplier;)V"),
                         new InjectStaticCallAtHead(HOOKS, "onServerTick"),
                         TransformFailurePolicy.DISABLE_RULE),
+                new TransformRuleDefinition(
+                        "plexus:server_tick_end",
+                        "plexus",
+                        GAME_VERSION,
+                        EnumSet.allOf(GameSide.class),
+                        new MethodTarget(
+                                "net/minecraft/server/MinecraftServer",
+                                "tickServer",
+                                "(Ljava/util/function/BooleanSupplier;)V"),
+                        new InvokeHookBeforeReturn(LIFECYCLE_HOOKS, "onServerTickEnd"),
+                        TransformFailurePolicy.DISABLE_RULE,
+                        List.of("plexus:server_tick_events")),
                 // The running server, for Fabric Loader's getGameInstance (Fabric records it when the dedicated
                 // server is built). runServer starts on the server thread before initServer; verified with javap.
                 new TransformRuleDefinition(

@@ -56,7 +56,7 @@ class ServerInstallerTest {
         assertEquals(
                 "runtime bytes",
                 Files.readString(server.resolve(
-                        "libraries/dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar")));
+                        "libraries/dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar")));
         try (JarFile launch =
                 new JarFile(server.resolve(ServerInstaller.LAUNCH_JAR).toFile())) {
             Attributes attributes = launch.getManifest().getMainAttributes();
@@ -64,7 +64,7 @@ class ServerInstallerTest {
             // Plexus Mod Loader first, then Minecraft's libraries, then the server jar Plexus Mod Loader finds by its
             // version.json.
             assertEquals(
-                    "libraries/dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar"
+                    "libraries/dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar"
                             + " libraries/com/google/code/gson/gson/2.14.0/gson-2.14.0.jar"
                             + " versions/26.2/server-26.2.jar",
                     attributes.getValue(Attributes.Name.CLASS_PATH));
@@ -179,7 +179,7 @@ class ServerInstallerTest {
                 "dev.plexusmodloader.bootstrap.PlexusLauncherMain",
                 List.of(new InstallerPayload.Library(
                         "dev.plexusmodloader:plexus-runtime-impl:0.1.0",
-                        "dev/polymodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
+                        "dev/plexusmodloader/plexus-runtime-impl/0.1.0/plexus-runtime-impl-0.1.0.jar",
                         hash(RUNTIME_JAR, "SHA-1"),
                         RUNTIME_JAR.length)),
                 // The agent class lives in this test's one library.

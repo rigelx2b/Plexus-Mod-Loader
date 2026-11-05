@@ -23,9 +23,10 @@
 | `dev.plexusmodloader.api.resource` | Namespaced resource identifiers (`ResourceId.of("mymod", "ruby")`) |
 | `dev.plexusmodloader.api.content.block` | Block definitions, materials, hardness, drop tables, and event callbacks |
 | `dev.plexusmodloader.api.content.item` | Item definitions, durability, and Creative Tab bindings |
+| `dev.plexusmodloader.api.content.attribute` | Mod attribute definitions (range, default, client sync, players or every living entity) and modifier operations |
 | `dev.plexusmodloader.api.world` | `WorldView`, `BlockPos`, dimension identifiers, and block state queries |
 | `dev.plexusmodloader.api.entity` | `EntityView`, `PlayerView`, inventory, and position views |
-| `dev.plexusmodloader.api.event` | Core lifecycle events such as player join/leave, block breaking, and server ticks |
+| `dev.plexusmodloader.api.event` | Core lifecycle events such as player join/leave, block breaking, world tick start/end, and server ticks |
 | `dev.plexusmodloader.api.command` | Platform-agnostic command tree builder (`CommandNode`) and permission controls |
 | `dev.plexusmodloader.api.network` | Custom payload channel registration, binary codec encoding/decoding |
 | `dev.plexusmodloader.api.client` | Key binding registration, custom HUD overlay rendering |

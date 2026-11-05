@@ -129,7 +129,7 @@ final class QuiltTestLaunch {
                         "fabric.mod.json",
                         "{\"schemaVersion\": 1, \"id\": \"fabric_inner\", \"version\": \"0.3.0\"}"
                                 .getBytes(StandardCharsets.UTF_8)));
-        nativeJar = jar("native-lib.jar", Map.of("poly.mod.json", "{}".getBytes(StandardCharsets.UTF_8)));
+        nativeJar = jar("native-lib.jar", Map.of("plexus.mod.json", "{}".getBytes(StandardCharsets.UTF_8)));
         forgeJar = jar("forge-mod.jar", Map.of("META-INF/mods.toml", "".getBytes(StandardCharsets.UTF_8)));
         context = new BridgeLaunchContext(
                 side,

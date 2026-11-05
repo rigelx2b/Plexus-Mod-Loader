@@ -4,23 +4,24 @@
 
 # Plexus Mod Loader
 
-Plexus Mod Loader is a mod loader for Minecraft: Java Edition (version 1.10.0, stable). It installs as a profile in the official Minecraft Launcher without external launcher wrappers, starts the unmodified vanilla game files through itself, and loads Fabric, Quilt, Forge, and NeoForge mods alongside its own Plexus Mods written against its Native API. Forge and NeoForge run as themselves: Plexus Mod Loader starts the real Forge and FML, or the real NeoForge and FML 11, downloading their files automatically the first time such mods are present. Before the game starts, it checks every mod; any mod that cannot run is left out with a `PLEXUS-*` error code in `logs/latest.log` and a notice on the title screen rather than crashing later. Download the installer from [plexusmc.net/download](https://www.plexusmc.net/download/) or [GitHub Releases](https://github.com/xyrz47-spec/Plexus-Mod-Loader/releases).
+Plexus Mod Loader is a mod loader for Minecraft: Java Edition (version 2.0.0, stable). It installs as a profile in the official Minecraft Launcher without external launcher wrappers, starts the unmodified vanilla game files through itself, and loads Fabric, Quilt, Forge, and NeoForge mods alongside its own Plexus Mods written against its Native API. Forge and NeoForge run as themselves: Plexus Mod Loader starts the real Forge and FML, or the real NeoForge and FML 11, downloading their files automatically the first time such mods are present. Before the game starts, it checks every mod; any mod that cannot run is left out with a `PLEXUS-*` error code in `logs/latest.log` and a notice on the title screen rather than crashing later. Download the installer from [plexusmc.net/download](https://www.plexusmc.net/download/) or [GitHub Releases](https://github.com/xyrz47-spec/Plexus-Mod-Loader/releases).
 
 ## Status
 
-Current version: **1.10.0** (stable). Supported Minecraft versions: **26.1**, **26.1.1**, **26.1.2**, **26.2**, and **26.3** (default **26.3**). The game uses **Java 25**.
+Current version: **2.0.0** (stable). Supported Minecraft versions: **1.20.1**, **1.20.4**, **1.21.1**, **1.21.11**, **26.1**, **26.1.1**, **26.1.2**, **26.2**, and **26.3** (default **26.3**). The game uses **Java 25**. Pre-26.1 obfuscated versions remap vanilla game jars on demand on the player's machine using official Mojang mappings without redistributing mappings or jars.
 
 | Mod type / combination | Status | Details and limits |
 | :--- | :--- | :--- |
 | Plexus Mods | Verified | Mods written against the Native API. |
 | Fabric mods | Verified | Entry points, Fabric Loader API, nested JARs, Mixin, MixinExtras, and class tweakers. For Fabric Loader internal classes, only what real mods use is provided. |
 | Quilt mods | Verified | `quilt.mod.json`, Quilt Loader API, Mixin, and access wideners. Mods that need Quilt Standard Libraries (QSL) are left out because QSL has no release for these versions. |
-| NeoForge mods | Verified | Runs NeoForge's own FML 11 (`26.3.0.98` on 26.3, `26.2.0.93` on 26.2). |
-| Forge mods | Verified | Runs Forge itself (`66.1.0` on 26.3, `65.1.5` on 26.2). |
+| NeoForge mods | Verified | Runs NeoForge's own FML 11 (`26.3.0.98` on 26.3, `26.2.0.93` on 26.2). Pre-26.1 versions are excluded (`PLEXUS-COMPAT-216`). |
+| Forge mods | Verified | Runs Forge itself (`66.1.0` on 26.3, `65.1.5` on 26.2). Pre-26.1 versions are excluded (`PLEXUS-COMPAT-206`). |
 | Fabric or Quilt next to Forge or NeoForge | Partial | A Fabric or Quilt mod whose mixins do not fit the patched game is left out (`PLEXUS-COMPAT-224`), and so are mods that need it. |
 
 - **Mixing:** Fabric and Quilt mods run together and next to Plexus Mods. Forge mods and NeoForge mods cannot share one game: each patches the game's classes in its own way (`PLEXUS-COMPAT-221`).
 - **What `Verified` means:** Run, not just loaded. Real popular mods from Modrinth enter a saved world on the client, tick, save and quit, and start a dedicated server. Compatibility claims come from those runs: [compatibility reference](https://www.plexusmc.net/docs/reference/compatibility/).
+- **Pre-26.1 versions (1.20.1, 1.20.4, 1.21.1, 1.21.11):** Plexus Mods run there. Fabric's intermediary names are not translated yet, so most released Fabric and Quilt mods for these versions are left out with a reason (`PLEXUS-COMPAT-112`, `PLEXUS-COMPAT-126`), and Forge and NeoForge mods are not supported (`PLEXUS-COMPAT-206`, `PLEXUS-COMPAT-216`). Real Modrinth Fabric mods were checked with headless runs only (a game test server and a dedicated server). Quilt mods were checked only with the test mods of `compatibilityMatrix`, not with a real mod set. Runs that open a game window have not been done for these versions yet.
 
 ## Install
 

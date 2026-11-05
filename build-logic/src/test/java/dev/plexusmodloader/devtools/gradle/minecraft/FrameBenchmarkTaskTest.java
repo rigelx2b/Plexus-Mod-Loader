@@ -23,14 +23,18 @@ class FrameBenchmarkTaskTest {
         assertEquals(1.0, result.over33MillisPercent(), 1e-9);
         // 100 frames in 1.03 s.
         assertEquals(100 / 1.03, result.meanFps(), 1e-6);
+        // 1% Low FPS: slowest 1% frame is 40 ms -> 25.0 FPS.
+        assertEquals(25.0, result.low1PercentFps(), 1e-6);
     }
 
     @Test
     void progressLineIsOneJsonObjectPerRun() {
-        FrameBenchmarkTask.RunResult result = new FrameBenchmarkTask.RunResult(10, 100.0, 9.5, 12.0, 15.0, 20.0, 0.0);
+        FrameBenchmarkTask.RunResult result =
+                new FrameBenchmarkTask.RunResult(10, 100.0, 50.0, 9.5, 12.0, 15.0, 20.0, 0.0);
         String line = FrameBenchmarkTask.progressLine("plexus", -1, result);
 
         assertTrue(line.startsWith("{\"variant\": \"plexus\", \"run\": -1, \"result\": {\"frames\": 10,"), line);
+        assertTrue(line.contains("\"low1PercentFps\": 50.00"), line);
         assertTrue(line.endsWith("}}\n"), line);
         assertEquals(1, line.lines().count());
     }

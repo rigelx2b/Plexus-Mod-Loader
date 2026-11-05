@@ -1,6 +1,7 @@
 package dev.plexusmodloader.game.layer.v26_3;
 
 import dev.plexusmodloader.api.content.EntityDataKey;
+import dev.plexusmodloader.api.content.attribute.AttributeOperation;
 import dev.plexusmodloader.api.content.block.entity.BlockEntityView;
 import dev.plexusmodloader.api.content.block.state.BlockProperty;
 import dev.plexusmodloader.api.content.block.state.BlockStateView;
@@ -26,6 +27,7 @@ import dev.plexusmodloader.game.layer.v26_3.entity.EntityInstaller;
 import dev.plexusmodloader.game.layer.v26_3.entity.PlexusMob;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.UUID;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.Holder;
@@ -53,6 +55,9 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -140,6 +145,20 @@ public final class Views {
         return BuiltInRegistries.MOB_EFFECT
                 .get(id(id))
                 .orElseThrow(() -> new IllegalArgumentException("No effect " + id + " is registered"));
+    }
+
+    static Holder<Attribute> attributeHolder(ResourceId id) {
+        return BuiltInRegistries.ATTRIBUTE
+                .get(id(id))
+                .orElseThrow(() -> new IllegalArgumentException("No attribute " + id + " is registered"));
+    }
+
+    private static AttributeModifier.Operation operation(AttributeOperation operation) {
+        return switch (operation) {
+            case ADD_VALUE -> AttributeModifier.Operation.ADD_VALUE;
+            case ADD_MULTIPLIED_BASE -> AttributeModifier.Operation.ADD_MULTIPLIED_BASE;
+            case ADD_MULTIPLIED_TOTAL -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;
+        };
     }
 
     private static ServerLevel serverLevel(Level level) {
@@ -580,6 +599,60 @@ public final class Views {
         @Override
         public boolean hasEffect(ResourceId effect) {
             return living.hasEffect(effect(effect));
+        }
+
+        @Override
+        public OptionalDouble attribute(ResourceId attribute) {
+            AttributeInstance instance = living.getAttribute(attributeHolder(attribute));
+            return instance == null ? OptionalDouble.empty() : OptionalDouble.of(instance.getValue());
+        }
+
+        @Override
+        public OptionalDouble attributeBase(ResourceId attribute) {
+            AttributeInstance instance = living.getAttribute(attributeHolder(attribute));
+            return instance == null ? OptionalDouble.empty() : OptionalDouble.of(instance.getBaseValue());
+        }
+
+        @Override
+        public void setAttributeBase(ResourceId attribute, double value) {
+            AttributeInstance instance = carriedAttribute(attribute);
+            serverLevel(living.level());
+            instance.setBaseValue(value);
+        }
+
+        @Override
+        public void addAttributeModifier(
+                ResourceId attribute,
+                ResourceId modifier,
+                double amount,
+                AttributeOperation operation,
+                boolean persistent) {
+            AttributeInstance instance = carriedAttribute(attribute);
+            serverLevel(living.level());
+            Identifier modifierId = id(modifier);
+            AttributeModifier gameModifier = new AttributeModifier(modifierId, amount, operation(operation));
+            instance.removeModifier(modifierId);
+            if (persistent) {
+                instance.addPermanentModifier(gameModifier);
+            } else {
+                instance.addTransientModifier(gameModifier);
+            }
+        }
+
+        @Override
+        public boolean removeAttributeModifier(ResourceId attribute, ResourceId modifier) {
+            Holder<Attribute> holder = attributeHolder(attribute);
+            serverLevel(living.level());
+            AttributeInstance instance = living.getAttribute(holder);
+            return instance != null && instance.removeModifier(id(modifier));
+        }
+
+        private AttributeInstance carriedAttribute(ResourceId attribute) {
+            AttributeInstance instance = living.getAttribute(attributeHolder(attribute));
+            if (instance == null) {
+                throw new IllegalArgumentException(type() + " does not carry the attribute " + attribute);
+            }
+            return instance;
         }
 
         @Override

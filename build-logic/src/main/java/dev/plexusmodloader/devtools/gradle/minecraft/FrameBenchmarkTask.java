@@ -1,6 +1,7 @@
 package dev.plexusmodloader.devtools.gradle.minecraft;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -8,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,6 +25,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
@@ -31,6 +34,7 @@ import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
@@ -126,10 +130,43 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
     @Internal
     public abstract DirectoryProperty getTransformCacheDirectory();
 
+    /** The name of a third reference variant (e.g. "fabric", "forge", "neoforge"). When absent, only vanilla and plexus. */
+    @Input
+    @Optional
+    public abstract Property<String> getReferenceName();
+
+    /** The runtime classpath for the reference variant (e.g. Fabric Loader, Forge or NeoForge client libraries). */
+    @Classpath
+    public abstract ConfigurableFileCollection getReferenceRuntime();
+
+    /** The jars the reference variant gets in its {@code mods/} folder. */
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    public abstract ConfigurableFileCollection getReferenceModJars();
+
+    /** The client main class of the reference variant (defaults to vanilla client main class). */
+    @Input
+    @Optional
+    public abstract Property<String> getReferenceMainClass();
+
+    /** Extra JVM arguments for the reference variant. */
+    @Input
+    public abstract ListProperty<String> getReferenceJvmArguments();
+
+    /** Lines every reference run's output must have (which mods loaded). */
+    @Input
+    public abstract ListProperty<String> getReferenceExpectedOutput();
+
+    public FrameBenchmarkTask() {
+        getReferenceJvmArguments().convention(List.of());
+        getReferenceExpectedOutput().convention(List.of());
+    }
+
     /** One run's figures. */
     record RunResult(
             int frames,
             double meanFps,
+            double low1PercentFps,
             double p50Millis,
             double p95Millis,
             double p99Millis,
@@ -140,10 +177,11 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
         String toJson() {
             return String.format(
                     Locale.ROOT,
-                    "{\"frames\": %d, \"meanFps\": %.2f, \"p50Millis\": %.4f, \"p95Millis\": %.4f,"
+                    "{\"frames\": %d, \"meanFps\": %.2f, \"low1PercentFps\": %.2f, \"p50Millis\": %.4f, \"p95Millis\": %.4f,"
                             + " \"p99Millis\": %.4f, \"maxMillis\": %.4f, \"over33MillisPercent\": %.4f}",
                     frames,
                     meanFps,
+                    low1PercentFps,
                     p50Millis,
                     p95Millis,
                     p99Millis,
@@ -163,6 +201,10 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
         Map<String, List<RunResult>> results = new LinkedHashMap<>();
         results.put("vanilla", new ArrayList<>());
         results.put("plexus", new ArrayList<>());
+        String reference = getReferenceName().getOrNull();
+        if (reference != null) {
+            results.put(reference, new ArrayList<>());
+        }
         Path progress = work.resolve("runs.jsonl");
         boolean first = true;
         for (int i = -1; i < runs; i++) {
@@ -181,20 +223,37 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
                         + FRAME_TARGET + ",control=stdin");
                 List<String> programArgs = GameLaunchArguments.gameArguments(
                         spec, List.of(), List.of("--quickPlaySingleplayer", WORLD_NAME), directory);
-                List<String> command = variant.equals("vanilla")
-                        ? BenchmarkLaunch.vanilla(
-                                java(), BenchmarkLaunch.Target.CLIENT, spec, directory, extraJvm, programArgs)
-                        : BenchmarkLaunch.plexus(
-                                java(),
-                                BenchmarkLaunch.Target.CLIENT,
-                                spec,
-                                directory,
-                                getPlexusRuntime().getFiles(),
-                                getDevModJars().getFiles(),
-                                getTransformCacheDirectory().get().getAsFile(),
-                                extraJvm,
-                                programArgs);
+                List<String> command;
+                if (variant.equals("vanilla")) {
+                    command = BenchmarkLaunch.vanilla(
+                            java(), BenchmarkLaunch.Target.CLIENT, spec, directory, extraJvm, programArgs);
+                } else if (variant.equals("plexus")) {
+                    command = BenchmarkLaunch.plexus(
+                            java(),
+                            BenchmarkLaunch.Target.CLIENT,
+                            spec,
+                            directory,
+                            getPlexusRuntime().getFiles(),
+                            getDevModJars().getFiles(),
+                            getTransformCacheDirectory().get().getAsFile(),
+                            extraJvm,
+                            programArgs);
+                } else {
+                    if (!getReferenceModJars().isEmpty()) {
+                        Path modsDir = directory.resolve("mods");
+                        for (File mod : getReferenceModJars().getFiles()) {
+                            Files.copy(
+                                    mod.toPath(),
+                                    modsDir.resolve(mod.getName()),
+                                    StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                    command = referenceCommand(spec, directory, extraJvm, programArgs);
+                }
                 measure(command, directory);
+                if (variant.equals(reference) && !getReferenceExpectedOutput().get().isEmpty()) {
+                    BenchmarkLaunch.requireOutput(directory, getReferenceExpectedOutput().get());
+                }
                 RunResult result = analyse(frames);
                 if (i >= 0) {
                     results.get(variant).add(result);
@@ -211,6 +270,28 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
         String report = report(results, runs);
         Files.writeString(work.resolve("frame-benchmark.json"), report, StandardCharsets.UTF_8);
         getLogger().lifecycle(report);
+    }
+
+    private List<String> referenceCommand(
+            MinecraftLaunchSpec spec, Path directory, List<String> extraJvm, List<String> programArgs)
+            throws IOException {
+        List<String> command = new ArrayList<>();
+        command.add(java());
+        command.addAll(spec.jvmArguments());
+        command.addAll(getReferenceJvmArguments().get());
+        command.add("-Dlog4j.configurationFile="
+                + GameLaunchArguments.developmentLogConfig(directory).getAbsolutePath());
+        command.addAll(extraJvm);
+        command.add("-cp");
+        List<String> classpath = new ArrayList<>();
+        getReferenceRuntime().forEach(file -> classpath.add(file.getAbsolutePath()));
+        classpath.addAll(spec.libraries());
+        classpath.add(spec.gameJar());
+        command.add(String.join(File.pathSeparator, classpath));
+        String mainClass = getReferenceMainClass().getOrElse(BenchmarkLaunch.Target.CLIENT.vanillaMainClass);
+        command.add(mainClass);
+        command.addAll(programArgs);
+        return command;
     }
 
     /** One line of {@code runs.jsonl}: the variant, the run index ({@code -1} is the warm-up), and its figures. */
@@ -314,9 +395,18 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
         Arrays.sort(sorted);
         long total = Arrays.stream(sorted).sum();
         long over = Arrays.stream(sorted).filter(nanos -> nanos > 33_333_333L).count();
+        // 1% Low FPS: the average frame rate of the slowest 1% of frames.
+        int count1Percent = Math.max(1, (int) Math.ceil(sorted.length * 0.01));
+        long sumSlowest1Percent = 0;
+        for (int i = sorted.length - count1Percent; i < sorted.length; i++) {
+            sumSlowest1Percent += sorted[i];
+        }
+        double avgSlowest1PercentMillis = (sumSlowest1Percent / (double) count1Percent) / 1e6;
+        double low1PercentFps = avgSlowest1PercentMillis > 0 ? 1000.0 / avgSlowest1PercentMillis : 0.0;
         return new RunResult(
                 sorted.length,
                 sorted.length * 1e9 / total,
+                low1PercentFps,
                 TickBenchmarkTask.percentile(sorted, 50) / 1e6,
                 TickBenchmarkTask.percentile(sorted, 95) / 1e6,
                 TickBenchmarkTask.percentile(sorted, 99) / 1e6,
@@ -344,10 +434,11 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
                     .append("\n    ],\n");
             json.append(String.format(
                     Locale.ROOT,
-                    "    \"median\": {\"frames\": %.0f, \"meanFps\": %.2f, \"p50Millis\": %.3f, \"p95Millis\": %.3f,"
+                    "    \"median\": {\"frames\": %.0f, \"meanFps\": %.2f, \"low1PercentFps\": %.2f, \"p50Millis\": %.3f, \"p95Millis\": %.3f,"
                             + " \"p99Millis\": %.3f, \"maxMillis\": %.3f, \"over33MillisPercent\": %.3f},\n",
                     median(list, run -> run.frames()),
                     median(list, RunResult::meanFps),
+                    median(list, RunResult::low1PercentFps),
                     median(list, RunResult::p50Millis),
                     median(list, RunResult::p95Millis),
                     median(list, RunResult::p99Millis),
@@ -355,8 +446,9 @@ public abstract class FrameBenchmarkTask extends DefaultTask {
                     median(list, RunResult::over33MillisPercent)));
             json.append(String.format(
                     Locale.ROOT,
-                    "    \"stdDev\": {\"meanFps\": %.2f, \"p50Millis\": %.3f, \"p95Millis\": %.3f, \"p99Millis\": %.3f}\n",
+                    "    \"stdDev\": {\"meanFps\": %.2f, \"low1PercentFps\": %.2f, \"p50Millis\": %.3f, \"p95Millis\": %.3f, \"p99Millis\": %.3f}\n",
                     stdDev(list, RunResult::meanFps),
+                    stdDev(list, RunResult::low1PercentFps),
                     stdDev(list, RunResult::p50Millis),
                     stdDev(list, RunResult::p95Millis),
                     stdDev(list, RunResult::p99Millis)));

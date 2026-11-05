@@ -1,5 +1,7 @@
 package dev.plexusmodloader.api.content;
 
+import dev.plexusmodloader.api.content.attribute.AttributeDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeHandle;
 import dev.plexusmodloader.api.content.block.BlockDefinition;
 import dev.plexusmodloader.api.content.block.BlockHandle;
 import dev.plexusmodloader.api.content.effect.EffectDefinition;
@@ -60,6 +62,16 @@ public interface ContentRegistrar {
 
     /** Declares a status effect usable with {@code /effect} and {@code LivingEntityView.addEffect}. */
     EffectHandle effect(String path, EffectDefinition definition);
+
+    /**
+     * Declares an attribute that the entities of {@link AttributeDefinition#scope()} carry, usable with {@code
+     * /attribute} and {@code LivingEntityView.attribute}.
+     *
+     * @throws IllegalArgumentException for an invalid path or a path this mod already used for an attribute
+     *     ({@code PLEXUS-CONTENT-001})
+     * @throws IllegalStateException after registration closed ({@code PLEXUS-CONTENT-002})
+     */
+    AttributeHandle attribute(String path, AttributeDefinition definition);
 
     /** Declares a boolean game rule. */
     GameRuleKey<Boolean> booleanRule(String path, boolean defaultValue, GameRuleCategory category);

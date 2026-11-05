@@ -31,11 +31,13 @@ public final class ModTemplatePlugin implements Plugin<Project> {
     /** The template zip's base name and Maven artifact ID. */
     public static final String TEMPLATE_ARTIFACT = "plexus-mod-template";
 
-    private static final Pattern PLUGIN_VERSION = Pattern.compile("id\\(\"dev\\.(?:plexus|poly)modloader\\.mod\"\\) version \"[^\"]*\"");
+    private static final Pattern PLUGIN_VERSION = Pattern.compile("id\\(\"dev\\.plexusmodloader\\.mod\"\\) version \"[^\"]*\"");
 
     @Override
     public void apply(Project project) {
+        String version = String.valueOf(project.property("plexus.version"));
         project.getTasks().register("newPlexusMod", NewPlexusModTask.class, task -> {
+            task.getPluginVersion().set(version);
             task.setGroup("plexus mod");
             task.setDescription("Creates a new Plexus Mod Loader mod project from the template"
                     + " (-PmodId=<mod_id> [-PmodName=<name>] [-PmodPackage=<package>] [-PmodDir=<folder>]).");
@@ -46,7 +48,6 @@ public final class ModTemplatePlugin implements Plugin<Project> {
             task.getTemplateDirectory().set(project.getLayout().getProjectDirectory().dir(TEMPLATE_DIRECTORY));
             task.getRepositoryRoot().set(project.getLayout().getProjectDirectory());
         });
-        String version = String.valueOf(project.property("plexus.version"));
         File templateGitignore = project.file(TEMPLATE_DIRECTORY + "/.gitignore");
         Provider<RegularFile> gitignoreCopy =
                 project.getLayout().getBuildDirectory().file("mod-template/gitignore/gitignore");
@@ -89,8 +90,8 @@ public final class ModTemplatePlugin implements Plugin<Project> {
     }
 
     /**
-     * {@code id("dev.plexusmodloader.mod") version "<any>"}, or the same with the former ID {@code dev.polymodloader.mod},
-     * as {@code id("dev.plexusmodloader.mod") version "<version>"}.
+     * {@code id("dev.plexusmodloader.mod") version "<any>"} as {@code id("dev.plexusmodloader.mod") version
+     * "<version>"}; any other text is returned as it is.
      */
     static String withPluginVersion(String line, String version) {
         Matcher matcher = PLUGIN_VERSION.matcher(line);

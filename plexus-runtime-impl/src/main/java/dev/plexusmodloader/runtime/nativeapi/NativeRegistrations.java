@@ -17,6 +17,8 @@ import dev.plexusmodloader.api.content.CreativeTabDefinition;
 import dev.plexusmodloader.api.content.EntityDataKey;
 import dev.plexusmodloader.api.content.EntityDataOptions;
 import dev.plexusmodloader.api.content.SoundHandle;
+import dev.plexusmodloader.api.content.attribute.AttributeDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeHandle;
 import dev.plexusmodloader.api.content.block.BlockDefinition;
 import dev.plexusmodloader.api.content.block.BlockHandle;
 import dev.plexusmodloader.api.content.effect.EffectDefinition;
@@ -96,6 +98,8 @@ public final class NativeRegistrations implements NativeDeclarations {
     private final List<ItemDeclaration> items = new ArrayList<>();
     private final List<EntityDeclaration> entities = new ArrayList<>();
     private final List<EffectDeclaration> effects = new ArrayList<>();
+    private final List<AttributeDeclaration> attributes = new ArrayList<>();
+    private final Set<ResourceId> attributeIds = new HashSet<>();
     private final List<GameRuleKey<?>> gameRules = new ArrayList<>();
     private final List<SoundDeclaration> sounds = new ArrayList<>();
     private final List<ProjectileDeclaration> projectiles = new ArrayList<>();
@@ -169,6 +173,11 @@ public final class NativeRegistrations implements NativeDeclarations {
     @Override
     public List<EffectDeclaration> effects() {
         return List.copyOf(effects);
+    }
+
+    @Override
+    public List<AttributeDeclaration> attributes() {
+        return List.copyOf(attributes);
     }
 
     @Override
@@ -319,7 +328,8 @@ public final class NativeRegistrations implements NativeDeclarations {
     /** Number of declarations of each kind, for the startup log. */
     public String summary() {
         return blocks.size() + " block(s), " + items.size() + " item(s), " + entities.size() + " entity type(s), "
-                + effects.size() + " effect(s), " + gameRules.size() + " game rule(s), " + sounds.size() + " sound(s), "
+                + effects.size() + " effect(s), " + gameRules.size()
+                + " game rule(s), " + sounds.size() + " sound(s), "
                 + commands.size() + " command(s), "
                 + channels.size() + " channel(s), " + gameTests.size() + " game test(s), " + keyBindings.size()
                 + " key binding(s), " + hudLayers.size() + " HUD layer(s), " + projectiles.size() + " projectile(s), "
@@ -332,7 +342,7 @@ public final class NativeRegistrations implements NativeDeclarations {
                 + densityFunctions.size() + " density function(s), " + structures.size() + " structure(s), "
                 + worldPainters.size() + " world painter(s), " + shaderPipelines.size() + " shader pipeline(s), "
                 + configurationExchanges.size() + " configuration exchange(s), " + creativeTabs.size()
-                + " creative tab(s), " + tagEntries.size() + " tag addition(s)";
+                + " creative tab(s), " + tagEntries.size() + " tag addition(s), " + attributes.size() + " attribute(s)";
     }
 
     private void checkOpen(String code, String what) {
@@ -419,6 +429,17 @@ public final class NativeRegistrations implements NativeDeclarations {
             requireNew(effectIds, id, "PLEXUS-CONTENT-001", "effect");
             ContentHandleImpl handle = new ContentHandleImpl(id);
             effects.add(new EffectDeclaration(modId, id, definition, handle::markRegistered));
+            return handle;
+        }
+
+        @Override
+        public AttributeHandle attribute(String path, AttributeDefinition definition) {
+            Objects.requireNonNull(definition, "definition");
+            checkOpen("PLEXUS-CONTENT-002", "Attribute " + modId + ":" + path);
+            ResourceId id = idFor(modId, path, "PLEXUS-CONTENT-001");
+            requireNew(attributeIds, id, "PLEXUS-CONTENT-001", "attribute");
+            ContentHandleImpl handle = new ContentHandleImpl(id);
+            attributes.add(new AttributeDeclaration(modId, id, definition, handle::markRegistered));
             return handle;
         }
 

@@ -189,10 +189,13 @@ public final class FabricFamilyMod {
     }
 
     /**
-     * The Fabric language adapters it declares ({@code languageAdapters}): name to class. A Quilt mod's are Quilt
-     * adapters, which the Quilt bridge blocks ({@code PLEXUS-COMPAT-302}), so it has none here.
+     * The language adapters it declares (Fabric {@code languageAdapters} or Quilt {@code language_adapters}):
+     * name to class.
      */
     public Map<String, String> languageAdapters() {
+        if (isQuilt()) {
+            return quiltModJson.languageAdapters();
+        }
         Map<String, String> adapters = new LinkedHashMap<>();
         if (fabricModJson != null && fabricModJson.get("languageAdapters") instanceof JsonObject declared) {
             declared.entrySet().forEach(entry -> {

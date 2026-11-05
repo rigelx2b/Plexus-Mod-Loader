@@ -94,6 +94,9 @@ class VersionScaffolderTest {
         assertEquals("dev.plexusmodloader.game.layer.v26_2.GameLayer26_2", MinecraftVersions.gameLayerClass("26.2"));
         assertEquals("26.3-snapshot-1", versions.versionOfModule("plexus-game-v26_3_snapshot_1").orElseThrow());
         assertTrue(versions.versionOfModule("plexus-game-api").isEmpty());
+        // The module names before the rename are not version modules any more.
+        assertTrue(versions.versionOfModule("poly-game-v26_2").isEmpty());
+        assertTrue(versions.versionOfModule("poly-version-adapter-v26_2").isEmpty());
 
         properties.setProperty("default", "27.1");
         assertThrows(IllegalArgumentException.class, () -> MinecraftVersions.parse(properties));

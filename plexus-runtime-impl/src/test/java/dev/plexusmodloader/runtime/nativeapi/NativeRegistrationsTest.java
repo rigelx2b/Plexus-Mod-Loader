@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.plexusmodloader.api.command.CommandNode;
 import dev.plexusmodloader.api.content.ContentHandle;
 import dev.plexusmodloader.api.content.CreativeTabDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeHandle;
+import dev.plexusmodloader.api.content.attribute.AttributeScope;
 import dev.plexusmodloader.api.content.block.BlockDefinition;
 import dev.plexusmodloader.api.content.block.BlockHandle;
 import dev.plexusmodloader.api.content.item.ItemDefinition;
@@ -46,6 +49,51 @@ class NativeRegistrationsTest {
 
         registrations.blocks().getFirst().registered().run();
         assertTrue(handle.isRegistered());
+    }
+
+    @Test
+    void attributesAreDeclaredInOrderAndRejectDuplicatesAndLateDeclarations() {
+        NativeRegistrations registrations = new NativeRegistrations(GameSide.DEDICATED_SERVER);
+        NativeRegistrations.ModRegistrars demo = registrations.forMod("demo");
+        AttributeHandle luck = demo.attribute("luck", AttributeDefinition.of(1.0, 0.0, 4.0));
+        demo.attribute(
+                "courage",
+                AttributeDefinition.of(0.5, 0.0, 1.0).withClientSync().withScope(AttributeScope.PLAYERS));
+
+        assertEquals(ResourceId.of("demo", "luck"), luck.id());
+        assertEquals(
+                List.of(ResourceId.of("demo", "luck"), ResourceId.of("demo", "courage")),
+                registrations.attributes().stream()
+                        .map(declaration -> declaration.id())
+                        .toList());
+        AttributeDefinition courage = registrations.attributes().get(1).definition();
+        assertTrue(courage.syncedToClients());
+        assertEquals(AttributeScope.PLAYERS, courage.scope());
+        assertFalse(luck.isRegistered());
+        registrations.attributes().getFirst().registered().run();
+        assertTrue(luck.isRegistered());
+
+        IllegalArgumentException duplicate = assertThrows(
+                IllegalArgumentException.class, () -> demo.attribute("luck", AttributeDefinition.of(0, 0, 1)));
+        assertTrue(duplicate.getMessage().startsWith("PLEXUS-CONTENT-001"), duplicate.getMessage());
+        // Attributes have their own registry: an item with the same path is fine.
+        demo.item("luck", ItemDefinition.builder().build());
+
+        registrations.close();
+        IllegalStateException late = assertThrows(
+                IllegalStateException.class, () -> demo.attribute("late", AttributeDefinition.of(0, 0, 1)));
+        assertTrue(late.getMessage().startsWith("PLEXUS-CONTENT-002"), late.getMessage());
+    }
+
+    @Test
+    void attributeDefinitionsCheckTheirRange() {
+        assertThrows(IllegalArgumentException.class, () -> AttributeDefinition.of(5.0, 0.0, 4.0));
+        assertThrows(IllegalArgumentException.class, () -> AttributeDefinition.of(1.0, 2.0, 1.0));
+        assertThrows(IllegalArgumentException.class, () -> AttributeDefinition.of(Double.NaN, 0.0, 1.0));
+        assertThrows(NullPointerException.class, () -> new AttributeDefinition(0.0, 0.0, 1.0, false, null));
+        assertEquals(
+                AttributeScope.LIVING_ENTITIES,
+                AttributeDefinition.of(0.0, 0.0, 1.0).scope());
     }
 
     @Test

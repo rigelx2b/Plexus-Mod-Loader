@@ -3,6 +3,8 @@ package dev.plexusmodloader.game.layer.v26_2.entity;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.serialization.Codec;
+import dev.plexusmodloader.api.content.attribute.AttributeDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeScope;
 import dev.plexusmodloader.api.content.effect.EffectDefinition;
 import dev.plexusmodloader.api.content.entity.EntityDefinition;
 import dev.plexusmodloader.api.content.entity.NaturalSpawn;
@@ -13,17 +15,21 @@ import dev.plexusmodloader.game.layer.v26_2.Views;
 import dev.plexusmodloader.game.layer.v26_2.content.ContentInstaller;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.AdvancementTriggerDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.AttributeDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.EffectDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.EntityDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.ProjectileDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.SoundDeclaration;
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import net.minecraft.SharedConstants;
 import net.minecraft.advancements.triggers.PlayerTrigger;
+import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -37,14 +43,18 @@ import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectCategory;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.SpawnPlacementType;
 import net.minecraft.world.entity.SpawnPlacementTypes;
 import net.minecraft.world.entity.SpawnPlacements;
+import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
+import net.minecraft.world.entity.ai.attributes.RangedAttribute;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.item.Item;
@@ -58,7 +68,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Registers mod mobs, spawn eggs, status effects, game rules, and sound events. */
+/** Registers mod attributes, mobs, spawn eggs, status effects, game rules, and sound events. */
 public final class EntityInstaller {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
@@ -70,13 +80,22 @@ public final class EntityInstaller {
     private static final Map<ResourceId, GameRule<?>> RULES = new ConcurrentHashMap<>();
     private static final Map<EntityType<?>, ProjectileDefinition> PROJECTILES = new ConcurrentHashMap<>();
     private static final List<SpawnEntry> NATURAL_SPAWNS = new CopyOnWriteArrayList<>();
+    private static final List<ModAttribute> MOD_ATTRIBUTES = new CopyOnWriteArrayList<>();
+    /** Set while {@link #attributes} asks the game for its own supplier, so the head hook lets the game answer. */
+    private static final ThreadLocal<Boolean> READING_GAME_SUPPLIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     /** A mob that spawns naturally. */
     public record SpawnEntry(EntityType<?> type, MobCategory category, NaturalSpawn spawn) {}
 
+    /** A registered mod attribute. */
+    private record ModAttribute(Holder<Attribute> holder, AttributeDefinition definition) {}
+
     private EntityInstaller() {}
 
     public static void install(NativeDeclarations declarations) {
+        for (AttributeDeclaration declaration : declarations.attributes()) {
+            registerAttribute(declaration);
+        }
         for (EntityDeclaration declaration : declarations.entities()) {
             registerEntity(declaration);
         }
@@ -111,14 +130,17 @@ public final class EntityInstaller {
                     SoundEvent.createVariableRangeEvent(Views.id(declaration.id())));
             declaration.registered().run();
         }
-        int total = declarations.entities().size()
+        int total = declarations.attributes().size()
+                + declarations.entities().size()
                 + declarations.projectiles().size()
                 + declarations.effects().size()
                 + declarations.gameRules().size()
                 + declarations.sounds().size();
         if (total > 0) {
             LOGGER.info(
-                    "[Plexus Mod Loader] Registered {} entity type(s), {} effect(s), {} game rule(s), {} sound(s) from mods",
+                    "[Plexus Mod Loader] Registered {} attribute(s), {} entity type(s), {} effect(s), {} game rule(s), {} sound(s)"
+                            + " from mods",
+                    declarations.attributes().size(),
                     declarations.entities().size(),
                     declarations.effects().size(),
                     declarations.gameRules().size(),
@@ -126,14 +148,28 @@ public final class EntityInstaller {
         }
     }
 
+    private static void registerAttribute(AttributeDeclaration declaration) {
+        AttributeDefinition definition = declaration.definition();
+        ResourceId id = declaration.id();
+        Attribute attribute = new RangedAttribute(
+                        "attribute.name." + id.namespace() + "." + id.path(),
+                        definition.defaultValue(),
+                        definition.minValue(),
+                        definition.maxValue())
+                .setSyncable(definition.syncedToClients());
+        Holder<Attribute> holder = Registry.registerForHolder(BuiltInRegistries.ATTRIBUTE, Views.id(id), attribute);
+        MOD_ATTRIBUTES.add(new ModAttribute(holder, definition));
+        declaration.registered().run();
+    }
+
     private static void registerEntity(EntityDeclaration declaration) {
         EntityDefinition definition = declaration.definition();
         ResourceKey<EntityType<?>> key = ResourceKey.create(Registries.ENTITY_TYPE, Views.id(declaration.id()));
-        EntityType<PlexusMob> type = EntityType.Builder.<PlexusMob>of(
+        EntityType.Builder<PlexusMob> builder = EntityType.Builder.<PlexusMob>of(
                         (entityType, level) -> PlexusMob.create(entityType, level, definition), category(definition))
                 .sized(definition.width(), definition.height())
-                .clientTrackingRange(8)
-                .build(key);
+                .clientTrackingRange(8);
+        EntityType<PlexusMob> type = build(builder, key);
         Registry.register(BuiltInRegistries.ENTITY_TYPE, key, type);
         DEFINITIONS.put(type, definition);
         if (!definition.naturalSpawns().isEmpty()) {
@@ -157,16 +193,31 @@ public final class EntityInstaller {
     private static void registerProjectile(ProjectileDeclaration declaration) {
         ProjectileDefinition definition = declaration.definition();
         ResourceKey<EntityType<?>> key = ResourceKey.create(Registries.ENTITY_TYPE, Views.id(declaration.id()));
-        EntityType<PlexusProjectile> type = EntityType.Builder.<PlexusProjectile>of(
+        EntityType.Builder<PlexusProjectile> builder = EntityType.Builder.<PlexusProjectile>of(
                         PlexusProjectile::new, MobCategory.MISC)
                 .noLootTable()
                 .sized(definition.size(), definition.size())
                 .clientTrackingRange(4)
-                .updateInterval(10)
-                .build(key);
+                .updateInterval(10);
+        EntityType<PlexusProjectile> type = build(builder, key);
         Registry.register(BuiltInRegistries.ENTITY_TYPE, key, type);
         PROJECTILES.put(type, definition);
         declaration.registered().run();
+    }
+
+    /**
+     * Builds the entity type. {@code EntityType.Builder.build} looks the type up in the game's data fixers and logs an
+     * error for a type they do not know, which no mod type is; the check is off while it runs.
+     */
+    private static <T extends net.minecraft.world.entity.Entity> EntityType<T> build(
+            EntityType.Builder<T> builder, ResourceKey<EntityType<?>> key) {
+        boolean check = SharedConstants.CHECK_DATA_FIXER_SCHEMA;
+        SharedConstants.CHECK_DATA_FIXER_SCHEMA = false;
+        try {
+            return builder.build(key);
+        } finally {
+            SharedConstants.CHECK_DATA_FIXER_SCHEMA = check;
+        }
     }
 
     /** The definition of a mod projectile type. */
@@ -223,22 +274,63 @@ public final class EntityInstaller {
         }
     }
 
-    /** Head hook of {@code DefaultAttributes.getSupplier}: mod mobs' attributes, else null. */
+    /**
+     * Head hook of {@code DefaultAttributes.getSupplier}: mod mobs' attributes, the game's (or a host loader's)
+     * supplier with the mod attributes of the type's scope added, or null to let the game answer.
+     */
     public static AttributeSupplier attributes(EntityType<?> type) {
         EntityDefinition definition = DEFINITIONS.get(type);
-        if (definition == null) {
+        if (definition == null && (MOD_ATTRIBUTES.isEmpty() || READING_GAME_SUPPLIER.get())) {
             return null;
         }
-        return ATTRIBUTES.computeIfAbsent(
-                type,
-                ignored -> Mob.createMobAttributes()
-                        .add(Attributes.MAX_HEALTH, definition.maxHealth())
-                        .add(Attributes.MOVEMENT_SPEED, definition.movementSpeed())
-                        .add(Attributes.ATTACK_DAMAGE, definition.attackDamage())
-                        .add(Attributes.FOLLOW_RANGE, 16.0)
-                        .add(Attributes.TEMPT_RANGE)
-                        .add(Attributes.FLYING_SPEED, definition.flyingSpeed())
-                        .build());
+        AttributeSupplier cached = ATTRIBUTES.get(type);
+        if (cached != null) {
+            return cached;
+        }
+        AttributeSupplier.Builder builder;
+        Set<Holder<Attribute>> present = new HashSet<>();
+        if (definition != null) {
+            builder = Mob.createMobAttributes()
+                    .add(Attributes.MAX_HEALTH, definition.maxHealth())
+                    .add(Attributes.MOVEMENT_SPEED, definition.movementSpeed())
+                    .add(Attributes.ATTACK_DAMAGE, definition.attackDamage())
+                    .add(Attributes.FOLLOW_RANGE, 16.0)
+                    .add(Attributes.TEMPT_RANGE)
+                    .add(Attributes.FLYING_SPEED, definition.flyingSpeed());
+        } else {
+            AttributeSupplier game = gameSupplier(type);
+            if (game == null) {
+                return null;
+            }
+            builder = AttributeSupplier.builder();
+            // AttributeSupplier hides its map; its public lookups give every attribute it has and the base value.
+            BuiltInRegistries.ATTRIBUTE.listElements().forEach(holder -> {
+                if (game.hasAttribute(holder)) {
+                    builder.add(holder, game.getBaseValue(holder));
+                    present.add(holder);
+                }
+            });
+        }
+        for (ModAttribute attribute : MOD_ATTRIBUTES) {
+            boolean inScope =
+                    attribute.definition().scope() == AttributeScope.LIVING_ENTITIES || type == EntityTypes.PLAYER;
+            if (inScope && !present.contains(attribute.holder())) {
+                builder.add(attribute.holder(), attribute.definition().defaultValue());
+            }
+        }
+        AttributeSupplier built = builder.build();
+        AttributeSupplier raced = ATTRIBUTES.putIfAbsent(type, built);
+        return raced == null ? built : raced;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static AttributeSupplier gameSupplier(EntityType<?> type) {
+        READING_GAME_SUPPLIER.set(Boolean.TRUE);
+        try {
+            return DefaultAttributes.getSupplier((EntityType<? extends LivingEntity>) type);
+        } finally {
+            READING_GAME_SUPPLIER.set(Boolean.FALSE);
+        }
     }
 
     /** Head hook of {@code DefaultAttributes.hasSupplier}: TRUE for mod mobs, else null. */

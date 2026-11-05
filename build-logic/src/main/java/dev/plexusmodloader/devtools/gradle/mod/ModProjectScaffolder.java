@@ -134,10 +134,20 @@ public final class ModProjectScaffolder {
      *     and is not an empty directory
      */
     public static List<Path> scaffold(Path template, Path target, ModNames names) {
+        return scaffold(template, target, names, null);
+    }
+
+    /**
+     * Like {@link #scaffold(Path, Path, ModNames)}, and sets the version of the {@code dev.plexusmodloader.mod}
+     * plugin in {@code build.gradle.kts} (the template only holds a placeholder, as {@code packageModTemplate}
+     * replaces it too).
+     *
+     * @param pluginVersion the Plexus Mod Loader version the new project builds with, or {@code null} to keep the
+     *     template's
+     * @throws IllegalArgumentException as {@link #scaffold(Path, Path, ModNames)}
+     */
+    public static List<Path> scaffold(Path template, Path target, ModNames names, String pluginVersion) {
         Path metadata = template.resolve("src/main/resources/plexus.mod.json");
-        if (!Files.isRegularFile(metadata)) {
-            metadata = template.resolve("src/main/resources/poly.mod.json");
-        }
         if (!Files.isRegularFile(metadata)) {
             throw new IllegalArgumentException(template + " is not the Plexus Mod Loader mod template");
         }
@@ -151,10 +161,11 @@ public final class ModProjectScaffolder {
                 Path destination = target.resolve(names.rename(relative));
                 Files.createDirectories(destination.getParent());
                 if (TEXT_EXTENSIONS.contains(extension(file))) {
-                    Files.writeString(
-                            destination,
-                            names.rename(Files.readString(file, StandardCharsets.UTF_8)),
-                            StandardCharsets.UTF_8);
+                    String text = names.rename(Files.readString(file, StandardCharsets.UTF_8));
+                    if (pluginVersion != null && relative.equals("build.gradle.kts")) {
+                        text = ModTemplatePlugin.withPluginVersion(text, pluginVersion);
+                    }
+                    Files.writeString(destination, text, StandardCharsets.UTF_8);
                 } else {
                     Files.copy(file, destination, StandardCopyOption.COPY_ATTRIBUTES);
                 }
@@ -179,9 +190,6 @@ public final class ModProjectScaffolder {
         Path entryPoint = project.resolve(
                 "src/main/java/" + TEMPLATE_PACKAGE.replace('.', '/') + "/" + TEMPLATE_CLASS + ".java");
         Path metadata = project.resolve("src/main/resources/plexus.mod.json");
-        if (!Files.isRegularFile(metadata)) {
-            metadata = project.resolve("src/main/resources/poly.mod.json");
-        }
         if (!Files.isRegularFile(metadata) || !Files.isRegularFile(entryPoint)) {
             throw new IllegalArgumentException(project + " is not an unchanged copy of the Plexus Mod Loader mod template ("
                     + project.relativize(entryPoint).toString().replace('\\', '/')

@@ -111,8 +111,23 @@ public abstract class LauncherProfileLaunchTask extends DefaultTask {
         String gameVersion = spec.gameVersion();
         Path cache = Path.of(spec.gameJar()).getParent().getParent().getParent();
         Path minecraft = getRunDirectory().get().getAsFile().toPath();
+        Path forgeDir = minecraft.resolve(".plexus").resolve("forge");
+        // A repeat run keeps the Forge files this folder already downloaded; a task that checks nothing of Forge was
+        // downloaded (getAbsentPaths) starts without them, so an earlier failure cannot decide its result.
+        Path forgeBackup = null;
+        if (Files.isDirectory(forgeDir) && !getAbsentPaths().get().contains(".plexus/forge")) {
+            forgeBackup = Files.createTempDirectory("plexus-forge-preserve");
+            ClientWorldReloadTask.copyDirectory(forgeDir, forgeBackup);
+        }
+
         VerifiedGameRunTask.deleteRecursively(minecraft);
         Files.createDirectories(minecraft);
+
+        if (forgeBackup != null) {
+            Files.createDirectories(forgeDir.getParent());
+            ClientWorldReloadTask.copyDirectory(forgeBackup, forgeDir);
+            VerifiedGameRunTask.deleteRecursively(forgeBackup);
+        }
 
         // The folder a player has after starting vanilla once: the launcher's profile file and the vanilla version.
         Files.writeString(

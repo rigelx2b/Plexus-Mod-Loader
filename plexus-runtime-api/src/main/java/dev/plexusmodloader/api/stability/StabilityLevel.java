@@ -4,6 +4,7 @@ package dev.plexusmodloader.api.stability;
  * Compatibility promise of a Plexus Mod Loader API element (design doc §5.4). Every public type declares one
  * through {@link ApiStability}.
  */
+@ApiStability(StabilityLevel.PREVIEW)
 public enum StabilityLevel {
     /** Public compatibility policy; breaking changes require an API version bump and migration notes. */
     STABLE,

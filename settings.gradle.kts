@@ -32,10 +32,9 @@ val minecraftVersions = java.util.Properties().apply {
     file("gradle/minecraft-versions.properties").inputStream().use(::load)
 }
 // Experimental versions (ADR-0019) have modules too; the build compiles and tests them, but they are not supported.
-val versionsWithModules = listOf("supported", "experimental").flatMap { key ->
-    minecraftVersions.getProperty(key, "").split(",").map(String::trim).filter(String::isNotEmpty)
-}
-for (version in versionsWithModules) {
+// Supported versions have modules that MUST be present (ADR-0011).
+val supportedVersions = minecraftVersions.getProperty("supported", "").split(",").map(String::trim).filter(String::isNotEmpty)
+for (version in supportedVersions) {
     val id = version.replace('.', '_').replace('-', '_')
     for (module in listOf("plexus-version-adapter-v$id", "plexus-game-v$id")) {
         require(file(module).isDirectory) {
@@ -43,6 +42,16 @@ for (version in versionsWithModules) {
                 "create it with ./gradlew newMinecraftVersion -Pfrom=<version> -Pto=$version"
         }
         include(module)
+    }
+}
+// Experimental versions (ADR-0019) are included automatically when their folders are present.
+val experimentalVersions = minecraftVersions.getProperty("experimental", "").split(",").map(String::trim).filter(String::isNotEmpty)
+for (version in experimentalVersions) {
+    val id = version.replace('.', '_').replace('-', '_')
+    for (module in listOf("plexus-version-adapter-v$id", "plexus-game-v$id")) {
+        if (file(module).isDirectory) {
+            include(module)
+        }
     }
 }
 
@@ -133,6 +142,8 @@ includeIfPresent(
     "test-mods:quilt-hello",
     "test-mods:quilt-nested-lib",
     "test-mods:quilt-nested-unused",
+    "test-mods:quilt-adapter-provider",
+    "test-mods:quilt-adapter-user",
     "test-mods:fabric-quilt-dual",
     "test-mods:quilt-qsl-resource",
     "test-mods:quilt-blocked",

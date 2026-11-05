@@ -56,10 +56,17 @@ final class LauncherProfileInstaller {
 
     private final InstallerPayload payload;
     private final Clock clock;
+    private final VerifiedDownloads downloads;
 
     LauncherProfileInstaller(InstallerPayload payload, Clock clock) {
+        this(payload, clock, ServerInstaller.httpDownloader());
+    }
+
+    /** {@code downloader} fetches what an obfuscated version (before 26.1) needs from Mojang; tests answer locally. */
+    LauncherProfileInstaller(InstallerPayload payload, Clock clock, ServerInstaller.Downloader downloader) {
         this.payload = payload;
         this.clock = clock;
+        this.downloads = new VerifiedDownloads(downloader);
     }
 
     /** The launcher version ID Plexus Mod Loader installs for {@code minecraftVersion}. */
@@ -70,11 +77,6 @@ final class LauncherProfileInstaller {
     /** The key of the Plexus Mod Loader profile in {@code launcher_profiles.json}. */
     static String profileKey(String minecraftVersion) {
         return "plexusmodloader-" + minecraftVersion;
-    }
-
-    /** The key 1.4.x gave the same profile; installing moves that profile to {@link #profileKey}. */
-    static String legacyProfileKey(String minecraftVersion) {
-        return "polymodloader-" + minecraftVersion;
     }
 
     /**
@@ -111,6 +113,11 @@ final class LauncherProfileInstaller {
                 readProfiles(file);
             }
         }
+        // A version before 26.1 is obfuscated: its game jar is remapped to Mojang names on this machine first
+        // (ADR-0019). A download, checksum or remap failure stops here, before Plexus Mod Loader writes anything.
+        ClientGameRemap.Prepared remapped = ClientGameRemap.isObfuscated(minecraftVersion)
+                ? ClientGameRemap.prepare(downloads, minecraftDirectory, minecraftVersion, progress)
+                : null;
         List<String> warnings = new ArrayList<>();
         Path vanilla = minecraftDirectory.resolve("versions").resolve(minecraftVersion);
         if (!Files.isRegularFile(vanilla.resolve(minecraftVersion + ".json"))) {
@@ -141,7 +148,7 @@ final class LauncherProfileInstaller {
         Files.createDirectories(versionDirectory);
         writeAtomically(
                 versionDirectory.resolve(versionId + ".json"),
-                GSON.toJson(versionJson(versionId, minecraftVersion)).getBytes(StandardCharsets.UTF_8));
+                GSON.toJson(versionJson(versionId, minecraftVersion, remapped)).getBytes(StandardCharsets.UTF_8));
         writePlaceholderJar(versionDirectory.resolve(versionId + ".jar"));
         progress.accept("Wrote version " + versionId);
 
@@ -180,6 +187,11 @@ final class LauncherProfileInstaller {
                 progress.accept("Removed the profile \"Plexus Mod Loader " + minecraftVersion + "\" from "
                         + file.getFileName());
             }
+        }
+        if (ClientGameRemap.isObfuscated(minecraftVersion) && !otherPlexusVersionsFor(versions, minecraftVersion)) {
+            // The mappings and the remapped jar made for this version; Minecraft's own files stay.
+            ClientGameRemap.remove(minecraftDirectory, minecraftVersion);
+            progress.accept("Removed the remapped Minecraft " + minecraftVersion + " client and its mappings");
         }
         if (!otherVersionsInstalled(versions)) {
             for (InstallerPayload.Library library : payload.libraries()) {
@@ -251,7 +263,7 @@ final class LauncherProfileInstaller {
      * arguments) comes from the vanilla version it inherits. The launcher appends these JVM arguments to the
      * vanilla ones and starts the process in the game folder, where Plexus Mod Loader finds {@code mods/}.
      */
-    private JsonObject versionJson(String versionId, String minecraftVersion) {
+    private JsonObject versionJson(String versionId, String minecraftVersion, ClientGameRemap.Prepared remapped) {
         String now = timestamp();
         JsonObject version = new JsonObject();
         version.addProperty("id", versionId);
@@ -266,6 +278,11 @@ final class LauncherProfileInstaller {
         jvm.add("-Dplexus.launchTarget=client");
         // Plexus Mod Loader's agent, from the library below; the launcher fills in ${library_directory} (ADR-0024).
         payload.agentLibrary().ifPresent(agent -> jvm.add("-javaagent:${library_directory}/" + agent.path()));
+        if (remapped != null) {
+            // The game runs on the jar remapped to Mojang names, not on the obfuscated jar the launcher puts on the
+            // class path (ADR-0019); Plexus Mod Loader's game class loader defines every game class from this jar.
+            jvm.add("-Dplexus.gameJar=${library_directory}/" + remapped.libraryPath());
+        }
         arguments.add("jvm", jvm);
         version.add("arguments", arguments);
         JsonArray libraries = new JsonArray();
@@ -283,6 +300,29 @@ final class LauncherProfileInstaller {
             entry.add("downloads", downloads);
             libraries.add(entry);
         }
+        if (remapped != null) {
+            JsonObject artifact = new JsonObject();
+            artifact.addProperty("path", remapped.libraryPath());
+            artifact.addProperty("sha1", remapped.jar().sha1());
+            artifact.addProperty("size", remapped.jar().size());
+            // Made on this computer from Mojang's files, not downloaded: the launcher checks the file and its SHA-1
+            // only.
+            artifact.addProperty("url", "");
+            JsonObject remappedDownloads = new JsonObject();
+            remappedDownloads.add("artifact", artifact);
+            JsonObject entry = new JsonObject();
+            entry.addProperty("name", remapped.libraryName());
+            entry.add("downloads", remappedDownloads);
+            libraries.add(entry);
+            // Plexus Mod Loader needs Java 25 whatever Java the vanilla version asks for (ADR-0019 point 5), so the
+            // version asks the launcher for the same Java runtime component as 26.1 and later. Not verified against
+            // the official launcher (see docs/verification/2.0.0/installer.md); if it kept the inherited entry, the
+            // JVM would stop with an UnsupportedClassVersionError naming Java 25.
+            JsonObject java = new JsonObject();
+            java.addProperty("component", "java-runtime-epsilon");
+            java.addProperty("majorVersion", ClientGameRemap.RUNTIME_JAVA);
+            version.add("javaVersion", java);
+        }
         version.add("libraries", libraries);
         return version;
     }
@@ -295,12 +335,9 @@ final class LauncherProfileInstaller {
                 : new JsonObject();
         root.add("profiles", profiles);
         String key = profileKey(minecraftVersion);
-        JsonElement legacy = profiles.remove(legacyProfileKey(minecraftVersion));
         JsonObject profile;
         if (profiles.has(key) && profiles.get(key).isJsonObject()) {
             profile = profiles.getAsJsonObject(key);
-        } else if (legacy != null && legacy.isJsonObject()) {
-            profile = legacy.getAsJsonObject();
         } else {
             profile = new JsonObject();
         }
@@ -335,8 +372,7 @@ final class LauncherProfileInstaller {
         }
         JsonObject profiles = root.getAsJsonObject("profiles");
         JsonElement removed = profiles.remove(profileKey(minecraftVersion));
-        JsonElement removedLegacy = profiles.remove(legacyProfileKey(minecraftVersion));
-        if (removed == null && removedLegacy == null) {
+        if (removed == null) {
             return false;
         }
         writeAtomically(file, GSON.toJson(root).getBytes(StandardCharsets.UTF_8));
@@ -366,6 +402,26 @@ final class LauncherProfileInstaller {
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(versions, prefix + "*")) {
             return entries.iterator().hasNext();
         }
+    }
+
+    /** Whether some Plexus Mod Loader version of any release is still installed for {@code minecraftVersion}. */
+    private static boolean otherPlexusVersionsFor(Path versions, String minecraftVersion) throws IOException {
+        if (!Files.isDirectory(versions)) {
+            return false;
+        }
+        try (DirectoryStream<Path> entries =
+                Files.newDirectoryStream(versions, "plexusmodloader-*-" + minecraftVersion)) {
+            for (Path entry : entries) {
+                String name = entry.getFileName().toString();
+                String middle =
+                        name.substring("plexusmodloader-".length(), name.length() - minecraftVersion.length() - 1);
+                // "plexusmodloader-2.0.0-1.21.1" ends in "-1.21.1"; "...-26.1.1" must not count for "1.1".
+                if (!middle.isEmpty() && Character.isDigit(middle.charAt(0))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Older launchers expect a jar in every version folder; the game jar itself comes from the vanilla version. */

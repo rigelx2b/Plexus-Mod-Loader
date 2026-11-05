@@ -6,9 +6,10 @@ import dev.plexusmodloader.api.stability.StabilityLevel;
 
 /**
  * Server lifecycle events. Fired for dedicated, integrated (single player), and game test servers, in
- * this order: {@link #STARTING}, {@link #STARTED}, {@link #TICK} (repeatedly), {@link #STOPPING},
- * {@link #STOPPED}. Fabric API: {@code ServerLifecycleEvents}; NeoForge: {@code ServerStartingEvent}
- * and its siblings.
+ * this order: {@link #STARTING}, {@link #STARTED}, {@link #TICK} (repeatedly), {@link #TICK_END}
+ * (repeatedly, at the end of each tick), {@link #STOPPING}, {@link #STOPPED}. Fabric API: {@code
+ * ServerLifecycleEvents}, {@code ServerTickEvents}; NeoForge: {@code ServerStartingEvent}, {@code
+ * ServerTickEvent}, and their siblings.
  */
 @ApiStability(StabilityLevel.PREVIEW)
 public final class ServerEvents {
@@ -23,6 +24,10 @@ public final class ServerEvents {
 
     /** A server tick begins. */
     public static final EventKey<ServerTickListener> TICK = EventKey.of("plexus:server/tick", ServerTickListener.class);
+
+    /** A server tick ends, after worlds have ticked. */
+    public static final EventKey<ServerTickListener> TICK_END =
+            EventKey.of("plexus:server/tick_end", ServerTickListener.class);
 
     /** The server begins to stop. */
     public static final EventKey<ServerStoppingListener> STOPPING =

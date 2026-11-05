@@ -480,8 +480,7 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
     }
 
     /** The class file after Plexus Mod Loader's transformer and the bridges' stages. */
-    private byte[] transformed(String name, byte[] originalBytes) {
-        byte[] original = LegacyPackageRemapper.remap(originalBytes);
+    private byte[] transformed(String name, byte[] original) {
         String internalName = name.replace('.', '/');
         if (bridgeTransformers.isEmpty()) {
             return transformer.transform(internalName, original);

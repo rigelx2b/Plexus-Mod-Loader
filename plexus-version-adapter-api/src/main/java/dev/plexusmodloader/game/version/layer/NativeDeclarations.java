@@ -29,6 +29,9 @@ public interface NativeDeclarations {
     /** Declared status effects. */
     List<EffectDeclaration> effects();
 
+    /** Declared attributes, in declaration order. */
+    List<AttributeDeclaration> attributes();
+
     /** Tag entries added from code, in declaration order. */
     List<TagEntriesDeclaration> tagEntries();
 
@@ -167,6 +170,20 @@ public interface NativeDeclarations {
             String ownerModId,
             ResourceId id,
             dev.plexusmodloader.api.content.effect.EffectDefinition definition,
+            Runnable registered) {}
+
+    /**
+     * A declared attribute.
+     *
+     * @param ownerModId declaring mod
+     * @param id attribute ID
+     * @param definition range, default, synchronisation, and which entities carry it
+     * @param registered call after the game registered the attribute
+     */
+    record AttributeDeclaration(
+            String ownerModId,
+            ResourceId id,
+            dev.plexusmodloader.api.content.attribute.AttributeDefinition definition,
             Runnable registered) {}
 
     /**

@@ -1,0 +1,441 @@
+package dev.plexusmodloader.game.layer.v1_21_1.entity;
+
+import dev.plexusmodloader.api.content.attribute.AttributeDefinition;
+import dev.plexusmodloader.api.content.attribute.AttributeScope;
+import dev.plexusmodloader.api.content.effect.EffectDefinition;
+import dev.plexusmodloader.api.content.entity.EntityDefinition;
+import dev.plexusmodloader.api.content.entity.NaturalSpawn;
+import dev.plexusmodloader.api.content.entity.ProjectileDefinition;
+import dev.plexusmodloader.api.content.rule.GameRuleKey;
+import dev.plexusmodloader.api.resource.ResourceId;
+import dev.plexusmodloader.game.layer.v1_21_1.Views;
+import dev.plexusmodloader.game.layer.v1_21_1.content.ContentInstaller;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.AdvancementTriggerDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.AttributeDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.EffectDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.EntityDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.ProjectileDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.SoundDeclaration;
+import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import net.minecraft.SharedConstants;
+import net.minecraft.advancements.critereon.PlayerTrigger;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectCategory;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.SpawnPlacementType;
+import net.minecraft.world.entity.SpawnPlacementTypes;
+import net.minecraft.world.entity.SpawnPlacements;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
+import net.minecraft.world.entity.ai.attributes.RangedAttribute;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.SpawnEggItem;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Heightmap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** Registers mod attributes, mobs, spawn eggs, status effects, game rules, and sound events. */
+public final class EntityInstaller {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
+    private static final Map<EntityType<?>, EntityDefinition> DEFINITIONS = new ConcurrentHashMap<>();
+    /** Built on first use: attribute holders are only bound once the registries froze. */
+    private static final Map<EntityType<?>, AttributeSupplier> ATTRIBUTES = new ConcurrentHashMap<>();
+
+    private static final Map<EntityType<?>, ResourceId> TEXTURES = new ConcurrentHashMap<>();
+    private static final Map<ResourceId, GameRules.Key<?>> RULES = new ConcurrentHashMap<>();
+    private static final Map<EntityType<?>, ProjectileDefinition> PROJECTILES = new ConcurrentHashMap<>();
+    private static final List<SpawnEntry> NATURAL_SPAWNS = new CopyOnWriteArrayList<>();
+    private static final List<ModAttribute> MOD_ATTRIBUTES = new CopyOnWriteArrayList<>();
+    /** Set while {@link #attributes} asks the game for its own supplier, so the head hook lets the game answer. */
+    private static final ThreadLocal<Boolean> READING_GAME_SUPPLIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /** A mob that spawns naturally. */
+    public record SpawnEntry(EntityType<?> type, MobCategory category, NaturalSpawn spawn) {}
+
+    /** A registered mod attribute. */
+    private record ModAttribute(Holder<Attribute> holder, AttributeDefinition definition) {}
+
+    private EntityInstaller() {}
+
+    public static void install(NativeDeclarations declarations) {
+        for (AttributeDeclaration declaration : declarations.attributes()) {
+            registerAttribute(declaration);
+        }
+        for (EntityDeclaration declaration : declarations.entities()) {
+            registerEntity(declaration);
+        }
+        for (ProjectileDeclaration declaration : declarations.projectiles()) {
+            registerProjectile(declaration);
+        }
+        for (AdvancementTriggerDeclaration declaration : declarations.advancementTriggers()) {
+            PlayerTrigger trigger = new PlayerTrigger();
+            Registry.register(BuiltInRegistries.TRIGGER_TYPES, Views.id(declaration.id()), trigger);
+            declaration.bind().accept(player -> {
+                if (!(Views.gamePlayer(player) instanceof ServerPlayer serverPlayer)) {
+                    throw new IllegalStateException("Advancement triggers fire on the server");
+                }
+                trigger.trigger(serverPlayer);
+            });
+        }
+        for (EffectDeclaration declaration : declarations.effects()) {
+            EffectDefinition definition = declaration.definition();
+            MobEffect effect = new PlexusMobEffect(category(definition), definition.color(), definition);
+            Registry.register(BuiltInRegistries.MOB_EFFECT, Views.id(declaration.id()), effect);
+            declaration.registered().run();
+        }
+        for (GameRuleKey<?> key : declarations.gameRules()) {
+            RULES.put(key.id(), gameRule(key));
+        }
+        for (SoundDeclaration declaration : declarations.sounds()) {
+            Registry.register(
+                    BuiltInRegistries.SOUND_EVENT,
+                    Views.id(declaration.id()),
+                    SoundEvent.createVariableRangeEvent(Views.id(declaration.id())));
+            declaration.registered().run();
+        }
+        int total = declarations.attributes().size()
+                + declarations.entities().size()
+                + declarations.projectiles().size()
+                + declarations.effects().size()
+                + declarations.gameRules().size()
+                + declarations.sounds().size();
+        if (total > 0) {
+            LOGGER.info(
+                    "[Plexus Mod Loader] Registered {} attribute(s), {} entity type(s), {} effect(s), {} game rule(s), {} sound(s)"
+                            + " from mods",
+                    declarations.attributes().size(),
+                    declarations.entities().size(),
+                    declarations.effects().size(),
+                    declarations.gameRules().size(),
+                    declarations.sounds().size());
+        }
+    }
+
+    private static void registerAttribute(AttributeDeclaration declaration) {
+        AttributeDefinition definition = declaration.definition();
+        ResourceId id = declaration.id();
+        Attribute attribute = new RangedAttribute(
+                        "attribute.name." + id.namespace() + "." + id.path(),
+                        definition.defaultValue(),
+                        definition.minValue(),
+                        definition.maxValue())
+                .setSyncable(definition.syncedToClients());
+        Holder<Attribute> holder = Registry.registerForHolder(BuiltInRegistries.ATTRIBUTE, Views.id(id), attribute);
+        MOD_ATTRIBUTES.add(new ModAttribute(holder, definition));
+        declaration.registered().run();
+    }
+
+    private static void registerEntity(EntityDeclaration declaration) {
+        EntityDefinition definition = declaration.definition();
+        ResourceKey<EntityType<?>> key = ResourceKey.create(Registries.ENTITY_TYPE, Views.id(declaration.id()));
+        EntityType.Builder<PlexusMob> builder = EntityType.Builder.<PlexusMob>of(
+                        (entityType, level) -> PlexusMob.create(entityType, level, definition), category(definition))
+                .sized(definition.width(), definition.height())
+                .clientTrackingRange(8);
+        EntityType<PlexusMob> type = build(builder, declaration.id());
+        Registry.register(BuiltInRegistries.ENTITY_TYPE, key, type);
+        DEFINITIONS.put(type, definition);
+        if (!definition.naturalSpawns().isEmpty()) {
+            registerSpawnPlacement(type, definition.category());
+            for (NaturalSpawn spawn : definition.naturalSpawns()) {
+                NATURAL_SPAWNS.add(new SpawnEntry(type, category(definition), spawn));
+            }
+        }
+        TEXTURES.put(type, definition.texture());
+        declaration.registered().run();
+        definition.spawnEggTab().ifPresent(tab -> {
+            ResourceId eggId =
+                    ResourceId.of(declaration.id().namespace(), declaration.id().path() + "_spawn_egg");
+            ResourceKey<Item> eggKey = ResourceKey.create(Registries.ITEM, Views.id(eggId));
+            Item egg = new SpawnEggItem(type, 0x6B4FA0, 0xE0C060, new Item.Properties());
+            Registry.register(BuiltInRegistries.ITEM, eggKey, egg);
+            ContentInstaller.listInCreativeTab(tab, egg);
+        });
+    }
+
+    private static void registerProjectile(ProjectileDeclaration declaration) {
+        ProjectileDefinition definition = declaration.definition();
+        ResourceKey<EntityType<?>> key = ResourceKey.create(Registries.ENTITY_TYPE, Views.id(declaration.id()));
+        EntityType.Builder<PlexusProjectile> builder = EntityType.Builder.<PlexusProjectile>of(
+                        PlexusProjectile::new, MobCategory.MISC)
+                .sized(definition.size(), definition.size())
+                .clientTrackingRange(4)
+                .updateInterval(10);
+        EntityType<PlexusProjectile> type = build(builder, declaration.id());
+        Registry.register(BuiltInRegistries.ENTITY_TYPE, key, type);
+        PROJECTILES.put(type, definition);
+        declaration.registered().run();
+    }
+
+    /**
+     * Builds the entity type. {@code EntityType.Builder.build(String)} looks the type up in the game's data fixers
+     * and logs an error for a type they do not know, which no mod type is; the check is off while it runs.
+     */
+    private static <T extends net.minecraft.world.entity.Entity> EntityType<T> build(
+            EntityType.Builder<T> builder, ResourceId id) {
+        boolean check = SharedConstants.CHECK_DATA_FIXER_SCHEMA;
+        SharedConstants.CHECK_DATA_FIXER_SCHEMA = false;
+        try {
+            return builder.build(id.toString());
+        } finally {
+            SharedConstants.CHECK_DATA_FIXER_SCHEMA = check;
+        }
+    }
+
+    /** The definition of a mod projectile type. */
+    static ProjectileDefinition projectile(EntityType<?> type) {
+        ProjectileDefinition definition = PROJECTILES.get(type);
+        if (definition == null) {
+            throw new IllegalStateException("Not a Plexus Mod Loader projectile type: " + type);
+        }
+        return definition;
+    }
+
+    /** Mod projectile types, for the client renderers. */
+    public static Set<EntityType<?>> projectileTypes() {
+        return Set.copyOf(PROJECTILES.keySet());
+    }
+
+    /** Mobs that spawn naturally, for the biome spawn lists. */
+    public static List<SpawnEntry> naturalSpawns() {
+        return List.copyOf(NATURAL_SPAWNS);
+    }
+
+    /**
+     * Tells the game where a naturally spawning mod mob may appear, like the game's mobs of the same
+     * category. The game keeps the registration method private.
+     */
+    private static void registerSpawnPlacement(
+            EntityType<PlexusMob> type, dev.plexusmodloader.api.content.entity.MobCategory category) {
+        SpawnPlacementType placement = category == dev.plexusmodloader.api.content.entity.MobCategory.WATER_CREATURE
+                ? SpawnPlacementTypes.IN_WATER
+                : SpawnPlacementTypes.ON_GROUND;
+        SpawnPlacements.SpawnPredicate<PlexusMob> predicate = switch (category) {
+            case CREATURE ->
+                (entityType, level, reason, pos, random) -> level.getBlockState(pos.below())
+                                .is(BlockTags.ANIMALS_SPAWNABLE_ON)
+                        && (MobSpawnType.ignoresLightRequirements(reason) || level.getRawBrightness(pos, 0) > 8);
+            // Monster.checkMonsterSpawnRules only takes EntityType<? extends Monster>, and a mod mob is a Mob: the
+            // same checks (not peaceful, dark enough unless the reason ignores light, then the plain mob rules).
+            case MONSTER ->
+                (entityType, level, reason, pos, random) ->
+                        level.getDifficulty() != net.minecraft.world.Difficulty.PEACEFUL
+                                && (MobSpawnType.ignoresLightRequirements(reason)
+                                        || Monster.isDarkEnoughToSpawn(level, pos, random))
+                                && Mob.checkMobSpawnRules(entityType, level, reason, pos, random);
+            case AMBIENT -> Mob::checkMobSpawnRules;
+            case WATER_CREATURE ->
+                (entityType, level, reason, pos, random) ->
+                        level.getFluidState(pos.below()).is(FluidTags.WATER)
+                                && level.getBlockState(pos.above()).is(Blocks.WATER);
+        };
+        try {
+            Method register = SpawnPlacements.class.getDeclaredMethod(
+                    "register",
+                    EntityType.class,
+                    SpawnPlacementType.class,
+                    Heightmap.Types.class,
+                    SpawnPlacements.SpawnPredicate.class);
+            register.setAccessible(true);
+            register.invoke(null, type, placement, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, predicate);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("PLEXUS-CONTENT-005 cannot register where " + type + " spawns", e);
+        }
+    }
+
+    /**
+     * Head hook of {@code DefaultAttributes.getSupplier}: mod mobs' attributes, the game's (or a host loader's)
+     * supplier with the mod attributes of the type's scope added, or null to let the game answer.
+     */
+    public static AttributeSupplier attributes(EntityType<?> type) {
+        EntityDefinition definition = DEFINITIONS.get(type);
+        if (definition == null && (MOD_ATTRIBUTES.isEmpty() || READING_GAME_SUPPLIER.get())) {
+            return null;
+        }
+        AttributeSupplier cached = ATTRIBUTES.get(type);
+        if (cached != null) {
+            return cached;
+        }
+        AttributeSupplier.Builder builder;
+        Set<Holder<Attribute>> present = new HashSet<>();
+        if (definition != null) {
+            builder = Mob.createMobAttributes()
+                    .add(Attributes.MAX_HEALTH, definition.maxHealth())
+                    .add(Attributes.MOVEMENT_SPEED, definition.movementSpeed())
+                    .add(Attributes.ATTACK_DAMAGE, definition.attackDamage())
+                    .add(Attributes.FOLLOW_RANGE, 16.0)
+                    .add(Attributes.FLYING_SPEED, definition.flyingSpeed());
+        } else {
+            AttributeSupplier game = gameSupplier(type);
+            if (game == null) {
+                return null;
+            }
+            builder = AttributeSupplier.builder();
+            // AttributeSupplier hides its map; its public lookups give every attribute it has and the base value.
+            BuiltInRegistries.ATTRIBUTE.holders().forEach(holder -> {
+                if (game.hasAttribute(holder)) {
+                    builder.add(holder, game.getBaseValue(holder));
+                    present.add(holder);
+                }
+            });
+        }
+        for (ModAttribute attribute : MOD_ATTRIBUTES) {
+            boolean inScope =
+                    attribute.definition().scope() == AttributeScope.LIVING_ENTITIES || type == EntityType.PLAYER;
+            if (inScope && !present.contains(attribute.holder())) {
+                builder.add(attribute.holder(), attribute.definition().defaultValue());
+            }
+        }
+        AttributeSupplier built = builder.build();
+        AttributeSupplier raced = ATTRIBUTES.putIfAbsent(type, built);
+        return raced == null ? built : raced;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static AttributeSupplier gameSupplier(EntityType<?> type) {
+        READING_GAME_SUPPLIER.set(Boolean.TRUE);
+        try {
+            return DefaultAttributes.getSupplier((EntityType<? extends LivingEntity>) type);
+        } finally {
+            READING_GAME_SUPPLIER.set(Boolean.FALSE);
+        }
+    }
+
+    /** Head hook of {@code DefaultAttributes.hasSupplier}: TRUE for mod mobs, else null. */
+    public static Boolean hasAttributes(EntityType<?> type) {
+        return DEFINITIONS.containsKey(type) ? Boolean.TRUE : null;
+    }
+
+    /** Definitions of mod mobs, for the client renderers. */
+    public static Map<EntityType<?>, EntityDefinition> definitions() {
+        return Map.copyOf(DEFINITIONS);
+    }
+
+    /** Skin textures of mod mobs, for the client renderers. */
+    public static Map<EntityType<?>, ResourceId> textures() {
+        return Map.copyOf(TEXTURES);
+    }
+
+    /** The game's key of a declared rule (1.21.1 keeps rules in {@code GameRules}, not in a registry). */
+    @SuppressWarnings("rawtypes")
+    private static GameRules.Key rule(GameRuleKey<?> key) {
+        GameRules.Key<?> rule = RULES.get(key.id());
+        if (rule == null) {
+            throw new IllegalArgumentException("Game rule " + key.id() + " is not registered");
+        }
+        return rule;
+    }
+
+    /** The current value of a game rule in {@code level}. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static <T> T value(ServerLevel level, GameRuleKey<T> key) {
+        GameRules.Value<?> value = level.getGameRules().getRule(rule(key));
+        if (value instanceof GameRules.BooleanValue bool) {
+            return (T) Boolean.valueOf(bool.get());
+        }
+        return (T) Integer.valueOf(((GameRules.IntegerValue) value).get());
+    }
+
+    /** Sets a game rule in {@code level}. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static <T> void set(ServerLevel level, GameRuleKey<T> key, T value) {
+        GameRules.Value<?> current = level.getGameRules().getRule(rule(key));
+        if (current instanceof GameRules.BooleanValue bool) {
+            bool.set((Boolean) value, level.getServer());
+        } else {
+            ((GameRules.IntegerValue) current).set((Integer) value, level.getServer());
+        }
+    }
+
+    /** True when {@code entity} is one of the mod mobs. */
+    public static boolean isModMob(LivingEntity entity) {
+        return entity instanceof PlexusMob;
+    }
+
+    /**
+     * Registers the rule with the game: {@code GameRules.register(name, category, type)} is private, as are the
+     * {@code Type} factories of {@code BooleanValue} and {@code IntegerValue} (checked with javap on 1.21.1).
+     * A rule must exist before the first {@code GameRules} object is made, which content registration guarantees.
+     */
+    @SuppressWarnings("rawtypes")
+    private static GameRules.Key<?> gameRule(GameRuleKey<?> key) {
+        GameRules.Category category = switch (key.category()) {
+            case PLAYER -> GameRules.Category.PLAYER;
+            case MOBS -> GameRules.Category.MOBS;
+            case SPAWNING -> GameRules.Category.SPAWNING;
+            case DROPS -> GameRules.Category.DROPS;
+            case UPDATES -> GameRules.Category.UPDATES;
+            case CHAT -> GameRules.Category.CHAT;
+            case MISC -> GameRules.Category.MISC;
+        };
+        try {
+            Object type;
+            if (key.type() == Boolean.class) {
+                Method create = GameRules.BooleanValue.class.getDeclaredMethod("create", boolean.class);
+                create.setAccessible(true);
+                type = create.invoke(null, (Boolean) key.defaultValue());
+            } else {
+                Method create = GameRules.IntegerValue.class.getDeclaredMethod(
+                        "create", int.class, int.class, int.class, java.util.function.BiConsumer.class);
+                create.setAccessible(true);
+                java.util.function.BiConsumer<Object, Object> unchanged = (server, value) -> {};
+                type = create.invoke(null, (Integer) key.defaultValue(), key.min(), key.max(), unchanged);
+            }
+            Method register = GameRules.class.getDeclaredMethod(
+                    "register", String.class, GameRules.Category.class, GameRules.Type.class);
+            register.setAccessible(true);
+            return (GameRules.Key<?>) register.invoke(null, key.id().toString(), category, type);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("PLEXUS-CONTENT-006 cannot register game rule " + key.id(), e);
+        }
+    }
+
+    private static MobCategory category(EntityDefinition definition) {
+        return category(definition.category());
+    }
+
+    /** The game's mob category for the API's. */
+    public static MobCategory category(dev.plexusmodloader.api.content.entity.MobCategory category) {
+        return switch (category) {
+            case CREATURE -> MobCategory.CREATURE;
+            case MONSTER -> MobCategory.MONSTER;
+            case AMBIENT -> MobCategory.AMBIENT;
+            case WATER_CREATURE -> MobCategory.WATER_CREATURE;
+        };
+    }
+
+    private static MobEffectCategory category(EffectDefinition definition) {
+        return switch (definition.category()) {
+            case BENEFICIAL -> MobEffectCategory.BENEFICIAL;
+            case HARMFUL -> MobEffectCategory.HARMFUL;
+            case NEUTRAL -> MobEffectCategory.NEUTRAL;
+        };
+    }
+}

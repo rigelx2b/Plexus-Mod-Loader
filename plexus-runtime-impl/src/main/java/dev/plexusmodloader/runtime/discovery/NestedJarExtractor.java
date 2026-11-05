@@ -167,7 +167,8 @@ public final class NestedJarExtractor {
 
     private static String fileName(String entryName) {
         String name = entryName.substring(entryName.lastIndexOf('/') + 1);
-        return name.isEmpty() || !name.matches("[A-Za-z0-9._+\\-]+") ? "nested.jar" : name;
+        // No leading dot: "." and ".." would name a directory instead of a file in the hash folder.
+        return name.matches("[A-Za-z0-9_+\\-][A-Za-z0-9._+\\-]*") ? name : "nested.jar";
     }
 
     private static String sha256(byte[] bytes) {

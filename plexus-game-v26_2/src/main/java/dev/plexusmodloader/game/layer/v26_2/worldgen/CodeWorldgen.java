@@ -52,8 +52,7 @@ public final class CodeWorldgen {
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
 
     /** The piece type of every code structure; a piece names its structure in its saved data. */
-    // World saves name the piece type, so it keeps its 1.4.x ID: renaming it would break structures in existing worlds.
-    private static final Identifier PIECE_ID = Identifier.fromNamespaceAndPath("poly", "code_structure_piece");
+    private static final Identifier PIECE_ID = Identifier.fromNamespaceAndPath("plexus", "code_structure_piece");
 
     private static final Map<ResourceId, StructureDefinition> STRUCTURES = new ConcurrentHashMap<>();
 

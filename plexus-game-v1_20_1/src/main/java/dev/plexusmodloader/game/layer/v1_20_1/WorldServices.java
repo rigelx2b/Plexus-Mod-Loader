@@ -1,0 +1,225 @@
+package dev.plexusmodloader.game.layer.v1_20_1;
+
+import dev.plexusmodloader.api.data.DataTree;
+import dev.plexusmodloader.api.event.world.WorldEvents;
+import dev.plexusmodloader.api.resource.ResourceId;
+import dev.plexusmodloader.api.world.StorageOptions;
+import dev.plexusmodloader.api.world.StoredData;
+import dev.plexusmodloader.api.world.WorldView;
+import dev.plexusmodloader.game.layer.v1_20_1.content.Nbt;
+import dev.plexusmodloader.game.version.layer.GameLayerContext;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.saveddata.SavedData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** World storage ({@link StoredData}) and per-dimension task scheduling. */
+final class WorldServices {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
+    /** Reserved key that holds the data version in saved storage. */
+    static final String VERSION_KEY = "plexus_version";
+
+    private static final Map<ServerLevel, LevelTasks> TASKS = new WeakHashMap<>();
+
+    private WorldServices() {}
+
+    /** The options each storage ID was first used with; later calls must use the same. */
+    private static final Map<ResourceId, StorageOptions> OPTIONS = new ConcurrentHashMap<>();
+
+    /** The storage each data file name belongs to, so two storages never share one file. */
+    private static final Map<String, ResourceId> FILE_NAMES = new ConcurrentHashMap<>();
+
+    /**
+     * The file name under the world's {@code data/} folder. Minecraft 1.20.1 names saved data with one plain
+     * file name ({@code DimensionDataStorage.getDataFile(String)} resolves {@code <name>.dat} there), where
+     * 26.x takes an identifier. The name is flat, with {@code /} as {@code __}.
+     *
+     * @throws IllegalArgumentException if another storage already uses the same file name
+     */
+    static String dataFileName(ResourceId id) {
+        String name = "plexus_" + id.namespace() + "__" + id.path().replace("/", "__");
+        ResourceId owner = FILE_NAMES.putIfAbsent(name, id);
+        if (owner != null && !owner.equals(id)) {
+            throw new IllegalArgumentException(
+                    "World storages " + owner + " and " + id + " would both be saved as data/" + name + ".dat");
+        }
+        return name;
+    }
+    /** Synchronised storages that exist, to send to joining players. */
+    private static final Map<ServerLevel, Map<ResourceId, ModSavedData>> SYNCED = new WeakHashMap<>();
+
+    static StoredData storage(ServerLevel level, ResourceId id) {
+        return storage(level, id, StorageOptions.DEFAULT);
+    }
+
+    static StoredData storage(ServerLevel level, ResourceId id, StorageOptions options) {
+        StorageOptions previous = OPTIONS.putIfAbsent(id, options);
+        if (previous != null && !previous.equals(options)) {
+            throw new IllegalArgumentException(
+                    "World storage " + id + " was opened with other options before: " + previous);
+        }
+        ModSavedData saved = level.getDataStorage()
+                .computeIfAbsent(
+                        tag -> new ModSavedData(load(tag, id, OPTIONS.get(id)), id),
+                        () -> new ModSavedData(DataTree.create(), id),
+                        dataFileName(id));
+        if (saved.migrated) {
+            saved.migrated = false;
+            saved.setDirty();
+        }
+        if (options.syncToClients()) {
+            synchronized (SYNCED) {
+                SYNCED.computeIfAbsent(level, ignored -> new java.util.HashMap<>())
+                        .put(id, saved);
+            }
+        }
+        return new StoredData() {
+            @Override
+            public DataTree data() {
+                return saved.tree;
+            }
+
+            @Override
+            public void markChanged() {
+                saved.setDirty();
+                if (options.syncToClients()) {
+                    for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                        SyncChannel.sendStorage(
+                                player, Views.id(level.dimension().location()), id, saved.tree);
+                    }
+                }
+            }
+        };
+    }
+
+    /** Reads saved storage, running the migration when it was saved with an older version. */
+    static DataTree load(CompoundTag tag, ResourceId id, StorageOptions options) {
+        CompoundTag copy = tag.copy();
+        int version = copy.getInt(VERSION_KEY);
+        copy.remove(VERSION_KEY);
+        DataTree tree = Nbt.fromTag(copy);
+        StorageOptions current = options == null ? StorageOptions.DEFAULT : options;
+        if (version < current.version() && current.migration().isPresent()) {
+            current.migration().get().migrate(tree, version);
+            LOGGER.info(
+                    "[Plexus Mod Loader] Migrated world storage {} from version {} to {}",
+                    id,
+                    version,
+                    current.version());
+        } else if (version > current.version()) {
+            LOGGER.warn(
+                    "[Plexus Mod Loader] PLEXUS-STORAGE-001 world storage {} was saved by a newer version ({} > {}); kept as is",
+                    id,
+                    version,
+                    current.version());
+        }
+        return tree;
+    }
+
+    /** Writes storage with its version. */
+    static CompoundTag save(DataTree tree, StorageOptions options) {
+        CompoundTag tag = Nbt.toTag(tree);
+        tag.remove(VERSION_KEY);
+        tag.putInt(VERSION_KEY, options == null ? 0 : options.version());
+        return tag;
+    }
+
+    /** Sends a joining player every synchronised storage. */
+    static void sendSynced(ServerPlayer player) {
+        synchronized (SYNCED) {
+            SYNCED.forEach((level, storages) -> storages.forEach((id, saved) ->
+                    SyncChannel.sendStorage(player, Views.id(level.dimension().location()), id, saved.tree)));
+        }
+    }
+
+    static void schedule(ServerLevel level, int ticks, Runnable task) {
+        if (ticks < 0) {
+            throw new IllegalArgumentException("ticks must be >= 0: " + ticks);
+        }
+        synchronized (TASKS) {
+            LevelTasks tasks = TASKS.computeIfAbsent(level, ignored -> new LevelTasks());
+            tasks.queue.add(new Task(tasks.ticks + ticks + 1, tasks.sequence++, task));
+        }
+    }
+
+    /** Called at the start of every tick of {@code level}. */
+    static void tick(ServerLevel level) {
+        LevelTasks tasks;
+        boolean first;
+        synchronized (TASKS) {
+            first = !TASKS.containsKey(level);
+            tasks = TASKS.computeIfAbsent(level, ignored -> new LevelTasks());
+        }
+        if (first) {
+            LayerState.context()
+                    .ifPresent(context -> context.events()
+                            .publish(WorldEvents.READY, listener -> listener.onWorldReady(Views.world(level))));
+        }
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context != null && context.events().hasListeners(WorldEvents.TICK_START)) {
+            WorldView world = Views.world(level);
+            context.events().publish(WorldEvents.TICK_START, listener -> listener.onWorldTick(world));
+        }
+        tasks.ticks++;
+        while (!tasks.queue.isEmpty() && tasks.queue.peek().dueTick() <= tasks.ticks) {
+            Task task = tasks.queue.poll();
+            try {
+                task.action().run();
+            } catch (RuntimeException e) {
+                LOGGER.error(
+                        "[Plexus Mod Loader] PLEXUS-SCHEDULE-001 a scheduled task failed in {}",
+                        level.dimension().location(),
+                        e);
+            }
+        }
+    }
+
+    /** Called at the end of every tick of {@code level}. */
+    static void tickEnd(ServerLevel level) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context != null && context.events().hasListeners(WorldEvents.TICK_END)) {
+            WorldView world = Views.world(level);
+            context.events().publish(WorldEvents.TICK_END, listener -> listener.onWorldTick(world));
+        }
+    }
+
+    private static final class LevelTasks {
+        long ticks;
+        long sequence;
+        final PriorityQueue<Task> queue = new PriorityQueue<>((a, b) -> a.dueTick() != b.dueTick()
+                ? Long.compare(a.dueTick(), b.dueTick())
+                : Long.compare(a.sequence(), b.sequence()));
+    }
+
+    private record Task(long dueTick, long sequence, Runnable action) {}
+
+    static final class ModSavedData extends SavedData {
+
+        final DataTree tree;
+        /** Set when loading ran a migration, so the upgraded data is saved. */
+        boolean migrated;
+
+        private final ResourceId id;
+
+        ModSavedData(DataTree tree, ResourceId id) {
+            this.tree = tree;
+            this.id = id;
+        }
+
+        @Override
+        public CompoundTag save(CompoundTag tag) {
+            CompoundTag saved = WorldServices.save(tree, OPTIONS.get(id));
+            for (String key : saved.getAllKeys()) {
+                tag.put(key, saved.get(key));
+            }
+            return tag;
+        }
+    }
+}

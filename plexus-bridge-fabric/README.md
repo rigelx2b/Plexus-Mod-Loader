@@ -31,7 +31,8 @@ When mod classes are loaded, transformations are applied in the exact same order
    - Runs SpongePowered Mixin 0.8.7 (FabricMC fork) and MixinExtras 0.5.5 as a single service.
    - Binds Quilt mod mixin configurations as well to transform classes in a single pass.
 
-### 4) Entrypoint Lifecycle Management
+### 4) Entrypoint Lifecycle Management & Language Adapters
+- **Language Adapters:** Supports custom language adapters declared in Fabric's `languageAdapters` and Quilt's `quilt_loader.language_adapters` (implementing `org.quiltmc.loader.api.LanguageAdapter` or `net.fabricmc.loader.api.LanguageAdapter`). Adapters from both loaders are unified in a single runtime registry, allowing cross-loader entrypoint instantiation. Unresolved adapters block the mod with `PLEXUS-COMPAT-312` (Quilt) or `PLEXUS-COMPAT-114` (Fabric).
 - **`pre_launch` / `preLaunch`:** Called immediately after Mixin preparation and right before game initialization.
 - **`main` / `client` / `server`:** Called at Minecraft internal initialization points according to each loader's interface contract.
 
@@ -67,5 +68,5 @@ The tasks in `plexus-bootstrap` require `test-mods/` (and the mod corpus list `p
 
 ## 4. Limitations
 - Injections where a host patch already performs the work of the handler are pruned only via `HOST_COVERS` rules (not automatic, ADR-0032). The functionality of pruned handlers may differ from standalone Fabric execution (alongside MinecraftForge: position-specific particles, in-wall sprites, automatic block item models).
-- Because no release of Quilt Standard Libraries (QSL) exists for Minecraft 26.x, mods that directly depend on QSL are excluded prior to startup with an explicit reason (`PLEXUS-COMPAT-303`).
+- Because no release of Quilt Standard Libraries (QSL) exists for Minecraft 26.x, mods that need QSL modules are excluded before startup with an explicit reason (`PLEXUS-COMPAT-114` with `308`), and QSL entrypoints are not run (`303`). The exception: QSL entrypoints whose class implements Fabric's initializer interface run as Fabric entrypoints, and then a `quilt_base` dependency of that mod counts as met (`PLEXUS-COMPAT-311`).
 - If a mod directly accesses private internal packages of Fabric Loader or Quilt Loader (such as `net.fabricmc.loader.impl.*`), it may be rejected during the link verification phase (`PLEXUS-COMPAT-111`).

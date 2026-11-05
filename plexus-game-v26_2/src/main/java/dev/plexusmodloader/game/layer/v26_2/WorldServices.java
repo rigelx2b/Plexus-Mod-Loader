@@ -5,7 +5,9 @@ import dev.plexusmodloader.api.event.world.WorldEvents;
 import dev.plexusmodloader.api.resource.ResourceId;
 import dev.plexusmodloader.api.world.StorageOptions;
 import dev.plexusmodloader.api.world.StoredData;
+import dev.plexusmodloader.api.world.WorldView;
 import dev.plexusmodloader.game.layer.v26_2.content.Nbt;
+import dev.plexusmodloader.game.version.layer.GameLayerContext;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.WeakHashMap;
@@ -150,6 +152,11 @@ final class WorldServices {
                     .ifPresent(context -> context.events()
                             .publish(WorldEvents.READY, listener -> listener.onWorldReady(Views.world(level))));
         }
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context != null && context.events().hasListeners(WorldEvents.TICK_START)) {
+            WorldView world = Views.world(level);
+            context.events().publish(WorldEvents.TICK_START, listener -> listener.onWorldTick(world));
+        }
         tasks.ticks++;
         while (!tasks.queue.isEmpty() && tasks.queue.peek().dueTick() <= tasks.ticks) {
             Task task = tasks.queue.poll();
@@ -161,6 +168,15 @@ final class WorldServices {
                         level.dimension().identifier(),
                         e);
             }
+        }
+    }
+
+    /** Called at the end of every tick of {@code level}. */
+    static void tickEnd(ServerLevel level) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context != null && context.events().hasListeners(WorldEvents.TICK_END)) {
+            WorldView world = Views.world(level);
+            context.events().publish(WorldEvents.TICK_END, listener -> listener.onWorldTick(world));
         }
     }
 

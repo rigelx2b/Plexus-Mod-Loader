@@ -137,7 +137,7 @@ flowchart LR
 
 1. **모드 메타데이터 하위 호환성 (가장 중요)**
    - 새 모드 사양: `plexus.mod.json`
-   - 기존 모드 호환 보장: 메타데이터 로더에서 `plexus.mod.json`을 1순위로 찾고, 없으면 기존 `poly.mod.json`을 읽도록 fallback 로직 구현.
+   - 기존 모드 호환 보장(1.5.0~1.10.x 한정): 메타데이터 로더에서 `plexus.mod.json`을 1순위로 찾고, 없으면 기존 `poly.mod.json`을 읽도록 fallback 로직 구현. **2.0.0에서 이 fallback을 제거했습니다(ADR-0036).** 지금은 `plexus.mod.json`만 읽습니다.
 2. **Gradle 모듈 및 프로젝트 명칭 갱신**
    - `settings.gradle.kts`: `rootProject.name = "plexus"`
    - 모듈명: `poly-core` ➔ `plexus-core`, `plexus-bootstrap` ➔ `plexus-bootstrap`, `plexus-game-v...` ➔ `plexus-game-v...` 등 점진적 개명 또는 내부 유지 검토.
@@ -153,7 +153,7 @@ flowchart LR
 6. **풀 테스트 스위트 검증**
    - `./gradlew check`
    - `./gradlew serverBootSmokeTest worldCreateSaveTest`
-   - `-PpolyMinecraft=26.1, 26.2, 26.3` 전 버전 게임 테스트 및 4대 로더(Fabric, Forge, NeoForge, Quilt) 호환성 코퍼스 전체 통과 검증.
+   - `-PplexusMinecraft=26.1, 26.2, 26.3`(당시 계획에서는 `-PpolyMinecraft`; 2.0.0에서 옛 속성은 무시됨) 전 버전 게임 테스트 및 4대 로더(Fabric, Forge, NeoForge, Quilt) 호환성 코퍼스 전체 통과 검증.
 
 ---
 
@@ -161,7 +161,7 @@ flowchart LR
 
 | 리스크 요인 | 대응 방안 및 대책 |
 | :--- | :--- |
-| **기존 모드 작동 중단** | Phase 5에서 `poly.mod.json` 메타데이터 fallback 지원을 기본 탑재하여 기존 빌드된 모드 100% 수용 |
+| **기존 모드 작동 중단** | Phase 5에서 `poly.mod.json` 메타데이터 fallback 지원을 임시로 탑재하여 기존 빌드된 모드를 수용(1.5.0~1.10.x). 2.0.0에서 fallback을 제거했으므로(ADR-0036) 옛 모드는 `plexus.mod.json`으로 다시 빌드해야 함 |
 | **기존 사이트 검색엔진 순위 하락** | `polymc.net` ➔ `plexusmc.net` 전 경로 301 영구 리다이렉트 적용으로 백링크/SEO 자산 계승 |
 | **다운로드 링크 깨짐** | Cloudflare Worker의 `/counter/dl.php`에서 과거 태그 및 `PolyModLoader-*.jar` 파일명도 정규식으로 매칭하여 GitHub Releases로 정확히 토스 |
 | **엔진 리팩토링 중 회귀 버그** | 엔진 코드 수정을 맨 마지막(Phase 5)으로 미루었으므로, 앞 단계 인프라 배포에 컴파일 오류가 전혀 전파되지 않음 |
@@ -192,14 +192,14 @@ flowchart LR
   - [x] 배포 워크플로우 갱신 (`docs.yml`, `release.yml`, `publish-release.py` 저장소 경로 갱신)
   - [x] 프로젝트 문서 및 가이드 링크 전역 갱신 (`README.md`, `PROJECT.md`, `DEVELOPING.md`, `RELEASE_AND_DEPLOY.md`)
 - [x] **Phase 5: [최종 단계] 엔진 코드 리팩터링** (1.5.0, 2026-10-31)
-  - [x] `plexus.mod.json` + `poly.mod.json` 동시 지원 및 템플릿/에러 코드(`PLEXUS-`) 전환 완료
+  - [x] `plexus.mod.json` + `poly.mod.json` 동시 지원(`poly.mod.json` 지원은 2.0.0에서 제거, ADR-0036) 및 템플릿/에러 코드(`PLEXUS-`) 전환 완료
   - [x] 루트 Gradle 26개 모듈 디렉터리 `plexus-*` 전환 완료
-  - [x] 패키지 리네이밍 (`dev.polymodloader.*` ➔ `dev.plexusmodloader.*`, 구 패키지를 참조하는 기존 모드는 클래스 로드 시 자동 리매핑; Maven 그룹·플러그인 ID는 아래 항목에서 전환)
+  - [x] 패키지 리네이밍 (`dev.polymodloader.*` ➔ `dev.plexusmodloader.*`, 1.5.0~1.10.x에서는 구 패키지를 참조하는 기존 모드를 클래스 로드 시 자동 리매핑했으나 2.0.0에서 제거(ADR-0036); Maven 그룹·플러그인 ID는 아래 항목에서 전환)
   - [x] 로딩 화면 및 UI 갱신 (2026-10-31): 게임 로딩 화면(`PlexusLoadingOverlay`)·창 제목·타이틀 화면 모드 수("Plexus mods")는 1.4.1에서 끝남. 이번에 조기 로딩 창 이름(`LoadingScreenState.NAME`), Forge/NeoForge 조기 창 라벨(`EarlyScreenArt`), 설치 프로그램 창·알림·명령줄 문구, 런처 프로필 이름(`Plexus Mod Loader <버전>`, 키 `polymodloader-<버전>`은 유지해 재설치 시 이름만 바뀜)을 Plexus로 바꿈. 루트 `check` 통과
-  - [x] SDK Maven 좌표 전환 (2026-10-31, 코드만; 발행·배포 전): 그룹 `dev.polymodloader` → `dev.plexusmodloader`, Gradle 플러그인 `poly-gradle-plugin` → `plexus-gradle-plugin`, 모드 플러그인 ID `dev.plexusmodloader.mod`(이전 ID `dev.polymodloader.mod`도 같은 플러그인으로 마커 발행), 플러그인의 저장소 주소 `https://www.plexusmc.net/maven/`, 템플릿·`sdk-repo.js`·사이트 문서 갱신. `dev.polymodloader` 아래 기존 버전은 그대로 두고 `verifySdkRepository`는 새 그룹만 검사(ADR-0008 후속). 1.4.2 플러그인이 `dev.plexusmodloader:*`를 찾는데 모듈은 `dev.polymodloader`로 발행돼 공개 저장소로 해석되지 않던 문제도 이것으로 해결됨. 검증: `-p build-logic check`, 루트 `check`, 기존 SDK 폴더 사본에 `publishSdk`(26개 산출물 통과), 그 템플릿을 새 ID·이전 ID로 각각 `build` 성공
+  - [x] SDK Maven 좌표 전환 (2026-10-31, 코드만; 발행·배포 전): 그룹 `dev.polymodloader` → `dev.plexusmodloader`, Gradle 플러그인 `poly-gradle-plugin` → `plexus-gradle-plugin`, 모드 플러그인 ID `dev.plexusmodloader.mod`(이전 ID `dev.polymodloader.mod`도 같은 플러그인으로 마커를 발행했으나 2.0.0에서 마커 제거, ADR-0036. 이미 발행된 1.x 마커는 저장소에서 지우지 않음), 플러그인의 저장소 주소 `https://www.plexusmc.net/maven/`, 템플릿·`sdk-repo.js`·사이트 문서 갱신. `dev.polymodloader` 아래 기존 버전은 그대로 두고 `verifySdkRepository`는 새 그룹만 검사(ADR-0008 후속). 1.4.2 플러그인이 `dev.plexusmodloader:*`를 찾는데 모듈은 `dev.polymodloader`로 발행돼 공개 저장소로 해석되지 않던 문제도 이것으로 해결됨. 검증: `-p build-logic check`, 루트 `check`, 기존 SDK 폴더 사본에 `publishSdk`(26개 산출물 통과), 그 템플릿을 새 ID·이전 ID로 각각 `build` 성공
   - [x] SDK 1.4.2를 새 그룹으로 `publishSdk` 후 `npm run deploy:site`로 R2에 올림 (2026-10-31). `dev.polymodloader.mod` 1.4.2 마커는 이제 `dev.plexusmodloader:plexus-gradle-plugin`을 가리킴. 공개 저장소에서 받은 템플릿을 빈 Maven Local로 새 ID·이전 ID 각각 `build` 성공
   - [x] `examples/crystal-garden`: 플러그인 ID `dev.plexusmodloader.mod`, 저장소 `https://www.plexusmc.net/maven/` (2026-10-31, 1.4.2로 공개 저장소에서 `build`·`gameTests` 4개 통과 후 1.5.0으로 올림)
   - [x] 설치 파일 이름 `PlexusModLoader-<버전>.jar` (`installerDistributions`, `release.yml`, `release-notes.py`, 사이트 문서; 다운로드 Worker는 이전 이름도 받음)
   - [x] 남은 Poly 이름 전부 전환 (1.5.0): 로거·로그 접두사 `[Plexus Mod Loader]`, Gradle 작업 설명, 런처 버전·프로필 키 `plexusmodloader-*`(재설치 시 1.4.x 프로필을 옮김), 서버 jar `plexusmodloader-server.jar`, 시스템 속성 `plexus.*`, `.plexus/` 폴더, 내장 규칙·이벤트·시스템 ID `plexus:*`, 공개 API `PlexusSystem`, Gradle DSL·작업·속성(`plexusResources`, `newPlexusMod`, `-PplexusMinecraft` 등), 사이트 CSS·스크립트·환경 변수 `PLEXUS_*`, 제보 Worker 필드(`plexusVersion`, D1 열 `plexus_version`)
-  - 호환으로 남긴 것: `poly.mod.json`, `dev.polymodloader.*` 패키지 리매핑(+ `PolySystem` → `PlexusSystem`), 플러그인 ID `dev.polymodloader.mod`, SDK 이전 그룹, 의존 ID `poly`, 시스템 `poly:game_brand`, `-Dpoly.*`(실행 시 `plexus.*`로 복사), `polyResources`·`-PpolyMinecraft`·`-PpolyTests`·`-PpolyLocalSdk`, 월드에 저장되는 `poly:code_structure_piece`, 1.4.x 백업 정책·기록 파일, 제보 Worker의 이전 필드·헤더, 다운로드 Worker의 이전 파일 이름. 과거 기록(CHANGELOG 이전 절, ADR)은 고치지 않음
+  - 1.5.0에서 호환으로 남겼던 것(2.0.0에서 완전 제거됨, ADR-0036): `poly.mod.json`, `dev.polymodloader.*` 패키지 리매핑, 플러그인 ID `dev.polymodloader.mod`, 의존 ID `poly`, 시스템 `poly:game_brand`, `-Dpoly.*`, `polyResources`·`-PpolyMinecraft` 등 속성, `poly:code_structure_piece`, 1.4.x 백업 설정 파일, 설치기 구형 프로필 처리. 과거 자료 접근(SDK 이전 그룹 산출물 조회, Releases 컴포넌트의 구 PolyModLoader 자산, Worker의 polymc.net 리디렉션 및 D1 스키마)만 유지됨. 과거 기록(CHANGELOG 이전 절, 과거 ADR)은 고치지 않음
   - [x] 전체 멀티버전 검증 (1.5.0, 2026-10-31): 루트 `check`, `build-logic check`, Worker `npm test`(7/7), 사이트 빌드, `serverInstallTest`, 26.1·26.2·26.3 각각 `serverBootSmokeTest`·`worldCreateSaveTest`·`nativeApiGameTests`·`compatibilityMatrix` 통과. 26.1·26.3 실행이 1.4.2부터 실패하던 원인(루트 `build.gradle.kts`가 `poly.mod.json`만 버전 치환)도 고침

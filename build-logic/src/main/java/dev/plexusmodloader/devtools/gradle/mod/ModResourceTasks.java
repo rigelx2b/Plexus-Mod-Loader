@@ -25,14 +25,11 @@ public final class ModResourceTasks {
     public static void register(Project project) {
         PlexusResourcesExtension extension =
                 project.getExtensions().create("plexusResources", PlexusResourcesExtension.class);
-        // The 1.4.x name, so build scripts that still say polyResources { } keep working.
-        project.getExtensions().add(PlexusResourcesExtension.class, "polyResources", extension);
         SourceSet main = project.getExtensions()
                 .getByType(SourceSetContainer.class)
                 .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
         Directory handWritten = project.getLayout().getProjectDirectory().dir("src/main/resources");
-        File currentModJson = handWritten.file("plexus.mod.json").getAsFile();
-        File plexusModJson = currentModJson.isFile() ? currentModJson : handWritten.file("poly.mod.json").getAsFile();
+        File plexusModJson = handWritten.file("plexus.mod.json").getAsFile();
         Provider<Directory> generated = project.getLayout().getBuildDirectory().dir("generated/plexus-resources/main");
 
         TaskProvider<GeneratePlexusResourcesTask> generate = project.getTasks()

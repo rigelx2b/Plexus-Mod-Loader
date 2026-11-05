@@ -61,6 +61,8 @@ import java.util.TreeSet;
  */
 public final class CrossLoaderModResolver {
 
+    private static final String LANGUAGE_ADAPTER_PREFIX = "fabric-language-adapter:";
+
     /** Checks the classes of one foreign mod against the jars that will be loaded with it. */
     @FunctionalInterface
     public interface LinkCheck {
@@ -505,9 +507,21 @@ public final class CrossLoaderModResolver {
             for (BridgedDependency dependency : mod.assessment().dependencies()) {
                 switch (dependency.kind()) {
                     case REQUIRED, IF_PRESENT ->
-                        unmet(dependency, mod)
-                                .ifPresent(reason -> problems.add(
-                                        new CompatibilityFinding("PLEXUS-COMPAT-114", true, "dependencies", reason)));
+                        unmet(dependency, mod).ifPresent(reason -> {
+                            if (mod.bridge().loaderName().equals("Quilt")
+                                    && dependency.modId().startsWith(LANGUAGE_ADAPTER_PREFIX)) {
+                                String adapterName = dependency.modId().substring(LANGUAGE_ADAPTER_PREFIX.length());
+                                problems.add(new CompatibilityFinding(
+                                        "PLEXUS-COMPAT-312",
+                                        true,
+                                        "language adapter",
+                                        "entrypoint uses language adapter '" + adapterName
+                                                + "', but no loaded mod provides it"));
+                            } else {
+                                problems.add(
+                                        new CompatibilityFinding("PLEXUS-COMPAT-114", true, "dependencies", reason));
+                            }
+                        });
                     case BREAKS ->
                         broken(dependency, mod)
                                 .ifPresent(reason -> problems.add(

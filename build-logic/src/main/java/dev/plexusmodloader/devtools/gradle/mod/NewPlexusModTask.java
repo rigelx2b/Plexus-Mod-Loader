@@ -39,6 +39,10 @@ public abstract class NewPlexusModTask extends DefaultTask {
     @Optional
     public abstract Property<String> getModDirectory();
 
+    /** The Plexus Mod Loader version the new project builds with: the plugin version in its {@code build.gradle.kts}. */
+    @Input
+    public abstract Property<String> getPluginVersion();
+
     @Internal
     public abstract DirectoryProperty getTemplateDirectory();
 
@@ -64,7 +68,8 @@ public abstract class NewPlexusModTask extends DefaultTask {
                 : root.resolveSibling(names.projectName()).normalize();
         List<Path> created;
         try {
-            created = ModProjectScaffolder.scaffold(getTemplateDirectory().get().getAsFile().toPath(), target, names);
+            created = ModProjectScaffolder.scaffold(
+                    getTemplateDirectory().get().getAsFile().toPath(), target, names, getPluginVersion().get());
         } catch (IllegalArgumentException e) {
             throw new GradleException(e.getMessage(), e);
         }

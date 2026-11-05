@@ -304,7 +304,8 @@ final class FabricModMetadata implements ModMetadata {
         if (icon.isJsonPrimitive()) {
             return Optional.of(icon.getAsString());
         }
-        if (!(icon instanceof JsonObject sizes) || sizes.isEmpty()) {
+        // size(), not isEmpty(): JsonObject.isEmpty() does not exist in the Gson 2.10 that Minecraft 1.20.1 ships.
+        if (!(icon instanceof JsonObject sizes) || sizes.size() == 0) {
             return Optional.empty();
         }
         TreeMap<Integer, String> bySize = new TreeMap<>();

@@ -32,9 +32,8 @@ import org.gradle.api.tasks.TaskProvider;
  *       PlexusModPlugin#LAUNCHER_MODULE}, {@link PlexusModPlugin#METADATA_MODULE}, the version adapter of every
  *       supported Minecraft version) with every module they depend on, found in the dependency graph
  *   <li>JavaDoc jars only for the API module and the API modules it exposes; no sources
- *   <li>{@code dev.plexusmodloader:plexus-gradle-plugin} and its markers {@code dev.plexusmodloader.mod} and
- *       {@code dev.polymodloader.mod} (the ID before the rename), from the included build {@code build-logic}
- *       ({@code :publishSdk} there)
+ *   <li>{@code dev.plexusmodloader:plexus-gradle-plugin} and its marker {@code dev.plexusmodloader.mod}, from the
+ *       included build {@code build-logic} ({@code :publishSdk} there)
  *   <li>{@code dev.plexusmodloader:plexus-mod-template:<version>@zip} ({@code packageModTemplate})
  * </ul>
  *
@@ -54,9 +53,6 @@ public final class SdkRepositoryPlugin implements Plugin<Project> {
 
     /** The plugin ID mod projects apply; its marker artifact is {@code <id>:<id>.gradle.plugin}. */
     public static final String MOD_PLUGIN_ID = "dev.plexusmodloader.mod";
-
-    /** The plugin ID before the rename, published as a second marker of the same plugin. */
-    public static final String LEGACY_MOD_PLUGIN_ID = "dev.polymodloader.mod";
 
     private static final String BUILD_LOGIC = "build-logic";
     private static final List<String> NOT_SDK = List.of(":examples:", ":test-mods:", ":tools:", ":plexus-installer");
@@ -96,7 +92,6 @@ public final class SdkRepositoryPlugin implements Plugin<Project> {
                             .addAll(
                                     group + ":" + GRADLE_PLUGIN_ARTIFACT + ":jar",
                                     MOD_PLUGIN_ID + ":" + MOD_PLUGIN_ID + ".gradle.plugin:pom",
-                                    LEGACY_MOD_PLUGIN_ID + ":" + LEGACY_MOD_PLUGIN_ID + ".gradle.plugin:pom",
                                     group + ":" + ModTemplatePlugin.TEMPLATE_ARTIFACT + ":zip");
                     task.dependsOn("publishModTemplatePublicationToPlexusSdkRepository");
                     task.dependsOn(root.getGradle().includedBuild(BUILD_LOGIC).task(":publishSdk"));

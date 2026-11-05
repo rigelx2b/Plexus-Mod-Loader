@@ -54,7 +54,7 @@ class ModFileScannerTest {
 
     @Test
     void classifiesByMetadataFile() throws IOException {
-        jar("a.jar", null, "poly.mod.json", "{}");
+        jar("a.jar", null, "plexus.mod.json", "{}");
         jar("b.jar", null, "fabric.mod.json", "{}");
         jar("c.jar", null, "META-INF/neoforge.mods.toml", "");
         jar("d.jar", null, "META-INF/mods.toml", "");
@@ -68,6 +68,17 @@ class ModFileScannerTest {
                         ModFileKind.FORGE,
                         ModFileKind.UNKNOWN),
                 scan().stream().map(DiscoveredModFile::kind).toList());
+    }
+
+    /** The former file name is no longer read: such a jar has no known metadata (PLEXUS-DISCOVERY-002). */
+    @Test
+    void aJarWithOnlyTheFormerPolyModJsonIsNotAMod() throws IOException {
+        jar("former.jar", null, "poly.mod.json", "{\"id\": \"former\"}");
+
+        List<DiscoveredModFile> files = scan();
+        assertEquals(1, files.size());
+        assertEquals(ModFileKind.UNKNOWN, files.getFirst().kind());
+        assertTrue(files.getFirst().nativeMetadataJson().isEmpty());
     }
 
     @Test

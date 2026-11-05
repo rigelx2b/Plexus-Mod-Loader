@@ -35,7 +35,7 @@ public final class ClassTweakerCheck {
      *
      * <ul>
      *   <li>{@code PLEXUS-COMPAT-125}: the file is missing, unreadable, or has lines the loader refuses
-     *   <li>{@code PLEXUS-COMPAT-126}: its namespace is not {@code official}; 26.2 has no other names
+     *   <li>{@code PLEXUS-COMPAT-126}: its namespace is not {@code official}; the game has no other names
      *   <li>{@code PLEXUS-COMPAT-129} (not blocking): what will be widened, which interfaces and enum constants are
      *       added (the bridge adds them when the classes load, before Mixin, as Fabric Loader does; ADR-0020)
      * </ul>
@@ -84,8 +84,8 @@ public final class ClassTweakerCheck {
                     "PLEXUS-COMPAT-126",
                     true,
                     "class tweaker",
-                    path + " names classes in the '" + header.namespace() + "' namespace; Minecraft 26.2 runs"
-                            + " with Mojang's names ('" + ClassTweakerFile.RUNTIME_NAMESPACE + "') and has no"
+                    path + " names classes in the '" + header.namespace() + "' namespace; the game runs"
+                            + " with Mojang's names ('" + ClassTweakerFile.RUNTIME_NAMESPACE + "') and there are no"
                             + " mappings to translate other names, so " + loaderName + " refuses it too"));
             blocked = true;
         }

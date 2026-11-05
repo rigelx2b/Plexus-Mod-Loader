@@ -1,0 +1,655 @@
+package dev.plexusmodloader.game.layer.v1_21_1.client;
+
+import dev.plexusmodloader.api.client.CameraPerspective;
+import dev.plexusmodloader.api.client.ClientEvents;
+import dev.plexusmodloader.api.client.ClientView;
+import dev.plexusmodloader.api.client.HudCanvas;
+import dev.plexusmodloader.api.client.ModScreen;
+import dev.plexusmodloader.api.content.entity.EntityDefinition;
+import dev.plexusmodloader.api.content.particle.ParticleDefinition;
+import dev.plexusmodloader.api.entity.PlayerView;
+import dev.plexusmodloader.api.event.EventKey;
+import dev.plexusmodloader.api.resource.ResourceId;
+import dev.plexusmodloader.api.world.WorldView;
+import dev.plexusmodloader.game.layer.v1_21_1.LayerState;
+import dev.plexusmodloader.game.layer.v1_21_1.ModReloadListener;
+import dev.plexusmodloader.game.layer.v1_21_1.Networking.PlexusPayload;
+import dev.plexusmodloader.game.layer.v1_21_1.SyncChannel;
+import dev.plexusmodloader.game.layer.v1_21_1.Views;
+import dev.plexusmodloader.game.layer.v1_21_1.content.Particles;
+import dev.plexusmodloader.game.layer.v1_21_1.content.PlexusMenu;
+import dev.plexusmodloader.game.layer.v1_21_1.content.PlexusMenus;
+import dev.plexusmodloader.game.layer.v1_21_1.entity.EntityInstaller;
+import dev.plexusmodloader.game.version.layer.ChannelEndpoint;
+import dev.plexusmodloader.game.version.layer.ConfigurationEndpoint;
+import dev.plexusmodloader.game.version.layer.GameLayerContext;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.BlockEntityRendererDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.HudLayerDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.KeyBindingDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.KeyState;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.ReloadListenerDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.WorldPainterDeclaration;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.client.Camera;
+import net.minecraft.client.CameraType;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.KeyboardHandler;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.MouseHandler;
+import net.minecraft.client.Options;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.GenericMessageScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ClientConfigurationPacketListenerImpl;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.particle.ParticleEngine;
+import net.minecraft.client.particle.SpriteSet;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
+import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.entity.ThrownItemRenderer;
+import net.minecraft.core.particles.ParticleType;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.protocol.game.ClientboundLoginPacket;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.resources.ReloadableResourceManager;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import org.joml.Matrix4f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** Client-only hooks for Minecraft 1.21.1; only rules for the client side point here. */
+public final class ClientHooks {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
+    private static final Set<String> FAILED_LAYERS = ConcurrentHashMap.newKeySet();
+    private static final Set<MenuType<?>> OPENED_MENUS = ConcurrentHashMap.newKeySet();
+    private static volatile boolean keyMappingsAdded;
+    private static volatile boolean hudReported;
+
+    /** Whether {@link ClientEvents#JOINED_WORLD} fired for the current connection. */
+    private static volatile boolean joined;
+
+    private ClientHooks() {}
+
+    /** Head of {@code Options.load()}: adds mod key bindings before saved bindings are read. */
+    public static void onOptionsLoad(Options options) {
+        if (keyMappingsAdded) {
+            return;
+        }
+        LayerState.context().ifPresent(context -> {
+            List<KeyBindingDeclaration> declarations = context.declarations().keyBindings();
+            if (declarations.isEmpty()) {
+                return;
+            }
+            List<KeyMapping> added = new ArrayList<>();
+            for (KeyBindingDeclaration declaration : declarations) {
+                // 1.21.1 categories are translation keys (strings); this is the key 1.21.11 derives for the
+                // category it registers, so a mod's language file serves both versions.
+                KeyMapping mapping = new KeyMapping(
+                        "key." + declaration.id().namespace() + "."
+                                + declaration.id().path(),
+                        declaration.defaultKey(),
+                        "key.category." + declaration.ownerModId() + ".keybinds");
+                declaration.bind().accept(new KeyState() {
+                    @Override
+                    public boolean isDown() {
+                        return mapping.isDown();
+                    }
+
+                    @Override
+                    public boolean consumeClick() {
+                        return mapping.consumeClick();
+                    }
+                });
+                added.add(mapping);
+            }
+            try {
+                KeyMapping[] all = Arrays.copyOf(options.keyMappings, options.keyMappings.length + added.size());
+                for (int i = 0; i < added.size(); i++) {
+                    all[options.keyMappings.length + i] = added.get(i);
+                }
+                Field field = Options.class.getDeclaredField("keyMappings");
+                field.setAccessible(true);
+                field.set(options, all);
+                keyMappingsAdded = true;
+                LOGGER.info("[Plexus Mod Loader] Added {} mod key binding(s) to the controls", added.size());
+            } catch (ReflectiveOperationException e) {
+                LOGGER.error("[Plexus Mod Loader] PLEXUS-CLIENT-004 could not add mod key bindings to the controls", e);
+            }
+        });
+    }
+
+    /** Head of {@code KeyboardHandler.keyPress(long, int, int, int, int)}: {@code ClientEvents.KEY_INPUT}. */
+    public static void onKeyPress(
+            KeyboardHandler handler, long window, int key, int scanCode, int action, int modifiers) {
+        GameLayerContext context = inputListeners(window, ClientEvents.KEY_INPUT);
+        if (context != null) {
+            InputCodes.action(action).ifPresent(keyAction -> {
+                ClientView view = new MinecraftView(Minecraft.getInstance());
+                int code = InputCodes.key(key);
+                context.events().publish(ClientEvents.KEY_INPUT, l -> l.onKeyInput(view, code, keyAction));
+            });
+        }
+    }
+
+    /** Head of {@code MouseHandler.onPress(long, int, int, int)}: {@code ClientEvents.MOUSE_BUTTON}. */
+    public static void onMouseButton(MouseHandler handler, long window, int button, int action, int modifiers) {
+        GameLayerContext context = inputListeners(window, ClientEvents.MOUSE_BUTTON);
+        int number = InputCodes.mouseButton(button);
+        if (context != null && number >= 0) {
+            InputCodes.action(action).ifPresent(keyAction -> {
+                ClientView view = new MinecraftView(Minecraft.getInstance());
+                context.events().publish(ClientEvents.MOUSE_BUTTON, l -> l.onMouseButton(view, number, keyAction));
+            });
+        }
+    }
+
+    /** Head of {@code MouseHandler.onScroll(long, double, double)}: {@code ClientEvents.MOUSE_SCROLL}. */
+    public static void onMouseScroll(MouseHandler handler, long window, double horizontal, double vertical) {
+        GameLayerContext context = inputListeners(window, ClientEvents.MOUSE_SCROLL);
+        if (context != null) {
+            ClientView view = new MinecraftView(Minecraft.getInstance());
+            context.events().publish(ClientEvents.MOUSE_SCROLL, l -> l.onMouseScroll(view, horizontal, vertical));
+        }
+    }
+
+    /**
+     * The context when {@code key} has listeners and the input is for the game window, else null.
+     */
+    private static GameLayerContext inputListeners(long window, EventKey<?> key) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null || !context.events().hasListeners(key)) {
+            return null;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || window != minecraft.getWindow().getWindow()) {
+            return null;
+        }
+        return context;
+    }
+
+    /** Before the return of {@code Minecraft.tick()}. */
+    public static void onClientTick(Minecraft minecraft) {
+        NotLoadedModsScreen.onClientTick(minecraft);
+        LayerState.context().ifPresent(context -> {
+            if (context.events().hasListeners(ClientEvents.TICK)) {
+                ClientView view = new MinecraftView(minecraft);
+                context.events().publish(ClientEvents.TICK, listener -> listener.onClientTick(view));
+            }
+        });
+    }
+
+    /** Before the return of {@code Gui.render(GuiGraphics, DeltaTracker)}. */
+    public static void onRenderHud(Gui gui, GuiGraphics graphics, DeltaTracker deltaTracker) {
+        Minecraft minecraft = Minecraft.getInstance();
+        // F1 hides the HUD through Options.hideGui (javap).
+        if (minecraft.level == null || minecraft.options.hideGui) {
+            return;
+        }
+        LayerState.context().ifPresent(context -> {
+            List<HudLayerDeclaration> layers = context.declarations().hudLayers();
+            if (layers.isEmpty()) {
+                return;
+            }
+            HudCanvas canvas = new Canvas(graphics, minecraft.font);
+            for (HudLayerDeclaration layer : layers) {
+                String id = layer.id().toString();
+                if (FAILED_LAYERS.contains(id)) {
+                    continue;
+                }
+                try {
+                    layer.layer().render(canvas);
+                } catch (RuntimeException | LinkageError e) {
+                    FAILED_LAYERS.add(id);
+                    LOGGER.error(
+                            "[Plexus Mod Loader] PLEXUS-CLIENT-003 HUD layer {} of {} failed and is disabled",
+                            id,
+                            layer.ownerModId(),
+                            e);
+                }
+            }
+            if (!hudReported) {
+                hudReported = true;
+                LOGGER.info("[Plexus Mod Loader] Drawing {} mod HUD layer(s)", layers.size());
+            }
+        });
+    }
+
+    /**
+     * Head of {@code ClientConfigurationPacketListenerImpl.handleCustomPayload}: answers mods'
+     * configuration exchanges; {@code true} when Plexus Mod Loader consumed the payload.
+     */
+    public static boolean onConfigurationPayload(
+            ClientConfigurationPacketListenerImpl listener, CustomPacketPayload payload) {
+        if (!(payload instanceof PlexusPayload plexusPayload)) {
+            return false;
+        }
+        ConfigurationEndpoint exchange = LayerState.configurationExchanges()
+                .get(Views.id(plexusPayload.type().id()));
+        if (exchange == null) {
+            return false;
+        }
+        exchange.answer(plexusPayload.data()).ifPresent(answer -> {
+            listener.send(new ServerboundCustomPayloadPacket(new PlexusPayload(plexusPayload.type(), answer)));
+            LOGGER.info("[Plexus Mod Loader] Answered configuration exchange {}", exchange.id());
+        });
+        return true;
+    }
+
+    /** Head of {@code ClientPacketListener.handleCustomPayload(CustomPacketPayload)}. */
+    public static boolean onClientPayload(ClientPacketListener listener, CustomPacketPayload payload) {
+        if (!(payload instanceof PlexusPayload plexusPayload)) {
+            return false;
+        }
+        ChannelEndpoint endpoint =
+                LayerState.channels().get(Views.id(plexusPayload.type().id()));
+        if (endpoint != null) {
+            Minecraft.getInstance().execute(() -> endpoint.receiveOnClient(plexusPayload.data()));
+        }
+        return true;
+    }
+
+    /**
+     * Head of {@code MenuScreens.create}: opens the screen of a mod menu with its own layout; the
+     * game's menus continue to the game's code.
+     */
+    public static boolean onCreateMenuScreen(MenuType<?> type, Minecraft minecraft, int containerId, Component title) {
+        if (PlexusMenus.layout(type) == null || minecraft.player == null) {
+            return false;
+        }
+        Inventory inventory = minecraft.player.getInventory();
+        PlexusMenu menu = PlexusMenus.createForClient(type, containerId, inventory);
+        minecraft.player.containerMenu = menu;
+        minecraft.setScreen(new PlexusContainerScreen(menu, inventory, title));
+        if (OPENED_MENUS.add(type)) {
+            LOGGER.info(
+                    "[Plexus Mod Loader] Opened mod menu {} with {} slot(s)",
+                    BuiltInRegistries.MENU.getKey(type),
+                    menu.layout().slots().size());
+        }
+        return true;
+    }
+
+    /**
+     * Before the return of {@code ParticleEngine.registerProviders()}: adds providers for mod
+     * particle types, whose sprites the game loads from {@code particles/<path>.json}. The game keeps
+     * the registration method and its factory interface private to the engine.
+     */
+    public static void onRegisterParticleProviders(ParticleEngine engine) {
+        Map<ParticleType<?>, ParticleDefinition> particles = Particles.definitions();
+        if (particles.isEmpty()) {
+            return;
+        }
+        try {
+            Class<?> registration = Class.forName(
+                    ParticleEngine.class.getName() + "$SpriteParticleRegistration",
+                    false,
+                    ParticleEngine.class.getClassLoader());
+            Method register = ParticleEngine.class.getDeclaredMethod("register", ParticleType.class, registration);
+            register.setAccessible(true);
+            for (Map.Entry<ParticleType<?>, ParticleDefinition> entry : particles.entrySet()) {
+                String name = String.valueOf(BuiltInRegistries.PARTICLE_TYPE.getKey(entry.getKey()));
+                Object factory = Proxy.newProxyInstance(
+                        ParticleEngine.class.getClassLoader(),
+                        new Class<?>[] {registration},
+                        (proxy, method, arguments) -> switch (method.getName()) {
+                            case "create" ->
+                                new PlexusParticle.Provider((SpriteSet) arguments[0], entry.getValue(), name);
+                            case "hashCode" -> System.identityHashCode(proxy);
+                            case "equals" -> proxy == arguments[0];
+                            case "toString" -> "PlexusParticleRegistration[" + name + "]";
+                            default -> throw new UnsupportedOperationException(method.getName());
+                        });
+                register.invoke(engine, entry.getKey(), factory);
+            }
+            LOGGER.info("[Plexus Mod Loader] Added {} mod particle provider(s)", particles.size());
+        } catch (ReflectiveOperationException e) {
+            LOGGER.error("[Plexus Mod Loader] PLEXUS-CLIENT-005 cannot add mod particle providers", e);
+        }
+    }
+
+    /** Before the return of {@code BlockEntityRenderers.createEntityRenderers}: adds mod painters. */
+    public static Map<BlockEntityType<?>, BlockEntityRenderer<?>> onCreateBlockEntityRenderers(
+            BlockEntityRendererProvider.Context context, Map<BlockEntityType<?>, BlockEntityRenderer<?>> renderers) {
+        List<BlockEntityRendererDeclaration> declarations = LayerState.context()
+                .map(layer -> layer.declarations().blockEntityRenderers())
+                .orElse(List.of());
+        if (declarations.isEmpty()) {
+            return renderers;
+        }
+        Map<BlockEntityType<?>, BlockEntityRenderer<?>> all = new HashMap<>(renderers);
+        for (BlockEntityRendererDeclaration declaration : declarations) {
+            BlockEntityType<?> type = BuiltInRegistries.BLOCK_ENTITY_TYPE
+                    .getOptional(Views.id(declaration.block()))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "PLEXUS-CLIENT-002 " + declaration.block() + " has no block entity type"));
+            all.put(type, new PlexusBlockEntityRenderer(context, declaration));
+        }
+        LOGGER.info("[Plexus Mod Loader] Added {} mod block entity renderer(s)", declarations.size());
+        return Map.copyOf(all);
+    }
+
+    /**
+     * Head of {@code LevelRenderer.renderLevel}: uploads this frame's mod shader uniforms before the
+     * level draws anything, outside any draw call.
+     */
+    public static void onBeginRenderLevel(
+            LevelRenderer levelRenderer,
+            DeltaTracker deltaTracker,
+            boolean renderBlockOutline,
+            Camera camera,
+            GameRenderer gameRenderer,
+            LightTexture lightTexture,
+            Matrix4f modelMatrix,
+            Matrix4f projectionMatrix) {
+        ModShaderPipelines.uploadUniforms();
+    }
+
+    /**
+     * Before the return of {@code LevelRenderer.renderLevel}: mods' world painters draw this frame's
+     * shapes, camera-relative, with the level's model-view and projection matrices.
+     */
+    public static void onRenderLevel(
+            LevelRenderer levelRenderer,
+            DeltaTracker deltaTracker,
+            boolean renderBlockOutline,
+            Camera camera,
+            GameRenderer gameRenderer,
+            LightTexture lightTexture,
+            Matrix4f modelMatrix,
+            Matrix4f projectionMatrix) {
+        LayerState.context().ifPresent(context -> {
+            List<WorldPainterDeclaration> painters = context.declarations().worldPainters();
+            if (!painters.isEmpty()) {
+                WorldPainting.paint(painters, camera, modelMatrix, deltaTracker.getGameTimeDeltaPartialTick(false));
+            }
+        });
+    }
+
+    /** Before the return of {@code GameRenderer.getFov(Camera, float, boolean)}: mods may change the field of view. */
+    public static double onGetFov(
+            GameRenderer renderer, Camera camera, float partialTicks, boolean useFovSetting, double fov) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null || !context.events().hasListeners(ClientEvents.FIELD_OF_VIEW)) {
+            return fov;
+        }
+        float[] result = {(float) fov};
+        context.events().publish(ClientEvents.FIELD_OF_VIEW, listener -> result[0] = listener.modifyFov(result[0]));
+        return Float.isFinite(result[0]) && result[0] > 0 ? result[0] : fov;
+    }
+
+    /**
+     * Before the return of {@code ReloadableResourceManager(PackType)}: the client's resource manager
+     * gets the mod asset listener.
+     */
+    public static void onResourceManagerCreated(ReloadableResourceManager manager, PackType type) {
+        if (type != PackType.CLIENT_RESOURCES) {
+            return;
+        }
+        List<ReloadListenerDeclaration> assets = LayerState.context()
+                .map(context -> context.declarations().reloadListeners().stream()
+                        .filter(ReloadListenerDeclaration::assets)
+                        .toList())
+                .orElse(List.of());
+        if (!assets.isEmpty()) {
+            manager.registerReloadListener(new ModReloadListener(assets));
+        }
+    }
+
+    /** Before the return of {@code ClientPacketListener.handleLogin}. */
+    public static void onClientLogin(ClientPacketListener listener, ClientboundLoginPacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (joined || minecraft.player == null) {
+            return;
+        }
+        joined = true;
+        SyncChannel.setLocalPlayerCheck(entity -> entity == Minecraft.getInstance().player);
+        LayerState.context()
+                .ifPresent(context -> context.events()
+                        .publish(ClientEvents.JOINED_WORLD, l -> l.onConnection(new MinecraftView(minecraft))));
+    }
+
+    /** Head of {@code Minecraft.disconnect(Screen, boolean)}. */
+    public static void onClientDisconnect(Minecraft minecraft, Screen screen, boolean keepResourcePacks) {
+        if (!joined) {
+            return;
+        }
+        joined = false;
+        try {
+            LayerState.context()
+                    .ifPresent(context -> context.events()
+                            .publish(ClientEvents.LEFT_WORLD, l -> l.onConnection(new MinecraftView(minecraft))));
+        } finally {
+            SyncChannel.clearClientCopies();
+        }
+    }
+
+    /** Sends a packet over the client's connection. */
+    public static void sendToServer(ServerboundCustomPayloadPacket packet) {
+        ClientPacketListener connection = Minecraft.getInstance().getConnection();
+        if (connection == null) {
+            throw new IllegalStateException("Not connected to a server");
+        }
+        connection.send(packet);
+    }
+
+    /** Where 1.21.1 keeps post effect chains: {@code assets/<namespace>/shaders/post/<path>.json}. */
+    private static final String POST_PREFIX = "shaders/post/";
+
+    /** The chain file of a mod-facing post effect ID. */
+    static ResourceId postEffectFile(ResourceId effect) {
+        return ResourceId.of(effect.namespace(), POST_PREFIX + effect.path() + ".json");
+    }
+
+    /** The mod-facing ID of a chain file location, or empty for a file outside {@code shaders/post/}. */
+    static Optional<ResourceId> postEffectId(ResourceId file) {
+        String path = file.path();
+        if (!path.startsWith(POST_PREFIX) || !path.endsWith(".json")) {
+            return Optional.empty();
+        }
+        return Optional.of(ResourceId.of(
+                file.namespace(), path.substring(POST_PREFIX.length(), path.length() - ".json".length())));
+    }
+
+    private record MinecraftView(Minecraft minecraft) implements ClientView {
+
+        @Override
+        public Optional<PlayerView> player() {
+            return Optional.ofNullable(minecraft.player).map(Views::player);
+        }
+
+        @Override
+        public Optional<WorldView> world() {
+            return Optional.ofNullable(minecraft.level).map(Views::world);
+        }
+
+        @Override
+        public void showActionBar(String text) {
+            if (minecraft.player != null) {
+                minecraft.player.displayClientMessage(Component.literal(text), true);
+            }
+        }
+
+        @Override
+        public void openScreen(ModScreen screen) {
+            minecraft.setScreen(new PlexusScreen(screen));
+        }
+
+        @Override
+        public void closeScreen() {
+            minecraft.setScreen(null);
+        }
+
+        @Override
+        public boolean isScreenOpen() {
+            return minecraft.screen != null;
+        }
+
+        @Override
+        public CameraPerspective cameraPerspective() {
+            return switch (minecraft.options.getCameraType()) {
+                case FIRST_PERSON -> CameraPerspective.FIRST_PERSON;
+                case THIRD_PERSON_BACK -> CameraPerspective.THIRD_PERSON_BACK;
+                case THIRD_PERSON_FRONT -> CameraPerspective.THIRD_PERSON_FRONT;
+            };
+        }
+
+        @Override
+        public void setCameraPerspective(CameraPerspective perspective) {
+            minecraft.options.setCameraType(CameraType.valueOf(perspective.name()));
+        }
+
+        /**
+         * 1.21.1 reads the chain from {@code shaders/post/<path>.json}, not 1.21.11's {@code
+         * post_effect/<path>.json}; a missing file returns {@code false} without touching the current effect.
+         */
+        @Override
+        public boolean setPostEffect(ResourceId effect) {
+            ResourceLocation location = Views.id(postEffectFile(effect));
+            if (minecraft.getResourceManager().getResource(location).isEmpty()) {
+                LOGGER.warn("[Plexus Mod Loader] Post effect {} has no file {}", effect, location);
+                return false;
+            }
+            try {
+                Method load = GameRenderer.class.getDeclaredMethod("loadEffect", ResourceLocation.class);
+                load.setAccessible(true);
+                load.invoke(minecraft.gameRenderer, location);
+                Field active = GameRenderer.class.getDeclaredField("effectActive");
+                active.setAccessible(true);
+                // loadEffect logs a failure and leaves effectActive false.
+                return active.getBoolean(minecraft.gameRenderer);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.error("[Plexus Mod Loader] PLEXUS-CLIENT-005 cannot apply post effect {}", effect, e);
+                return false;
+            }
+        }
+
+        @Override
+        public void clearPostEffect() {
+            minecraft.gameRenderer.shutdownEffect();
+        }
+
+        @Override
+        public Optional<ResourceId> postEffect() {
+            if (minecraft.gameRenderer.currentEffect() == null) {
+                return Optional.empty();
+            }
+            try {
+                Field active = GameRenderer.class.getDeclaredField("effectActive");
+                active.setAccessible(true);
+                if (!active.getBoolean(minecraft.gameRenderer)) {
+                    return Optional.empty();
+                }
+            } catch (ReflectiveOperationException e) {
+                return Optional.empty();
+            }
+            ResourceLocation name = ResourceLocation.tryParse(
+                    minecraft.gameRenderer.currentEffect().getName());
+            return name == null ? Optional.empty() : postEffectId(Views.id(name));
+        }
+
+        /** Mirrors {@code PauseScreen}'s disconnect button. */
+        @Override
+        public void leaveWorld() {
+            if (minecraft.level == null) {
+                return;
+            }
+            boolean local = minecraft.isLocalServer();
+            minecraft.level.disconnect();
+            if (local) {
+                minecraft.disconnect(new GenericMessageScreen(Component.translatable("menu.savingLevel")));
+            } else {
+                minecraft.disconnect();
+            }
+            minecraft.setScreen(new TitleScreen());
+        }
+    }
+
+    record Canvas(GuiGraphics graphics, Font font) implements HudCanvas {
+
+        @Override
+        public int width() {
+            return graphics.guiWidth();
+        }
+
+        @Override
+        public int height() {
+            return graphics.guiHeight();
+        }
+
+        @Override
+        public int textWidth(String text) {
+            return font.width(text);
+        }
+
+        @Override
+        public void drawText(String text, int x, int y, int argb) {
+            graphics.drawString(font, text, x, y, argb, true);
+        }
+
+        @Override
+        public void fill(int x1, int y1, int x2, int y2, int argb) {
+            graphics.fill(x1, y1, x2, y2, argb);
+        }
+
+        @Override
+        public void drawTexture(ResourceId texture, int x, int y, int width, int height) {
+            // The whole texture, stretched: a 1x1 region of a 1x1 texture.
+            graphics.blit(Views.id(texture), x, y, width, height, 0.0f, 0.0f, 1, 1, 1, 1);
+        }
+    }
+
+    /** Before the return of {@code EntityRenderers.createEntityRenderers}: adds renderers for mod mobs. */
+    public static Map<EntityType<?>, EntityRenderer<?>> onCreateEntityRenderers(
+            EntityRendererProvider.Context context, Map<EntityType<?>, EntityRenderer<?>> renderers) {
+        Map<EntityType<?>, ResourceId> textures = EntityInstaller.textures();
+        Set<EntityType<?>> projectiles = EntityInstaller.projectileTypes();
+        if (textures.isEmpty() && projectiles.isEmpty()) {
+            return renderers;
+        }
+        Map<EntityType<?>, EntityRenderer<?>> all = new HashMap<>(renderers);
+        Map<EntityType<?>, EntityDefinition> definitions = EntityInstaller.definitions();
+        textures.forEach((type, texture) -> {
+            EntityDefinition definition = definitions.get(type);
+            all.put(
+                    type,
+                    definition != null && definition.model().isPresent()
+                            ? new PlexusModelRenderer(
+                                    context,
+                                    PlexusEntityModel.create(definition.model().get()),
+                                    Views.id(texture),
+                                    definition.width() * 0.5f,
+                                    String.valueOf(BuiltInRegistries.ENTITY_TYPE.getKey(type)))
+                            : new PlexusHumanoidRenderer(context, Views.id(texture)));
+        });
+        projectiles.forEach(type -> all.put(type, new ThrownItemRenderer<>(context)));
+        LOGGER.info("[Plexus Mod Loader] Added {} mod entity renderer(s)", textures.size() + projectiles.size());
+        return Map.copyOf(all);
+    }
+}

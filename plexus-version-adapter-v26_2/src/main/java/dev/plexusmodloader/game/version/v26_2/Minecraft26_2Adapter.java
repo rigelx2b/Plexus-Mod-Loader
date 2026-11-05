@@ -424,6 +424,14 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                         "(Ljava/util/function/BooleanSupplier;)V",
                         new InvokeHookAtHead(GAME_HOOKS, "onLevelTick", HeadHookResult.CONTINUE)),
                 rule(
+                        "plexus:level_tick_end",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerLevel",
+                        "tick",
+                        "(Ljava/util/function/BooleanSupplier;)V",
+                        new InvokeHookBeforeReturn(GAME_HOOKS, "onLevelTickEnd"),
+                        "plexus:level_tick"),
+                rule(
                         "plexus:entity_attributes",
                         ALL_SIDES,
                         "net/minecraft/world/entity/ai/attributes/DefaultAttributes",
@@ -673,6 +681,27 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                         "()V",
                         new InvokeHookBeforeReturn(CLIENT_HOOKS, "onClientTick")),
                 rule(
+                        "plexus:client_key_input",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/KeyboardHandler",
+                        "keyPress",
+                        "(JILnet/minecraft/client/input/KeyEvent;)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onKeyPress", HeadHookResult.CONTINUE)),
+                rule(
+                        "plexus:client_mouse_button",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/MouseHandler",
+                        "onButton",
+                        "(JLnet/minecraft/client/input/MouseButtonInfo;I)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onMouseButton", HeadHookResult.CONTINUE)),
+                rule(
+                        "plexus:client_mouse_scroll",
+                        CLIENT_ONLY,
+                        "net/minecraft/client/MouseHandler",
+                        "onScroll",
+                        "(JDD)V",
+                        new InvokeHookAtHead(CLIENT_HOOKS, "onMouseScroll", HeadHookResult.CONTINUE)),
+                rule(
                         "plexus:client_hud",
                         CLIENT_ONLY,
                         "net/minecraft/client/gui/Hud",
@@ -863,6 +892,18 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                                 "(Ljava/util/function/BooleanSupplier;)V"),
                         new InjectStaticCallAtHead(HOOKS, "onServerTick"),
                         TransformFailurePolicy.DISABLE_RULE),
+                new TransformRuleDefinition(
+                        "plexus:server_tick_end",
+                        "plexus",
+                        GAME_VERSION,
+                        EnumSet.allOf(GameSide.class),
+                        new MethodTarget(
+                                "net/minecraft/server/MinecraftServer",
+                                "tickServer",
+                                "(Ljava/util/function/BooleanSupplier;)V"),
+                        new InvokeHookBeforeReturn(LIFECYCLE_HOOKS, "onServerTickEnd"),
+                        TransformFailurePolicy.DISABLE_RULE,
+                        List.of("plexus:server_tick_events")),
                 // The running server, for Fabric Loader's getGameInstance (Fabric records it when the dedicated
                 // server is built). runServer starts on the server thread before initServer; verified with javap.
                 new TransformRuleDefinition(

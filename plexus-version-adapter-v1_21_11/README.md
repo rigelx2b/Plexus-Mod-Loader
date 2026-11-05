@@ -31,7 +31,7 @@ Verifies rule approval and application on real 1.21.11 (`serverBootSmokeTest -Pp
 
 ## Differences from 26.1
 
-**This is an experimental version** (ADR-0019). Copied from `plexus-version-adapter-v26_1`. The rules whose targets were changed after locating them with `javap` in the remapped 1.21.11 jar are as follows:
+**This is a supported version** (ADR-0033, promoted from experimental; ADR-0019 explains the remapped jar). Copied from `plexus-version-adapter-v26_1`. The rules whose targets were changed after locating them with `javap` in the remapped 1.21.11 jar are as follows:
 
 - `plexus:use_entity`: `Player.interactOn(Entity, InteractionHand)`
 - `plexus:client_hud`: `Gui.render`

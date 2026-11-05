@@ -217,6 +217,11 @@ public final class GameHooks {
         WorldServices.tick(level);
     }
 
+    /** Before each return of {@code ServerLevel.tick(BooleanSupplier)}. */
+    public static void onLevelTickEnd(ServerLevel level, BooleanSupplier hasTimeLeft) {
+        WorldServices.tickEnd(level);
+    }
+
     /**
      * Head of {@code CreativeModeTabs.validate()}: {@code true} skips the game's position check when
      * mod tabs on extra pages share positions with the game's tabs (Plexus Mod Loader checks per page).
