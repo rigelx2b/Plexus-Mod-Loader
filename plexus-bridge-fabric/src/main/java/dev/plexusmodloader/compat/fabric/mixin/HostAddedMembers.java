@@ -15,6 +15,7 @@ import java.lang.classfile.TypeKind;
 import java.lang.classfile.attribute.RuntimeVisibleAnnotationsAttribute;
 import java.lang.classfile.instruction.ArrayLoadInstruction;
 import java.lang.classfile.instruction.ArrayStoreInstruction;
+import java.lang.classfile.instruction.BranchInstruction;
 import java.lang.classfile.instruction.ConstantInstruction;
 import java.lang.classfile.instruction.ConvertInstruction;
 import java.lang.classfile.instruction.FieldInstruction;
@@ -351,6 +352,27 @@ final class HostAddedMembers {
                             "its method " + member + " is a method " + host.hostName() + "'s patch added to "
                                     + targetName + " with the same code; " + targetName
                                     + " keeps its own and the rest of the mixin applies",
+                            false,
+                            "PLEXUS-COMPAT-212",
+                            false));
+                    continue;
+                }
+                Optional<String> guard = unique.isEmpty()
+                        ? guardedByAddedField(method, mixinName, own, targetName, vanilla.get())
+                        : Optional.empty();
+                if (guard.isPresent()) {
+                    ownChanges.add(new Change(name, descriptor));
+                    findings.add(new Finding(
+                            modId,
+                            config,
+                            mixinName,
+                            String.format(
+                                    java.util.Locale.ROOT,
+                                    "its method %1$s is a method %2$s's patch added to %3$s that first checks %4$s and, when that field is null, runs exactly the mixin's code; so the game class keeps the host's method and the rest of the mixin applies",
+                                    member,
+                                    host.hostName(),
+                                    targetName,
+                                    guard.get()),
                             false,
                             "PLEXUS-COMPAT-212",
                             false));
@@ -903,6 +925,78 @@ final class HostAddedMembers {
             }
         }
         return true;
+    }
+
+    /**
+     * The field {@code own} checks first, when the patched {@code own} is the mixin's {@code method} behind a guard on a
+     * field the patch added: {@code if (this.field != null) return this.field.<same name and descriptor>(); <the
+     * mixin's code>} (NeoForge 26.1 adds {@code Ingredient.hashCode()} that way for its custom ingredients, where Fabric
+     * API's mixin adds {@code values.hashCode()}). Where that field is null, which it is for everything the patch did not
+     * make, the patched method runs the mixin's code; keeping the patched method keeps both. Empty otherwise: the mixin's
+     * code must be straight-line, and the guard exactly that shape.
+     */
+    static Optional<String> guardedByAddedField(
+            MethodModel method, String mixinName, MethodModel own, String targetName, ClassModel vanilla) {
+        if (method.flags().has(java.lang.reflect.AccessFlag.STATIC)
+                || own.flags().has(java.lang.reflect.AccessFlag.STATIC)
+                || method.code().isEmpty()
+                || own.code().isEmpty()
+                || !method.code().get().exceptionHandlers().isEmpty()
+                || !own.code().get().exceptionHandlers().isEmpty()) {
+            return Optional.empty();
+        }
+        List<Instruction> mixinCode = instructions(method);
+        if (mixinCode.stream().anyMatch(HostAddedMembers::branches)) {
+            return Optional.empty();
+        }
+        // aload_0, getfield F, ifnull L, aload_0, getfield F, invoke F.<name><descriptor>, return; L: the mixin's code.
+        int guardLength = 7;
+        List<Instruction> ownCode = instructions(own);
+        if (ownCode.size() != guardLength + mixinCode.size()
+                || !(isThis(ownCode.get(0))
+                        && ownCode.get(1) instanceof FieldInstruction checked
+                        && checked.opcode() == Opcode.GETFIELD
+                        && checked.owner().asInternalName().equals(targetName)
+                        && ownCode.get(2) instanceof BranchInstruction ifNull
+                        && ifNull.opcode() == Opcode.IFNULL
+                        && isThis(ownCode.get(3))
+                        && ownCode.get(4) instanceof FieldInstruction read
+                        && read.opcode() == Opcode.GETFIELD
+                        && read.owner().equals(checked.owner())
+                        && read.name().equals(checked.name())
+                        && ownCode.get(5) instanceof InvokeInstruction delegate
+                        && (delegate.opcode() == Opcode.INVOKEINTERFACE || delegate.opcode() == Opcode.INVOKEVIRTUAL)
+                        && delegate.name().equals(method.methodName())
+                        && delegate.type().equals(method.methodType())
+                        && ownCode.get(6) instanceof ReturnInstruction)) {
+            return Optional.empty();
+        }
+        String field = checked.name().stringValue();
+        if (vanilla.fields().stream()
+                .anyMatch(model -> model.fieldName().stringValue().equals(field))) {
+            return Optional.empty();
+        }
+        for (int index = 0; index < mixinCode.size(); index++) {
+            if (!sameInstruction(mixinCode.get(index), ownCode.get(guardLength + index), mixinName, targetName)) {
+                return Optional.empty();
+            }
+        }
+        // The guard's branch lands on the first instruction of the mixin's code (by offset: a class without stack map
+        // frames has no label elements).
+        if (!(own.code().get() instanceof java.lang.classfile.attribute.CodeAttribute attribute)) {
+            return Optional.empty();
+        }
+        int guardBytes = 0;
+        for (int index = 0; index < guardLength; index++) {
+            guardBytes += ownCode.get(index).sizeInBytes();
+        }
+        return attribute.labelToBci(ifNull.target()) == guardBytes ? Optional.of(field) : Optional.empty();
+    }
+
+    private static boolean branches(Instruction instruction) {
+        return instruction instanceof BranchInstruction
+                || instruction instanceof java.lang.classfile.instruction.TableSwitchInstruction
+                || instruction instanceof java.lang.classfile.instruction.LookupSwitchInstruction;
     }
 
     private static boolean sameInstruction(Instruction mixin, Instruction own, String mixinName, String targetName) {

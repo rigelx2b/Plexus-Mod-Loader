@@ -97,13 +97,19 @@ public abstract class RunMinecraftTask extends JavaExec {
                 .plus(getObjects().fileCollection().from(spec.libraries()))
                 .plus(getObjects().fileCollection().from(spec.gameJar())));
         setWorkingDir(runDirectory.toFile());
-        jvmArgs(GameLaunchArguments.jvmArguments(
+        List<String> jvmArguments = GameLaunchArguments.jvmArguments(
                 spec,
                 getLaunchTarget().get(),
                 runDirectory,
                 getDevModJars().getFiles(),
                 GameLaunchArguments.developmentLogConfig(runDirectory),
-                getTransformCacheDirectory().get().getAsFile()));
+                getTransformCacheDirectory().get().getAsFile());
+        // A corpus run lists hundreds of mod jars in plexus.devModJars (CreateProcess error=206 on Windows otherwise).
+        try {
+            jvmArgs(JavaArgumentFile.inFile(jvmArguments, runDirectory.resolve("jvm.args")));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         args(GameLaunchArguments.gameArguments(spec, getGameArgumentOverrides().get(), List.of(), runDirectory));
         super.exec();
     }

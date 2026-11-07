@@ -31,6 +31,28 @@ final class JavaArgumentFile {
         return List.of(command.getFirst(), "@" + file.toAbsolutePath());
     }
 
+    /** Above this many characters, {@link #inFile} moves JVM arguments to a file (Windows allows 32,767 in all). */
+    static final int LONGEST_INLINE = 16_000;
+
+    /**
+     * {@code arguments} as they are, or, when they are longer than {@link #LONGEST_INLINE} characters together, written
+     * to {@code file} and replaced by {@code @file}, which the {@code java} launcher expands wherever it stands among its
+     * options (a {@code JavaExec} task's JVM arguments, before the main class).
+     */
+    static List<String> inFile(List<String> arguments, Path file) throws IOException {
+        int length = arguments.stream().mapToInt(argument -> argument.length() + 1).sum();
+        if (length <= LONGEST_INLINE) {
+            return arguments;
+        }
+        List<String> lines = new ArrayList<>();
+        for (String argument : arguments) {
+            lines.add(quote(argument));
+        }
+        Files.createDirectories(file.toAbsolutePath().getParent());
+        Files.write(file, lines, StandardCharsets.UTF_8);
+        return List.of("@" + file.toAbsolutePath());
+    }
+
     static String quote(String argument) {
         return "\"" + argument.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }

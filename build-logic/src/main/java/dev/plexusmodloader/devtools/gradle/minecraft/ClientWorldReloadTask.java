@@ -97,6 +97,16 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
     @Input
     public abstract ListProperty<String> getSystemProperties();
 
+    /** Extra lines of the client's {@code options.txt}, such as {@code guiScale:2}. */
+    @Input
+    @Optional
+    public abstract ListProperty<String> getGameOptions();
+
+    /** Extra game arguments for the client after {@code --quickPlaySingleplayer}, such as {@code --width 1280}. */
+    @Input
+    @Optional
+    public abstract ListProperty<String> getGameArguments();
+
     @TaskAction
     public void run() throws IOException, InterruptedException {
         MinecraftLaunchSpec spec = MinecraftLaunchSpec.read(getLaunchSpecFile().get().getAsFile().toPath());
@@ -114,10 +124,9 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
         }
         Files.createDirectories(runDirectory.resolve("mods"));
         // A fresh game directory shows the first-launch accessibility screen, which blocks Quick Play.
-        Files.writeString(
-                runDirectory.resolve("options.txt"),
-                "onboardAccessibility:false\ntutorialStep:none\n",
-                StandardCharsets.UTF_8);
+        StringBuilder options = new StringBuilder("onboardAccessibility:false\ntutorialStep:none\n");
+        getGameOptions().getOrElse(List.of()).forEach(option -> options.append(option).append('\n'));
+        Files.writeString(runDirectory.resolve("options.txt"), options.toString(), StandardCharsets.UTF_8);
 
         List<String> command = new ArrayList<>();
         command.add(getJavaLauncher().get().getExecutablePath().getAsFile().getAbsolutePath());
@@ -138,8 +147,9 @@ public abstract class ClientWorldReloadTask extends DefaultTask {
         classpath.add(spec.gameJar());
         command.add(String.join(File.pathSeparator, classpath));
         command.add(RunMinecraftTask.BOOTSTRAP_MAIN_CLASS);
-        command.addAll(GameLaunchArguments.gameArguments(
-                spec, List.of(), List.of("--quickPlaySingleplayer", getWorldName().get()), runDirectory));
+        List<String> extraArguments = new ArrayList<>(List.of("--quickPlaySingleplayer", getWorldName().get()));
+        extraArguments.addAll(getGameArguments().getOrElse(List.of()));
+        command.addAll(GameLaunchArguments.gameArguments(spec, List.of(), extraArguments, runDirectory));
 
         Set<String> remaining = ConcurrentHashMap.newKeySet();
         remaining.addAll(getExpectedOutput().get());

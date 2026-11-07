@@ -95,6 +95,11 @@ final class StartupWindow implements GameWindowListener {
         step(0.2f, String.format(Locale.ROOT, "Starting %s", loader));
     }
 
+    /** A line about a step of the launch the player waits for, such as a download. */
+    void status(String line) {
+        window.status(line);
+    }
+
     void discovered(int modFiles) {
         step(0.15f, String.format(Locale.ROOT, "Found %d mod files", modFiles));
     }
