@@ -38,6 +38,8 @@ import java.util.function.ToIntFunction;
  * @param shape the outline the player aims at, by state, or empty for a full block
  * @param collisionShape what entities collide with, by state, or empty for the same as {@code shape};
  *     ignored without {@code collision}
+ * @param igniteOdds how readily fire next to the block catches on it (wood planks 5, wool 30), 0 for not flammable
+ * @param burnOdds how fast fire destroys the block once it burns (planks 20, wool 60, leaves 60), 0 for not flammable
  */
 @ApiStability(StabilityLevel.PREVIEW)
 public record BlockDefinition(
@@ -57,7 +59,9 @@ public record BlockDefinition(
         Optional<BlockEntityDefinition> blockEntity,
         Optional<ToIntFunction<BlockStateView>> lightByState,
         Optional<Function<BlockStateView, BlockShape>> shape,
-        Optional<Function<BlockStateView, BlockShape>> collisionShape) {
+        Optional<Function<BlockStateView, BlockShape>> collisionShape,
+        int igniteOdds,
+        int burnOdds) {
 
     public BlockDefinition {
         if (hardness < 0 && hardness != -1) {
@@ -81,6 +85,13 @@ public record BlockDefinition(
         Objects.requireNonNull(lightByState, "lightByState");
         Objects.requireNonNull(shape, "shape");
         Objects.requireNonNull(collisionShape, "collisionShape");
+        if (igniteOdds < 0 || igniteOdds > 300 || burnOdds < 0 || burnOdds > 300) {
+            throw new IllegalArgumentException(
+                    "igniteOdds and burnOdds must be 0-300: " + igniteOdds + ", " + burnOdds);
+        }
+        if ((igniteOdds == 0) != (burnOdds == 0)) {
+            throw new IllegalArgumentException("a flammable block needs both igniteOdds and burnOdds above 0");
+        }
         var names = new HashSet<String>();
         for (BlockProperty<?> property : properties) {
             if (!names.add(property.name())) {
@@ -113,6 +124,8 @@ public record BlockDefinition(
         private float friction = 0.6f;
         private boolean collision = true;
         private boolean occludes = true;
+        private int igniteOdds;
+        private int burnOdds;
         private BlockBehavior behavior = new BlockBehavior() {};
         private Optional<ItemDefinition> item =
                 Optional.of(ItemDefinition.builder().build());
@@ -255,6 +268,20 @@ public record BlockDefinition(
             return this;
         }
 
+        /**
+         * Makes the block flammable like wood or wool: fire spreads onto it and burns it away. The odds are the
+         * game's: {@code igniteOdds} (planks 5, logs 5, wool 30, leaves 30, grass 60) and {@code burnOdds} (planks
+         * 20, logs 5, wool 60, leaves 60, grass 100), each 1–300. Like Fabric API's {@code FlammableBlockRegistry}.
+         */
+        public Builder flammable(int igniteOdds, int burnOdds) {
+            if (igniteOdds < 1 || burnOdds < 1) {
+                throw new IllegalArgumentException("igniteOdds and burnOdds must be above 0");
+            }
+            this.igniteOdds = igniteOdds;
+            this.burnOdds = burnOdds;
+            return this;
+        }
+
         /** Creates the definition; invalid values throw {@link IllegalArgumentException}. */
         public BlockDefinition build() {
             return new BlockDefinition(
@@ -274,7 +301,9 @@ public record BlockDefinition(
                     blockEntity,
                     lightByState,
                     shape,
-                    collisionShape);
+                    collisionShape,
+                    igniteOdds,
+                    burnOdds);
         }
     }
 }

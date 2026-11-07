@@ -4,12 +4,15 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import dev.plexusmodloader.api.worldgen.BiomeSelector;
 import dev.plexusmodloader.game.layer.v1_20_1.entity.EntityInstaller;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.FeatureDeclaration;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import net.minecraft.core.Holder;
@@ -44,12 +47,17 @@ final class WorldgenModifier {
 
     private WorldgenModifier() {}
 
-    static void apply(RegistryAccess registries, List<FeatureDeclaration> features) {
-        if (features.isEmpty()) {
+    static void apply(
+            RegistryAccess registries,
+            List<FeatureDeclaration> features,
+            List<NativeDeclarations.FeatureRemovalDeclaration> removals) {
+        if (features.isEmpty() && removals.isEmpty()) {
             return;
         }
         Registry<Biome> biomes = registries.registryOrThrow(Registries.BIOME);
         Registry<PlacedFeature> placed = registries.registryOrThrow(Registries.PLACED_FEATURE);
+        // A removal naming an unknown placed feature is logged once, not once per matching biome.
+        Set<NativeDeclarations.FeatureRemovalDeclaration> unknownFeatures = new HashSet<>();
         Field featuresField;
         try {
             featuresField = BiomeGenerationSettings.class.getDeclaredField("features");
@@ -60,6 +68,37 @@ final class WorldgenModifier {
         int changedBiomes = 0;
         for (Holder.Reference<Biome> biome : biomes.holders().toList()) {
             List<HolderSet<PlacedFeature>> steps = null;
+            // Removals run first, so that a mod can replace a feature by removing it and adding its own.
+            for (NativeDeclarations.FeatureRemovalDeclaration removal : removals) {
+                if (!matches(biome, removal.biomes())) {
+                    continue;
+                }
+                var found = placed.getHolder(
+                        ResourceKey.create(Registries.PLACED_FEATURE, Views.id(removal.placedFeature())));
+                if (found.isEmpty()) {
+                    if (unknownFeatures.add(removal)) {
+                        LOGGER.warn(
+                                "[Plexus Mod Loader] PLEXUS-WORLDGEN-007 mod {} removes placed feature {}, which is"
+                                        + " not registered; skipped",
+                                removal.ownerModId(),
+                                removal.placedFeature());
+                    }
+                    continue;
+                }
+                if (steps == null) {
+                    steps = new ArrayList<>(
+                            biome.value().getGenerationSettings().features());
+                }
+                int step =
+                        GenerationStep.Decoration.valueOf(removal.step().name()).ordinal();
+                if (step < steps.size()) {
+                    List<Holder<PlacedFeature>> inStep =
+                            new ArrayList<>(steps.get(step).stream().toList());
+                    if (inStep.remove(found.get())) {
+                        steps.set(step, HolderSet.direct(inStep));
+                    }
+                }
+            }
             for (FeatureDeclaration feature : features) {
                 if (!matches(biome, feature.biomes())) {
                     continue;
@@ -138,10 +177,14 @@ final class WorldgenModifier {
      * Adds naturally spawning mod mobs to the spawn lists of matching biomes. The lists live in a
      * private final map of {@link MobSpawnSettings}; this replaces that map on the server's biomes.
      */
-    static void applySpawns(RegistryAccess registries, List<EntityInstaller.SpawnEntry> spawns) {
-        if (spawns.isEmpty()) {
+    static void applySpawns(
+            RegistryAccess registries,
+            List<EntityInstaller.SpawnEntry> spawns,
+            List<NativeDeclarations.SpawnRemovalDeclaration> removals) {
+        if (spawns.isEmpty() && removals.isEmpty()) {
             return;
         }
+        List<RemovedSpawn> removed = resolveRemovals(removals);
         Field spawnersField;
         try {
             spawnersField = MobSpawnSettings.class.getDeclaredField("spawners");
@@ -154,17 +197,24 @@ final class WorldgenModifier {
                 registries.registryOrThrow(Registries.BIOME).holders().toList()) {
             MobSpawnSettings settings = biome.value().getMobSettings();
             Map<MobCategory, List<MobSpawnSettings.SpawnerData>> lists = null;
+            // Removals run first, so that a mod can replace a spawn by removing it and adding its own.
+            for (RemovedSpawn gone : removed) {
+                if (!matches(biome, gone.biomes())) {
+                    continue;
+                }
+                if (lists == null) {
+                    lists = copyLists(settings);
+                }
+                for (List<MobSpawnSettings.SpawnerData> list : lists.values()) {
+                    list.removeIf(data -> data.type == gone.type());
+                }
+            }
             for (EntityInstaller.SpawnEntry spawn : spawns) {
                 if (!matches(biome, spawn.spawn().biomes())) {
                     continue;
                 }
                 if (lists == null) {
-                    lists = new EnumMap<>(MobCategory.class);
-                    for (MobCategory category : MobCategory.values()) {
-                        lists.put(
-                                category,
-                                new ArrayList<>(settings.getMobs(category).unwrap()));
-                    }
+                    lists = copyLists(settings);
                 }
                 lists.get(spawn.category())
                         .add(new MobSpawnSettings.SpawnerData(
@@ -186,6 +236,67 @@ final class WorldgenModifier {
             }
         }
         LOGGER.info("[Plexus Mod Loader] Added {} natural spawn(s) to {} biome(s)", spawns.size(), changedBiomes);
+    }
+
+    private static Map<MobCategory, List<MobSpawnSettings.SpawnerData>> copyLists(MobSpawnSettings settings) {
+        Map<MobCategory, List<MobSpawnSettings.SpawnerData>> lists = new EnumMap<>(MobCategory.class);
+        for (MobCategory category : MobCategory.values()) {
+            lists.put(category, new ArrayList<>(settings.getMobs(category).unwrap()));
+        }
+        return lists;
+    }
+
+    private record RemovedSpawn(BiomeSelector biomes, net.minecraft.world.entity.EntityType<?> type) {}
+
+    /** Looks up the entity types of the removal declarations; a type that is not registered is logged and skipped. */
+    private static List<RemovedSpawn> resolveRemovals(List<NativeDeclarations.SpawnRemovalDeclaration> removals) {
+        List<RemovedSpawn> resolved = new ArrayList<>();
+        for (NativeDeclarations.SpawnRemovalDeclaration removal : removals) {
+            var id = Views.id(removal.entityType());
+            if (!net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
+                LOGGER.warn(
+                        "[Plexus Mod Loader] PLEXUS-WORLDGEN-007 mod {} removes the spawn of entity type {}, which is"
+                                + " not registered; skipped",
+                        removal.ownerModId(),
+                        removal.entityType());
+                continue;
+            }
+            resolved.add(new RemovedSpawn(
+                    removal.biomes(), net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(id)));
+        }
+        return resolved;
+    }
+
+    /**
+     * The natural spawns of the mod's own entity types plus the spawns mods declared for any entity type
+     * ({@code WorldgenRegistrar.addSpawn}), as one list. A declared type that is not registered is logged and skipped.
+     */
+    static List<EntityInstaller.SpawnEntry> withDeclared(
+            List<EntityInstaller.SpawnEntry> own, List<NativeDeclarations.SpawnDeclaration> declared) {
+        if (declared.isEmpty()) {
+            return own;
+        }
+        List<EntityInstaller.SpawnEntry> all = new ArrayList<>(own);
+        for (NativeDeclarations.SpawnDeclaration declaration : declared) {
+            var id = Views.id(declaration.spawn().type());
+            if (!net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
+                LOGGER.warn(
+                        "[Plexus Mod Loader] PLEXUS-WORLDGEN-006 mod {} adds a spawn of entity type {}, which is not"
+                                + " registered; skipped",
+                        declaration.ownerModId(),
+                        declaration.spawn().type());
+                continue;
+            }
+            all.add(new EntityInstaller.SpawnEntry(
+                    net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(id),
+                    EntityInstaller.category(declaration.spawn().category()),
+                    new dev.plexusmodloader.api.content.entity.NaturalSpawn(
+                            declaration.biomes(),
+                            declaration.spawn().weight(),
+                            declaration.spawn().minGroup(),
+                            declaration.spawn().maxGroup())));
+        }
+        return all;
     }
 
     private static boolean matches(Holder.Reference<Biome> biome, BiomeSelector selector) {

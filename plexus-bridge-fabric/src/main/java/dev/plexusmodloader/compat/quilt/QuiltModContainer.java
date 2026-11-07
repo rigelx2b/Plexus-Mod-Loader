@@ -1,9 +1,7 @@
 package dev.plexusmodloader.compat.quilt;
 
-import java.io.IOException;
+import dev.plexusmodloader.compat.fabric.loader.SharedJarFileSystems;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Supplier;
@@ -15,7 +13,8 @@ import org.quiltmc.loader.api.ModMetadata;
  *
  * <ul>
  *   <li>{@link #rootPath()} is the root of the mod's jar, opened as a zip file system the first time it is asked for and
- *       kept open for the rest of the game, as the Fabric bridge's containers do. Mods the host loader runs get their
+ *       kept open for the rest of the game, as the Fabric bridge's containers do; the file system is shared with every
+ *       other container of the same jar, the outer jar of nested mods included ({@link SharedJarFileSystems}). Mods the host loader runs get their
  *       jar root too: 26.x has no Quilt resource loader (QSL) that would make a second resource pack of it. A built-in
  *       mod without a jar ({@code java}, {@code quilt_loader}) has an empty directory.
  *   <li>{@link #getSourcePaths()} is {@code [[jar]]} for a mod installed directly and {@code [[outer jar, entry inside
@@ -73,9 +72,7 @@ public final class QuiltModContainer implements ModContainer {
     @Override
     public synchronized Path rootPath() {
         if (root == null) {
-            root = jar == null
-                    ? emptyRoot.get()
-                    : open(jar).getRootDirectories().iterator().next();
+            root = jar == null ? emptyRoot.get() : open(jar);
         }
         return root;
     }
@@ -88,11 +85,7 @@ public final class QuiltModContainer implements ModContainer {
             } else if (containerJar == null) {
                 sourcePaths = List.of(List.of(jar));
             } else {
-                Path inside = open(containerJar)
-                        .getRootDirectories()
-                        .iterator()
-                        .next()
-                        .resolve(nestedEntry);
+                Path inside = open(containerJar).resolve(nestedEntry);
                 sourcePaths = List.of(List.of(containerJar, inside));
             }
         }
@@ -109,11 +102,12 @@ public final class QuiltModContainer implements ModContainer {
         return classLoader;
     }
 
-    private FileSystem open(Path file) {
+    /** The root of {@code file}'s zip file system, shared with every other container of that jar. */
+    private Path open(Path file) {
         try {
-            return FileSystems.newFileSystem(file);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot open " + file + " for mod " + metadata.id(), e);
+            return SharedJarFileSystems.root(file);
+        } catch (UncheckedIOException e) {
+            throw new UncheckedIOException("Cannot open " + file + " for mod " + metadata.id(), e.getCause());
         }
     }
 

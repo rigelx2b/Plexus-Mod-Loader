@@ -56,6 +56,13 @@ val fabricLoaderApiClasses = listOf(
     "net/fabricmc/loader/impl/util/UrlUtil*",
     "net/fabricmc/loader/impl/util/UrlConversionException*",
     "net/fabricmc/loader/impl/util/SystemProperties*",
+    // The data classes behind Fabric Loader's error window (a mod such as ModernFix fills a FabricStatusTree and hands it
+    // to FabricGuiEntry, which the bridge provides itself: no window). FormattedException and Localization (with its
+    // message bundles) are what the tree's addCleanedException refers to.
+    "net/fabricmc/loader/impl/gui/FabricStatusTree*",
+    "net/fabricmc/loader/impl/FormattedException*",
+    "net/fabricmc/loader/impl/util/Localization*",
+    "net/fabricmc/loader/Messages*.properties",
     "LICENSE_fabric-loader",
 )
 val fabricLoaderApi = tasks.register<Sync>("fabricLoaderApi") {

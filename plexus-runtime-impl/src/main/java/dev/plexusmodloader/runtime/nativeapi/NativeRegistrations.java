@@ -126,6 +126,13 @@ public final class NativeRegistrations implements NativeDeclarations {
     private final List<PermissionProvider> permissionProviders = new ArrayList<>();
     private final Set<String> permissionIds = new HashSet<>();
     private final List<FeatureDeclaration> features = new ArrayList<>();
+    private final List<NativeDeclarations.SpawnDeclaration> spawns = new ArrayList<>();
+    private final List<NativeDeclarations.SpawnRemovalDeclaration> spawnRemovals = new ArrayList<>();
+    private final List<NativeDeclarations.VillagerTradeRemovalDeclaration> villagerTradeRemovals = new ArrayList<>();
+    private final List<NativeDeclarations.WanderingTradeRemovalDeclaration> wanderingTradeRemovals = new ArrayList<>();
+    private final List<NativeDeclarations.FeatureRemovalDeclaration> featureRemovals = new ArrayList<>();
+    private final List<NativeDeclarations.VillagerTradeDeclaration> villagerTrades = new ArrayList<>();
+    private final List<NativeDeclarations.WanderingTradeDeclaration> wanderingTrades = new ArrayList<>();
     private final List<CommandDeclaration> commands = new ArrayList<>();
     private final List<ChannelEndpoint> channels = new ArrayList<>();
     private final List<ConfigurationExchangeImpl<?>> configurationExchanges = new ArrayList<>();
@@ -286,6 +293,41 @@ public final class NativeRegistrations implements NativeDeclarations {
     }
 
     @Override
+    public List<NativeDeclarations.VillagerTradeRemovalDeclaration> villagerTradeRemovals() {
+        return List.copyOf(villagerTradeRemovals);
+    }
+
+    @Override
+    public List<NativeDeclarations.WanderingTradeRemovalDeclaration> wanderingTradeRemovals() {
+        return List.copyOf(wanderingTradeRemovals);
+    }
+
+    @Override
+    public List<NativeDeclarations.SpawnRemovalDeclaration> spawnRemovals() {
+        return List.copyOf(spawnRemovals);
+    }
+
+    @Override
+    public List<NativeDeclarations.FeatureRemovalDeclaration> featureRemovals() {
+        return List.copyOf(featureRemovals);
+    }
+
+    @Override
+    public List<NativeDeclarations.SpawnDeclaration> spawns() {
+        return List.copyOf(spawns);
+    }
+
+    @Override
+    public List<NativeDeclarations.VillagerTradeDeclaration> villagerTrades() {
+        return List.copyOf(villagerTrades);
+    }
+
+    @Override
+    public List<NativeDeclarations.WanderingTradeDeclaration> wanderingTrades() {
+        return List.copyOf(wanderingTrades);
+    }
+
+    @Override
     public List<CommandDeclaration> commands() {
         return List.copyOf(commands);
     }
@@ -375,7 +417,8 @@ public final class NativeRegistrations implements NativeDeclarations {
                     NetworkRegistrar,
                     GameTestRegistrar,
                     ClientRegistrar,
-                    WorldgenRegistrar {
+                    WorldgenRegistrar,
+                    dev.plexusmodloader.api.trade.TradeRegistrar {
 
         private final String modId;
 
@@ -629,6 +672,73 @@ public final class NativeRegistrations implements NativeDeclarations {
             Objects.requireNonNull(placedFeature, "placedFeature");
             checkOpen("PLEXUS-WORLDGEN-002", "Feature " + placedFeature);
             features.add(new FeatureDeclaration(modId, biomes, step, placedFeature));
+        }
+
+        @Override
+        public void addVillagerTrade(ResourceId profession, int level, dev.plexusmodloader.api.trade.TradeOffer offer) {
+            Objects.requireNonNull(profession, "profession");
+            Objects.requireNonNull(offer, "offer");
+            if (level < MIN_LEVEL || level > MAX_LEVEL) {
+                throw new IllegalArgumentException(
+                        "PLEXUS-TRADE-003 level must be from " + MIN_LEVEL + " to " + MAX_LEVEL + ": " + level);
+            }
+            checkOpen("PLEXUS-TRADE-002", "Villager trade " + profession);
+            villagerTrades.add(new NativeDeclarations.VillagerTradeDeclaration(modId, profession, level, offer));
+        }
+
+        @Override
+        public void removeVillagerTrades(ResourceId profession, int level, ResourceId result) {
+            Objects.requireNonNull(profession, "profession");
+            Objects.requireNonNull(result, "result");
+            if (level != 0 && (level < MIN_LEVEL || level > MAX_LEVEL)) {
+                throw new IllegalArgumentException(
+                        "PLEXUS-TRADE-003 level must be 0 or from " + MIN_LEVEL + " to " + MAX_LEVEL + ": " + level);
+            }
+            checkOpen("PLEXUS-TRADE-002", "Villager trade removal " + profession);
+            villagerTradeRemovals.add(
+                    new NativeDeclarations.VillagerTradeRemovalDeclaration(modId, profession, level, result));
+        }
+
+        @Override
+        public void removeWanderingTrades(ResourceId result) {
+            Objects.requireNonNull(result, "result");
+            checkOpen("PLEXUS-TRADE-002", "Wandering trader trade removal " + result);
+            wanderingTradeRemovals.add(new NativeDeclarations.WanderingTradeRemovalDeclaration(modId, result));
+        }
+
+        @Override
+        public void addWanderingTrade(dev.plexusmodloader.api.trade.TradeOffer offer, boolean rare) {
+            Objects.requireNonNull(offer, "offer");
+            checkOpen("PLEXUS-TRADE-002", "Wandering trader trade");
+            wanderingTrades.add(new NativeDeclarations.WanderingTradeDeclaration(modId, rare, offer));
+        }
+
+        @Override
+        public void addSpawn(BiomeSelector biomes, dev.plexusmodloader.api.worldgen.BiomeSpawn spawn) {
+            Objects.requireNonNull(biomes, "biomes");
+            Objects.requireNonNull(spawn, "spawn");
+            checkOpen("PLEXUS-WORLDGEN-002", "Spawn " + spawn.type());
+            spawns.add(new NativeDeclarations.SpawnDeclaration(modId, biomes, spawn));
+        }
+
+        @Override
+        public void removeSpawn(BiomeSelector biomes, ResourceId entityType) {
+            Objects.requireNonNull(biomes, "biomes");
+            Objects.requireNonNull(entityType, "entityType");
+            checkOpen("PLEXUS-WORLDGEN-002", "Spawn removal " + entityType);
+            spawnRemovals.add(new NativeDeclarations.SpawnRemovalDeclaration(modId, biomes, entityType));
+        }
+
+        @Override
+        public void removeFeature(
+                BiomeSelector biomes,
+                dev.plexusmodloader.api.worldgen.GenerationStepName step,
+                ResourceId placedFeature) {
+            Objects.requireNonNull(biomes, "biomes");
+            Objects.requireNonNull(step, "step");
+            Objects.requireNonNull(placedFeature, "placedFeature");
+            checkOpen("PLEXUS-WORLDGEN-002", "Feature removal " + placedFeature);
+            featureRemovals.add(new NativeDeclarations.FeatureRemovalDeclaration(modId, biomes, step, placedFeature));
         }
 
         @Override

@@ -15,13 +15,13 @@ Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.
 | Plexus 모드 | 검증됨 | Native API로 작성된 모드입니다. |
 | Fabric 모드 | 검증됨 | 진입점, Fabric Loader API, 중첩 JAR, Mixin, MixinExtras, 클래스 트위커를 지원합니다. Fabric Loader 내부 클래스는 실제 모드가 사용하는 항목만 제공됩니다. |
 | Quilt 모드 | 검증됨 | `quilt.mod.json`, Quilt Loader API, Mixin, 액세스 와이드너를 지원합니다. Quilt Standard Libraries (QSL)는 이 버전용 릴리스가 없으므로 QSL이 필요한 모드는 제외됩니다. |
-| NeoForge 모드 | 검증됨 | NeoForge 자체 FML 11을 실행합니다(26.3에서 `26.3.0.98`, 26.2에서 `26.2.0.93`). 26.1 이전 버전은 제외됩니다(`PLEXUS-COMPAT-216`). |
-| Forge 모드 | 검증됨 | Forge 자체를 실행합니다(26.3에서 `66.1.0`, 26.2에서 `65.1.5`). 26.1 이전 버전은 제외됩니다(`PLEXUS-COMPAT-206`). |
+| NeoForge 모드 | 검증됨 | NeoForge 자체 FML 11을 실행합니다(26.3에서 `26.3.0.98`, 26.2에서 `26.2.0.93`). 1.20.4, 1.21.1, 1.21.11에서는 NeoForge `20.4.253`, `21.1.265`, `21.11.48`을 실행합니다(헤드리스, 2.1.0). 1.20.1용 NeoForge는 없습니다(`PLEXUS-COMPAT-216`). |
+| Forge 모드 | 검증됨 | Forge 자체를 실행합니다(26.3에서 `66.1.0`, 26.2에서 `65.1.5`). 1.20.1, 1.20.4, 1.21.1, 1.21.11에서는 Forge `47.4.28`, `49.2.13`, `52.1.21`, `61.2.5`를 실행합니다(헤드리스, 2.1.0). |
 | Forge 또는 NeoForge와 함께 사용하는 Fabric 또는 Quilt | 일부 지원 | Mixin이 패치된 게임과 맞지 않는 Fabric 또는 Quilt 모드는 제외되며(`PLEXUS-COMPAT-224`), 해당 모드를 필요로 하는 모드도 함께 제외됩니다. |
 
 - **혼용:** Fabric 모드와 Quilt 모드는 서로 함께, 그리고 Plexus 모드와도 함께 실행됩니다. Forge 모드와 NeoForge 모드는 각각 고유한 방식으로 게임 클래스를 패치하므로 한 게임에서 함께 사용할 수 없습니다(`PLEXUS-COMPAT-221`).
 - **`검증됨`의 의미:** 단순 로드가 아니라 실제 실행을 거쳤음을 뜻합니다. Modrinth의 실제 인기 모드로 클라이언트에서 저장된 월드에 진입해 틱을 진행하고 저장 후 종료하며, 전용 서버를 시작합니다. 호환성 표기는 이러한 실행 결과를 근거로 합니다: [호환성 레퍼런스](https://www.plexusmc.net/docs/reference/compatibility/).
-- **26.1 이전 버전(1.20.1, 1.20.4, 1.21.1, 1.21.11):** Plexus 모드는 실행됩니다. Fabric의 intermediary 이름은 아직 번역하지 않으므로 이 버전들에 나온 Fabric·Quilt 모드 대부분은 이유와 함께 빠지고(`PLEXUS-COMPAT-112`, `PLEXUS-COMPAT-126`), Forge·NeoForge 모드는 지원하지 않습니다(`PLEXUS-COMPAT-206`, `PLEXUS-COMPAT-216`). Modrinth의 실제 Fabric 모드는 헤드리스 실행(게임 테스트 서버와 전용 서버)으로만 확인했습니다. Quilt 모드는 실제 모드 묶음이 아니라 `compatibilityMatrix`의 테스트 모드로만 확인했습니다. 게임 창을 여는 실행은 이 버전들에서 아직 하지 않았습니다.
+- **26.1 이전 버전(1.20.1, 1.20.4, 1.21.1, 1.21.11):** Plexus 모드는 실행됩니다. Fabric·Quilt 모드의 intermediary 이름은 플레이어 PC에서 Mojang 이름으로 한 번 번역하므로(2.1.0), 인기 모드 대부분이 로드됩니다. 맞지 않는 모드는 이유와 함께 빠집니다. Forge·NeoForge 모드도 각자의 로더로 실행됩니다(2.1.0, 위 표 참고). 이 실행들은 헤드리스입니다(게임 테스트 서버, 전용 서버, 실제 Modrinth 모드 묶음). 게임 창을 여는 실행은 이 버전들에서 아직 하지 않았습니다.
 
 ## 설치
 
@@ -96,9 +96,9 @@ cd Plexus-Mod-Loader
 
 ## 라이선스
 
-**Mozilla Public License 2.0** 라이선스가 적용됩니다([`LICENSE`](LICENSE) 참고). Copyright 2026 _xyrz 및 Plexus Mod Loader 기여자.
+**MIT License**가 적용됩니다([`LICENSE`](LICENSE) 참고). Copyright 2026 _xyrz 및 Plexus Mod Loader 기여자.
 
-- 상업적 이용을 포함한 모든 목적으로 Plexus Mod Loader를 사용, 연구, 수정 및 재배포할 수 있습니다. 수정본을 배포하는 경우, 변경한 MPL 파일에는 MPL 2.0이 그대로 유지되며 해당 소스를 공개해야 합니다. 직접 새로 작성한 파일에는 어떤 라이선스든 사용할 수 있습니다.
+- 모든 사본 또는 상당 부분에 저작권 및 라이선스 고지를 유지하는 한, 상업적 이용과 비공개 소스 배포를 포함한 모든 목적으로 Plexus Mod Loader를 사용, 복제, 수정, 병합, 게시, 배포, 재라이선스 및 판매할 수 있습니다. 1.1.0 이후부터 2.0.0까지의 릴리스는 MPL-2.0이 그대로 유지됩니다.
 - Plexus Mod Loader를 사용하는 모드, 모드팩, 런처는 각자 자체 라이선스를 선택할 수 있습니다. `templates/`에는 MIT No Attribution 라이선스가 적용됩니다([`templates/LICENSE`](templates/LICENSE) 참고).
 - 이 라이선스는 "Plexus"와 "Plexus Mod Loader"라는 명칭 및 로고에는 적용되지 않으며, 수정본에는 별도의 이름을 사용해야 합니다([`TRADEMARKS.md`](TRADEMARKS.md) 참고).
 - 서드파티 구성 요소: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

@@ -14,6 +14,7 @@ import dev.plexusmodloader.compat.fabric.BundledVersions;
 import dev.plexusmodloader.compat.fabric.ClassTweakerCheck;
 import dev.plexusmodloader.compat.fabric.FabricBridge;
 import dev.plexusmodloader.compat.fabric.MixinConfigCheck;
+import dev.plexusmodloader.compat.fabric.intermediary.IntermediaryTranslations;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -107,6 +108,17 @@ public final class QuiltBridge implements ModLoaderBridge {
         packages.add("org/quiltmc/loader/impl/game/GameProvider");
         packages.add("org/quiltmc/loader/impl/util/DefaultLanguageAdapter");
         return List.copyOf(packages);
+    }
+
+    /**
+     * The jar to use in place of {@code modJar} on a Minecraft version before 26.1 (ADR-0037): the same translation
+     * from Fabric's intermediary names to Mojang's names as {@link FabricBridge#prepareJar}, since Quilt mods built
+     * with {@code net.fabricmc:intermediary} name the game the same way.
+     */
+    @Override
+    public PreparedJar prepareJar(java.nio.file.Path modJar) {
+        IntermediaryTranslations.Prepared prepared = IntermediaryTranslations.prepare(modJar);
+        return new PreparedJar(prepared.jar(), prepared.findings());
     }
 
     @Override

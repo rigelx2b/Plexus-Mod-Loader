@@ -410,7 +410,8 @@ final class HostPatchAdjustments {
             List.of(),
             HostAddedMembers.NONE,
             HostRenamedLocals.NONE,
-            HostRenumberedClasses.NONE);
+            HostRenumberedClasses.NONE,
+            HostRefmapNames.NONE);
 
     /** Every mixin class of the checked configurations (internal names). */
     private final Set<String> mixins;
@@ -443,6 +444,9 @@ final class HostPatchAdjustments {
     /** Mixin targets the patch renumbered ({@link HostRenumberedClasses}). */
     private final HostRenumberedClasses renumbered;
 
+    /** Names the mods' reference maps give the strings of their injectors ({@link HostRefmapNames}). */
+    private final HostRefmapNames referenceMapped;
+
     private HostPatchAdjustments(
             Set<String> mixins,
             Map<String, List<Retarget>> retargets,
@@ -464,7 +468,8 @@ final class HostPatchAdjustments {
             List<Finding> findings,
             HostAddedMembers members,
             HostRenamedLocals locals,
-            HostRenumberedClasses renumbered) {
+            HostRenumberedClasses renumbered,
+            HostRefmapNames referenceMapped) {
         this.mixins = mixins;
         this.retargets = retargets;
         this.methodRetargets = methodRetargets;
@@ -486,6 +491,7 @@ final class HostPatchAdjustments {
         this.members = members;
         this.locals = locals;
         this.renumbered = renumbered;
+        this.referenceMapped = referenceMapped;
     }
 
     List<Finding> findings() {
@@ -533,6 +539,7 @@ final class HostPatchAdjustments {
         HostAddedMembers.Planner members = new HostAddedMembers.Planner(host, classes);
         HostRenamedLocals.Planner locals = new HostRenamedLocals.Planner(host, classes);
         HostRenumberedClasses.Planner renumbering = new HostRenumberedClasses.Planner(classes);
+        HostRefmapNames.Planner referenceMapped = new HostRefmapNames.Planner();
         // Types that left-out mixins would have given the game (their interfaces; accessor mixins themselves), and the
         // mixins that stay, for the injections that use those types (ADR-0026 39) and for coupled state (ADR-0026 32).
         Map<String, String> leftOutTypes = new LinkedHashMap<>();
@@ -547,12 +554,15 @@ final class HostPatchAdjustments {
                 continue;
             }
             try (JarFile file = new JarFile(jar.toFile())) {
+                Map<String, Map<String, String>> referenceMap = HostRefmapNames.read(file, config);
                 for (Map.Entry<String, String> mixin :
                         mixinClasses(file, config, side).entrySet()) {
                     byte[] bytes = read(file, mixin.getValue() + ".class");
                     if (bytes == null) {
                         continue;
                     }
+                    // The strings of the injectors are compared with the game as the reference map names them.
+                    bytes = referenceMapped.resolve(mixin.getValue(), bytes, referenceMap);
                     mixins.add(mixin.getValue());
                     ClassModel model = ClassFile.of().parse(bytes);
                     Map<String, String> renumbered = renumbering.check(model);
@@ -778,7 +788,8 @@ final class HostPatchAdjustments {
                 List.copyOf(findings),
                 members.build(),
                 locals.build(),
-                renumbering.build());
+                renumbering.build(),
+                referenceMapped.build());
     }
 
     /** A mixin that stays in its configuration, with the injections already known not to run. */
@@ -807,6 +818,7 @@ final class HostPatchAdjustments {
         if (!mixins.contains(internalName)) {
             return bytes;
         }
+        bytes = referenceMapped.apply(internalName, bytes);
         bytes = renumbered.apply(internalName, bytes);
         bytes = members.apply(internalName, bytes);
         List<Retarget> own = retargets.getOrDefault(internalName, List.of());

@@ -16,8 +16,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutionException;
+import java.util.prefs.Preferences;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
@@ -80,7 +82,7 @@ final class InstallerWindow {
     private final JComboBox<Language> languages;
     private final boolean[] advancedOpen = {false};
     private final Runnable refresh;
-    private final JComboBox<String> version;
+    private final VersionPicker version;
     private final JTextField directory;
     private final JTextField serverDirectory;
     private final JCheckBox profile;
@@ -134,8 +136,11 @@ final class InstallerWindow {
         targets.add(client);
         targets.add(server);
 
-        version = new JComboBox<>(payload.minecraftVersions().toArray(String[]::new));
-        version.setSelectedItem(payload.newestMinecraftVersion());
+        // The versions come from the payload; the picker searches and groups them and preselects the newest.
+        version = new VersionPicker(
+                new VersionFilter(payload.minecraftVersions(), payload.newestMinecraftVersion()),
+                text,
+                RecentVersions.load(preferences(), payload.minecraftVersions()));
         directory = new JTextField(MinecraftDirectories.defaultDirectory().toString(), FIELD_COLUMNS);
         serverDirectory = new JTextField(
                 Path.of(System.getProperty("user.home"), "Plexus Mod Loader Server")
@@ -165,6 +170,8 @@ final class InstallerWindow {
         closeWhenDone = new JCheckBox(text("closeWhenDone"), true);
         install = new JButton(text("install"));
         install.addActionListener(event -> run(true));
+        // Enter in the version list installs, as the default button does everywhere else in the window.
+        version.onEnterInList(install::doClick);
         uninstall = new JButton(text("uninstall"));
         uninstall.addActionListener(event -> run(false));
         log = new JTextArea(6, FIELD_COLUMNS);
@@ -193,7 +200,7 @@ final class InstallerWindow {
         JPanel launcherFolder = folderField(directory);
         // Every control is as wide as a folder field, so the window keeps its width when rows appear or disappear.
         int controlWidth = Math.max(serverFolder.getPreferredSize().width, launcherFolder.getPreferredSize().width);
-        for (JComponent control : List.of(targets, version, maximumMemory, minimumMemory)) {
+        for (JComponent control : List.of(targets, version.component(), maximumMemory, minimumMemory)) {
             control.setPreferredSize(new Dimension(controlWidth, control.getPreferredSize().height));
         }
 
@@ -202,7 +209,7 @@ final class InstallerWindow {
         rows.wide(top, new Insets(0, 0, 14, 0));
         rows.add(targetLabel, targets);
         rows.add(serverLabel, serverFolder);
-        rows.add(versionLabel, version);
+        rows.add(versionLabel, version.component());
         rows.add(memoryLabel, maximumMemory);
         rows.add(null, memoryHint, new Insets(0, 0, 4, 0));
         List<JComponent> advancedRows = List.of(
@@ -337,7 +344,8 @@ final class InstallerWindow {
         InstallerWindow next = new InstallerWindow(payload, chosen);
         next.client.setSelected(client.isSelected());
         next.server.setSelected(server.isSelected());
-        next.version.setSelectedItem(version.getSelectedItem());
+        next.version.setQuery(version.query());
+        version.selectedVersion().ifPresent(next.version::select);
         next.directory.setText(directory.getText());
         next.serverDirectory.setText(serverDirectory.getText());
         next.profile.setSelected(profile.isSelected());
@@ -361,6 +369,11 @@ final class InstallerWindow {
         return text.get(key);
     }
 
+    /** The player's user preferences, where the recently installed versions are kept. */
+    private static Preferences preferences() {
+        return Preferences.userNodeForPackage(InstallerWindow.class);
+    }
+
     private void chooseDirectory(JTextField field) {
         JFileChooser chooser = new JFileChooser(field.getText());
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -372,7 +385,12 @@ final class InstallerWindow {
     private void run(boolean installing) {
         boolean isServer = !client.isSelected();
         Path folder = Path.of((isServer ? serverDirectory : directory).getText().strip());
-        String minecraft = (String) version.getSelectedItem();
+        Optional<String> chosen = version.selectedVersion();
+        if (chosen.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, text("versionChoose"), text("minecraft"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String minecraft = chosen.get();
         JavaMemory memory;
         try {
             memory = installing && (isServer || profile.isSelected())
@@ -422,6 +440,9 @@ final class InstallerWindow {
                 try {
                     List<String> warnings = get();
                     warnings.forEach(warning -> log.append("! " + warning + "\n"));
+                    if (installing) {
+                        RecentVersions.remember(preferences(), payload.minecraftVersions(), minecraft);
+                    }
                     succeeded(installing, isServer, folder, minecraft, warnings);
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause();
@@ -554,6 +575,11 @@ final class InstallerWindow {
         languages.setEnabled(!busy);
     }
 
+    /** The strings of {@code language}, for the test that every language has every string. */
+    static Map<String, String> texts(Language language) {
+        return language == Language.KOREAN ? KOREAN : ENGLISH;
+    }
+
     private static final Map<String, String> ENGLISH = Map.ofEntries(
             Map.entry("title", "Plexus Mod Loader %s installer"),
             Map.entry("target", "Install for"),
@@ -571,6 +597,13 @@ final class InstallerWindow {
                             + " the mods folder."),
             Map.entry("openFolder", "Open folder"),
             Map.entry("minecraft", "Minecraft version"),
+            Map.entry("versionSearch", "Search versions, such as 1.21 or 26.x"),
+            Map.entry("versionSeries", "%s series"),
+            Map.entry("versionDefault", "default"),
+            Map.entry("shortcutDefault", "Default %s"),
+            Map.entry("shortcutRecent", "Recent:"),
+            Map.entry("versionNone", "No Minecraft version matches \"%s\". Clear the search to see all %d versions."),
+            Map.entry("versionChoose", "Choose a Minecraft version from the list first."),
             Map.entry("directory", "Launcher folder"),
             Map.entry("browse", "Browse…"),
             Map.entry("profile", "Create a launcher profile"),
@@ -622,6 +655,13 @@ final class InstallerWindow {
                             + " 폴더에 넣습니다."),
             Map.entry("openFolder", "폴더 열기"),
             Map.entry("minecraft", "Minecraft 버전"),
+            Map.entry("versionSearch", "버전 검색 (예: 1.21, 26.x)"),
+            Map.entry("versionSeries", "%s 계열"),
+            Map.entry("versionDefault", "기본"),
+            Map.entry("shortcutDefault", "기본 %s"),
+            Map.entry("shortcutRecent", "최근:"),
+            Map.entry("versionNone", "\"%s\"에 맞는 Minecraft 버전이 없습니다. 검색어를 지우면 %d개 버전이 모두 보입니다."),
+            Map.entry("versionChoose", "먼저 목록에서 Minecraft 버전을 고르세요."),
             Map.entry("directory", "런처 폴더"),
             Map.entry("browse", "찾아보기…"),
             Map.entry("profile", "런처 프로필 만들기"),

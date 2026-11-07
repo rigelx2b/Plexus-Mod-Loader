@@ -31,7 +31,7 @@ tasks.test {
 }
 
 // Like every other published jar (plexus.java-conventions), the plugin jar carries the license and the third-party
-// notices, which say where the source is (MPL 2.0 section 3.2); verifySdkRepository checks it.
+// notices (the MIT License asks every copy to carry its notice); verifySdkRepository checks it.
 tasks.jar {
     from(files("../LICENSE", "../THIRD_PARTY_NOTICES.md")) {
         into("META-INF")

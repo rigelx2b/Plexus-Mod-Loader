@@ -49,7 +49,33 @@ class ModCorpusAssessmentTest {
     @ParameterizedTest
     @EnumSource(GameSide.class)
     void everyRealModIsLoadedOrBlockedWithAReason(GameSide side) throws IOException {
+        assessGroup(side, "");
+    }
+
+    /**
+     * The corpus as a player installs it: only the jars of the {@code fabric/} folder, and only those of {@code
+     * quilt/}. The combined run above puts every loader's folder into one game, so a mod that has a build for several
+     * loaders appears twice ({@code PLEXUS-COMPAT-117}) and everything that needs it is blocked with it; this run shows
+     * what is left once that corpus artefact is gone. Written to {@code corpus-assessment-<side>-<loader>.json}.
+     */
+    @ParameterizedTest
+    @EnumSource(GameSide.class)
+    void everyRealModOfOneLoaderIsLoadedOrBlockedWithAReason(GameSide side) throws IOException {
         Path corpus = Path.of(System.getProperty("plexus.corpus"));
+        for (String loader : List.of("fabric", "quilt")) {
+            if (Files.isDirectory(corpus.resolve(loader))) {
+                assessGroup(side, loader);
+            }
+        }
+    }
+
+    /**
+     * @param group the folder of the corpus to assess ({@code fabric}, {@code quilt}), empty for every jar below it
+     */
+    private void assessGroup(GameSide side, String group) throws IOException {
+        Path corpus = Path.of(System.getProperty("plexus.corpus"));
+        Path scanned = group.isEmpty() ? corpus : corpus.resolve(group);
+        String suffix = group.isEmpty() ? "" : "-" + group;
         JsonObject spec = JsonParser.parseString(Files.readString(
                         Path.of(System.getProperty(
                                 side == GameSide.CLIENT ? "plexus.clientSpec" : "plexus.serverSpec")),
@@ -57,17 +83,20 @@ class ModCorpusAssessmentTest {
                 .getAsJsonObject();
         String gameVersion = spec.get("gameVersion").getAsString();
         Path gameJar = Path.of(spec.get("gameJar").getAsString());
+        System.setProperty("plexus.gameJar", gameJar.toString());
+        System.setProperty(
+                "plexus.reportDir", corpus.resolveSibling("translated").toString());
         List<URL> libraries = new ArrayList<>();
         for (var library : spec.getAsJsonArray("libraries")) {
             libraries.add(Path.of(library.getAsString()).toUri().toURL());
         }
         List<Path> jars;
-        try (Stream<Path> files = Files.walk(corpus)) {
+        try (Stream<Path> files = Files.walk(scanned)) {
             jars = files.filter(file -> file.toString().endsWith(".jar"))
                     .sorted()
                     .toList();
         }
-        assertFalse(jars.isEmpty(), "no jars in " + corpus + "; run :plexus-bootstrap:modCorpus first");
+        assertFalse(jars.isEmpty(), "no jars in " + scanned + "; run :plexus-bootstrap:modCorpus first");
 
         try (URLClassLoader platform = new URLClassLoader(
                         libraries.toArray(URL[]::new), getClass().getClassLoader());
@@ -96,8 +125,8 @@ class ModCorpusAssessmentTest {
             }
 
             // Nested jars are extracted next to the corpus and assessed as mods of their own.
-            NestedJarExtractor nested =
-                    new NestedJarExtractor(bridges, corpus.resolveSibling(corpus.getFileName() + "-nested"), side);
+            NestedJarExtractor nested = new NestedJarExtractor(
+                    bridges, corpus.resolveSibling(corpus.getFileName() + "-nested" + suffix), side);
             // Interfaces any corpus mod injects are known before any mod is checked, as in the runtime.
             List<ForeignModResolver.ForeignMod> everyMod =
                     nested.expand(foreign).mods();
@@ -170,7 +199,7 @@ class ModCorpusAssessmentTest {
                             .count());
             summary.add("mods", report);
             Path out = Path.of(System.getProperty("plexus.corpusReport"))
-                    .resolve("corpus-assessment-" + side.name().toLowerCase(java.util.Locale.ROOT) + ".json");
+                    .resolve("corpus-assessment-" + side.name().toLowerCase(java.util.Locale.ROOT) + suffix + ".json");
             Files.createDirectories(out.getParent());
             Files.writeString(
                     out,

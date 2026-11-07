@@ -27,6 +27,16 @@ The Plexus installer is built and distributed as a single JAR across all platfor
    - Automatically configures the libraries, launch scripts, and mods folder (`mods/`) required to run a dedicated server in the specified directory.
 4. **Automatic Optimal Memory Allocation Calculation:**
    - Detects physical system memory capacity and automatically configures the recommended JVM heap memory (`-Xmx`) in the profile.
+5. **Finding a Minecraft version fast (window):**
+   - A search box above the version list narrows it as you type: `1.21` shows `1.21.11` and `1.21.1`, `26.x` shows every 26 version, `1.x` every version of Minecraft's `1.` line. Case, spaces and a leading `v` do not matter.
+   - The list is grouped by series, newest first (`26.x`, `1.21.x`, `1.20.x`, ...). The series come from the version numbers; nothing is named in code, so a new version in `gradle/minecraft-versions.properties` appears in its series by itself.
+   - The default version (the newest the installer offers) is selected at start and shown in bold with a "default" tag.
+   - Keyboard only: type to search, Up/Down move through the versions (series headings are skipped, also in the list), Enter in the search box moves to the list, Escape clears the search, Tab goes on to the next control, Enter in the list installs.
+   - When nothing matches, a line says so and how many versions the installer offers; Install then asks for a version first.
+   - A click on a series heading folds or unfolds that series while the search is empty. The series of the chosen version stays open, so the choice is never hidden.
+   - Below the list, the default version and up to three recently installed versions are one-click shortcuts (the recent ones are kept in the player's user preferences, after a successful install).
+   - Switching the language keeps the search text and the chosen version.
+   - The command line (`install`, `install-server`, `--minecraft`) behaves as before. For a version it does not support, the error line also suggests the supported versions it contains (`--minecraft 1.21` suggests `1.21.11, 1.21.1`, newest first); the exit code is still 1.
 
 ---
 
@@ -40,7 +50,7 @@ Their game jars use short obfuscated names, so the installer remaps them to Moja
 
 1. It downloads Mojang's version data, the game jar and Mojang's own mappings (`client_mappings` or `server_mappings`) from the addresses in Mojang's version JSON, and checks each by the SHA-1 Mojang lists. A missing, damaged or changed file stops the install with a message; nothing of Plexus Mod Loader is written then.
 2. It remaps the jar with ASM (about 5 to 15 seconds), checks the result (no obfuscated class name left, no duplicate member, `version.json` kept) and fails if that check fails.
-3. It caches the result by the jar's SHA-1, the mappings' SHA-1 and the remapper revision, so installing again takes the cached jar.
+3. It caches the result by the jar's SHA-1, the mappings' SHA-1 and the remapper revision, so installing again takes the cached jar. The two SHA-1 values are the ones the download was just checked against, so the key does not hash the jar and the mappings a second and third time (the cache key text is unchanged, so earlier caches stay valid).
 
 Where the files go:
 
@@ -77,4 +87,7 @@ The remap needs little memory (measured: a 1.21.11 client install completes with
 ## 5. Module Structure
 
 - **`dev.plexusmodloader.installer`**: Java Swing GUI window, CLI parser, profile JSON generator, library validator, and for versions before 26.1 the downloads (`VerifiedDownloads`), Mojang mappings parser (`MojangMappings`), ASM remapper (`MojangJarRemapper`) and its cache and check (`RemappedGameJar`, `ClientGameRemap`).
-- Icons are drawn in code by `ProfileIcon`, and English and Korean text strings are located in `InstallerWindow.Language` (no separate resource files).
+- **`VersionFilter`** (no Swing): orders the offered versions, groups them by series, decides what a search text matches and which version a search selects first. Unit-tested in `VersionFilterTest`.
+- **`VersionPicker`** (Swing): the search box, the grouped list, the folding of series, the "nothing matches" line, the shortcut buttons and the keyboard handling, drawn from `VersionFilter` rows. Tested headless in `VersionPickerTest`.
+- **`RecentVersions`**: the recently installed versions, parsed and updated without preferences (`parse`, `with`, `encode`, tested in `RecentVersionsTest`); the window stores them in `Preferences` after a successful install.
+- Icons are drawn in code by `ProfileIcon`, and English and Korean text strings are located in `InstallerWindow.Language` (no separate resource files). `InstallerWindowTextTest` fails when a language lacks a string another one has: add every new string to all languages.

@@ -35,7 +35,9 @@ public final class ClassTweakerCheck {
      *
      * <ul>
      *   <li>{@code PLEXUS-COMPAT-125}: the file is missing, unreadable, or has lines the loader refuses
-     *   <li>{@code PLEXUS-COMPAT-126}: its namespace is not {@code official}; the game has no other names
+     *   <li>{@code PLEXUS-COMPAT-126}: its namespace is not {@code official}; the game has no other names. On
+     *       Minecraft before 26.1 an {@code intermediary} file is translated before this check, when the mod jar is
+     *       prepared ({@code IntermediaryTranslations}, ADR-0037), so it arrives here as {@code official}
      *   <li>{@code PLEXUS-COMPAT-129} (not blocking): what will be widened, which interfaces and enum constants are
      *       added (the bridge adds them when the classes load, before Mixin, as Fabric Loader does; ADR-0020)
      * </ul>
@@ -86,7 +88,12 @@ public final class ClassTweakerCheck {
                     "class tweaker",
                     path + " names classes in the '" + header.namespace() + "' namespace; the game runs"
                             + " with Mojang's names ('" + ClassTweakerFile.RUNTIME_NAMESPACE + "') and there are no"
-                            + " mappings to translate other names, so " + loaderName + " refuses it too"));
+                            + " mappings to translate other names, so " + loaderName + " refuses it too"
+                            + (header.namespace().equals("intermediary")
+                                    ? ". On Minecraft before 26.1 Plexus Mod Loader translates an 'intermediary' file"
+                                            + " when it prepares the mod jar (ADR-0037); this one reached the check"
+                                            + " untranslated, so the mappings were not available for it"
+                                    : "")));
             blocked = true;
         }
         if (blocked || header == null) {

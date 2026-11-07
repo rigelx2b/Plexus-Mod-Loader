@@ -140,7 +140,8 @@ final class NeoForgeInstallation {
             JsonObject profile = ForgeInstallation.json(jar, "install_profile.json");
             String universalName = "net.neoforged:neoforge:" + release.neoForgeVersion() + ":universal";
             for (JsonElement element : profile.getAsJsonArray("libraries")) {
-                if (element.getAsJsonObject().get("name").getAsString().equals(universalName)) {
+                if (withoutExtension(element.getAsJsonObject().get("name").getAsString())
+                        .equals(universalName)) {
                     universal = library(jar, element.getAsJsonObject(), libraryDirectory, downloader, log);
                 }
             }
@@ -151,6 +152,57 @@ final class NeoForgeInstallation {
                 gameArguments.add(argument.getAsString());
             }
 
+            Optional<NeoForgeInstallerTools.Plan> renaming = NeoForgeInstallerTools.plan(profile, sideName);
+            if (renaming.isPresent()) {
+                // An obfuscated Minecraft version (NeoForge 21.11, ADR-0038): NeoForge's own tool renames the
+                // obfuscated
+                // jar and patches it; the jar Plexus Mod Loader remapped is not the one the patches check.
+                buildRenamed(
+                        renaming.get(),
+                        jar,
+                        profile,
+                        release,
+                        side,
+                        vanillaGame,
+                        directory,
+                        libraryDirectory,
+                        patched,
+                        downloader,
+                        log);
+                return new Prepared(
+                        release,
+                        directory,
+                        libraryDirectory,
+                        patched,
+                        universal,
+                        libraries,
+                        List.copyOf(gameArguments));
+            }
+            Optional<ForgeInstallerTools.Plan> classic = ForgeInstallerTools.plan(profile, sideName);
+            if (classic.isPresent()) {
+                // NeoForge 21.1 and 20.4 (ADR-0043): the installer renames the obfuscated jar with its own tools and
+                // applies classic LZMA binary patches (Forge's format), not the patch bundle of NeoForge 21.11.
+                buildClassic(
+                        classic.get(),
+                        jar,
+                        profile,
+                        release,
+                        side,
+                        vanillaGame,
+                        directory,
+                        libraryDirectory,
+                        patched,
+                        downloader,
+                        log);
+                return new Prepared(
+                        release,
+                        directory,
+                        libraryDirectory,
+                        patched,
+                        universal,
+                        libraries,
+                        List.copyOf(gameArguments));
+            }
             ZipEntry patches = jar.getEntry("data/client.lzma");
             if (patches == null) {
                 throw new IOException("NeoForge's installer has no data/client.lzma");
@@ -175,6 +227,193 @@ final class NeoForgeInstallation {
         }
         return new Prepared(
                 release, directory, libraryDirectory, patched, universal, libraries, List.copyOf(gameArguments));
+    }
+
+    /**
+     * Makes the patched game jar of an obfuscated version with NeoForge's own {@code installertools} (see {@link
+     * NeoForgeInstallerTools}), unless the cached one was made from the same obfuscated jar, mappings and installer.
+     *
+     * @param remappedGame the jar Plexus Mod Loader remapped to Mojang names, from which the obfuscated jar and the
+     *     mappings it was made from are found ({@link ObfuscatedGameFiles})
+     */
+    private static void buildRenamed(
+            NeoForgeInstallerTools.Plan plan,
+            JarFile installer,
+            JsonObject profile,
+            Release release,
+            GameSide side,
+            Path remappedGame,
+            Path directory,
+            Path libraryDirectory,
+            Path patched,
+            ForgeInstallation.Downloader downloader,
+            Consumer<String> log)
+            throws IOException {
+        ObfuscatedGameFiles obfuscated = ObfuscatedGameFiles.locate(remappedGame, side, release.minecraftVersion())
+                .orElseThrow(() -> new IOException("NeoForge " + release.neoForgeVersion()
+                        + " patches the obfuscated Minecraft jar renamed by its own tool, but the obfuscated jar and"
+                        + " Mojang's mappings that " + remappedGame.getFileName() + " was made from were not found"
+                        + " next to it"));
+        Path stamp = patched.resolveSibling(patched.getFileName() + ".input");
+        String input = ForgeInstallation.sha1(obfuscated.jar()) + " " + ForgeInstallation.sha1(obfuscated.mappings())
+                + " " + release.installerSha1();
+        if (Files.isRegularFile(patched)
+                && Files.isRegularFile(stamp)
+                && Files.readString(stamp).strip().equals(input)) {
+            return;
+        }
+        Path tools = profileLibrary(installer, profile, plan.toolsLibrary(), libraryDirectory, downloader, log);
+        Path neoformData = profileLibrary(installer, profile, plan.neoformData(), libraryDirectory, downloader, log);
+        ZipEntry patchEntry = installer.getEntry(plan.patches());
+        if (patchEntry == null) {
+            throw new IOException("NeoForge's installer has no " + plan.patches());
+        }
+        Path patches = directory.resolve(plan.patches());
+        Files.createDirectories(patches.getParent());
+        ForgeInstallation.copy(installer, patchEntry, patches);
+        Files.deleteIfExists(stamp);
+        NeoForgeInstallerTools.run(
+                tools, obfuscated.jar(), obfuscated.mappings(), neoformData, patches, libraryDirectory, patched, log);
+        Files.writeString(stamp, input);
+    }
+
+    /**
+     * Makes the patched game jar of NeoForge 21.1 / 20.4 the way Forge's is made: NeoForge's own tools rename the
+     * obfuscated jar ({@link ForgeInstallerTools}, the profile's steps), then the classic binary patches of {@code
+     * data/<side>.lzma} apply ({@link ForgePatchSet}). Kept unless the obfuscated jar, mappings or installer changed.
+     */
+    private static void buildClassic(
+            ForgeInstallerTools.Plan plan,
+            JarFile installer,
+            JsonObject profile,
+            Release release,
+            GameSide side,
+            Path remappedGame,
+            Path directory,
+            Path libraryDirectory,
+            Path patched,
+            ForgeInstallation.Downloader downloader,
+            Consumer<String> log)
+            throws IOException {
+        String sideName = side == GameSide.CLIENT ? "client" : "server";
+        ObfuscatedGameFiles obfuscated = ObfuscatedGameFiles.locate(remappedGame, side, release.minecraftVersion())
+                .orElseThrow(() -> new IOException("NeoForge " + release.neoForgeVersion()
+                        + " patches the obfuscated Minecraft jar renamed by its own tool, but the obfuscated jar that "
+                        + remappedGame.getFileName() + " was made from was not found next to it"));
+        ZipEntry patchEntry = installer.getEntry("data/" + sideName + ".lzma");
+        if (patchEntry == null) {
+            throw new IOException("NeoForge's installer has no data/" + sideName + ".lzma");
+        }
+        Path stamp = patched.resolveSibling(patched.getFileName() + ".input");
+        String input = ForgeInstallation.sha1(obfuscated.jar()) + " " + release.installerSha1();
+        if (Files.isRegularFile(patched)
+                && Files.isRegularFile(stamp)
+                && Files.readString(stamp).strip().equals(input)) {
+            layOutForFml4(profile, sideName, patched, libraryDirectory);
+            return;
+        }
+        Files.deleteIfExists(stamp);
+        Path renamed = directory.resolve("minecraft-" + sideName + "-official.jar");
+        ForgeInstallerTools.run(
+                plan,
+                release.minecraftVersion(),
+                sideName,
+                obfuscated.jar(),
+                renamed,
+                directory.resolve("tools"),
+                name -> profileLibrary(installer, profile, name, libraryDirectory, downloader, log),
+                log);
+        ForgePatchSet patchSet;
+        try (InputStream in = installer.getInputStream(patchEntry)) {
+            patchSet = ForgePatchSet.read(in);
+        }
+        patchSet.patch(renamed, patched);
+        Files.writeString(stamp, input);
+        log.accept("Built " + patched.getFileName() + " (" + patchSet.size() + " NeoForge patches, "
+                + patchSet.newClasses() + " new classes)");
+        layOutForFml4(profile, sideName, patched, libraryDirectory);
+    }
+
+    /**
+     * Puts the game where FML 4's production handlers look for it, as NeoForge's installer does: {@code MC_SRG} (the
+     * renamed game, {@code net.minecraft:<side>:<version>:srg}), {@code MC_EXTRA} and {@code PATCHED} ({@code
+     * net.neoforged:neoforge:<version>:<side>}) under the libraries folder. The installer keeps the renamed classes, the
+     * other files and NeoForge's patched classes in three jars; here the first is the whole patched game ({@code
+     * patched}) and the other two are empty, which FML reads as the same game.
+     */
+    static void layOutForFml4(JsonObject profile, String sideName, Path patched, Path libraryDirectory)
+            throws IOException {
+        JsonObject data = profile.getAsJsonObject("data");
+        Path srg = coordinatePath(
+                libraryDirectory, data.getAsJsonObject("MC_SRG").get(sideName).getAsString());
+        long size = Files.size(patched);
+        if (!Files.isRegularFile(srg) || Files.size(srg) != size) {
+            Files.createDirectories(srg.getParent());
+            Files.copy(patched, srg, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        for (String key : List.of("MC_EXTRA", "PATCHED")) {
+            Path empty = coordinatePath(
+                    libraryDirectory, data.getAsJsonObject(key).get(sideName).getAsString());
+            if (!Files.isRegularFile(empty)) {
+                Files.createDirectories(empty.getParent());
+                try (java.util.zip.ZipOutputStream zip =
+                        new java.util.zip.ZipOutputStream(Files.newOutputStream(empty))) {
+                    zip.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"));
+                    zip.write("Manifest-Version: 1.0\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+            }
+        }
+    }
+
+    /**
+     * The file of a Maven coordinate of the installer profile in {@code [group:artifact:version:classifier]} form (with
+     * {@code @extension} optional), in the libraries folder layout.
+     */
+    static Path coordinatePath(Path libraryDirectory, String coordinate) {
+        String value = coordinate.startsWith("[") && coordinate.endsWith("]")
+                ? coordinate.substring(1, coordinate.length() - 1)
+                : coordinate;
+        String extension = "jar";
+        int at = value.indexOf('@');
+        if (at >= 0) {
+            extension = value.substring(at + 1);
+            value = value.substring(0, at);
+        }
+        String[] parts = value.split(":");
+        if (parts.length < 3) {
+            throw new IllegalArgumentException("Not a Maven coordinate: " + coordinate);
+        }
+        String file = parts[1] + "-" + parts[2] + (parts.length > 3 ? "-" + parts[3] : "") + "." + extension;
+        return libraryDirectory
+                .resolve(parts[0].replace('.', '/'))
+                .resolve(parts[1])
+                .resolve(parts[2])
+                .resolve(file);
+    }
+
+    /** The entry of {@code install_profile.json}'s {@code libraries} named {@code name}, downloaded and checked. */
+    static Path profileLibrary(
+            JarFile installer,
+            JsonObject profile,
+            String name,
+            Path libraryDirectory,
+            ForgeInstallation.Downloader downloader,
+            Consumer<String> log)
+            throws IOException {
+        for (JsonElement element : profile.getAsJsonArray("libraries")) {
+            if (withoutExtension(element.getAsJsonObject().get("name").getAsString())
+                    .equals(withoutExtension(name))) {
+                return library(installer, element.getAsJsonObject(), libraryDirectory, downloader, log);
+            }
+        }
+        throw new IOException("NeoForge's installer does not list " + name);
+    }
+
+    /** A Maven coordinate without its {@code @jar} extension: NeoForge 20.4's profile names its libraries with one. */
+    static String withoutExtension(String coordinate) {
+        int at = coordinate.indexOf('@');
+        return at < 0 ? coordinate : coordinate.substring(0, at);
     }
 
     /**
@@ -233,7 +472,7 @@ final class NeoForgeInstallation {
     }
 
     /** Downloads (or copies from the installer) one library entry of {@code version.json} or the install profile. */
-    private static Path library(
+    static Path library(
             JarFile installer,
             JsonObject library,
             Path libraryDirectory,

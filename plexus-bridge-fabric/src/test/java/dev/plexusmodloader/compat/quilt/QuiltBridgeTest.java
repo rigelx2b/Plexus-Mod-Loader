@@ -747,8 +747,14 @@ class QuiltBridgeTest {
     @Test
     void builtInModsVersionsAndPackages() {
         assertEquals("0.31.0-beta.4", bridge.builtInMods().get("quilt_loader"));
-        assertEquals("0.19.5", bridge.builtInMods().get("fabricloader"));
-        assertEquals("0.5.5", bridge.builtInMods().get("mixinextras"));
+        // The versions the catalogue pins (BundledVersions), not a literal: raising Fabric Loader must not need this
+        // test.
+        assertEquals(
+                dev.plexusmodloader.compat.fabric.BundledVersions.FABRIC_LOADER,
+                bridge.builtInMods().get("fabricloader"));
+        assertEquals(
+                dev.plexusmodloader.compat.fabric.BundledVersions.MIXIN_EXTRAS,
+                bridge.builtInMods().get("mixinextras"));
         assertTrue(bridge.compareVersions("1.10.0", "1.9.0") > 0);
         assertTrue(bridge.compareVersions("1.0.0-beta.2", "1.0.0") < 0);
         assertEquals(List.of("quilt.mod.json", "fabric.mod.json"), bridge.nestedMetadataPaths());

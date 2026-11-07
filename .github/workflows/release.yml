@@ -1,0 +1,110 @@
+# Publishes a release when a version tag is pushed to the public repository:
+#   git tag v2.1.0 && git push origin v2.1.0
+# The installer jar is built here, from the tagged public source, and gets a signed build provenance attestation
+# (actions/attest, Sigstore), so anyone can check that a downloaded jar came from this workflow and this commit:
+#   gh attestation verify PlexusModLoader-<version>.jar --repo xyrz47-spec/Plexus-Mod-Loader
+# The tag must match plexus.version in gradle.properties, and CHANGELOG.md must have a "## <version>" section.
+# Versions with a "-" (alpha, beta, rc) are marked as pre-releases.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write # create the release
+      id-token: write # Sigstore signing certificate for the attestation
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the previous release tag, for the change check
+          persist-credentials: false
+      # A release made some other way (an older PC release) has no attestation from this workflow; leave it alone.
+      - name: Skip a release that already exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::warning::$GITHUB_REF_NAME is already released; this workflow did not build it, so it has no attestation"
+            echo "PLEXUS_RELEASE_EXISTS=true" >> "$GITHUB_ENV"
+          fi
+      # No Gradle or Minecraft caches: a release is built only from the tagged source and fresh downloads.
+      - uses: actions/setup-java@v6
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Check the tag against gradle.properties
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        run: |
+          version=$(sed -n 's/^plexus.version=//p' gradle.properties | tr -d '\r')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match plexus.version=$version" >&2
+            exit 1
+          fi
+          echo "PLEXUS_VERSION=$version" >> "$GITHUB_ENV"
+          minecraft=$(python -I .github/scripts/installer-minecraft-versions.py | tr -d '\r')
+          echo "PLEXUS_MINECRAFT_VERSIONS=$minecraft" >> "$GITHUB_ENV"
+      - name: Check that the build changed since the previous release
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        run: python -I .github/scripts/check-release-changes.py "$PLEXUS_VERSION"
+      - name: Release notes from CHANGELOG.md
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        run: python -I .github/scripts/release-notes.py "$PLEXUS_VERSION" CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+      # The game tests need examples/ and test-mods/, which stay in the private repository; they ran there before
+      # the tag was pushed (CHANGELOG.md, the release's verification checklist).
+      - name: Spotless and unit tests
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        run: ./gradlew.bat check --stacktrace
+      - name: build-logic tests
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        run: ./gradlew.bat -p build-logic check --stacktrace
+      - name: Build the installer jar
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        run: ./gradlew.bat :plexus-installer:installerDistributions --stacktrace
+      - name: Check the release's Minecraft list against the installer
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        run: python -I .github/scripts/installer-minecraft-versions.py --jar "plexus-installer/build/distributions/PlexusModLoader-$PLEXUS_VERSION.jar"
+      - name: Checksums
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        working-directory: plexus-installer/build/distributions
+        run: |
+          sha256sum "PlexusModLoader-$PLEXUS_VERSION.jar" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Attest build provenance
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        uses: actions/attest@v4
+        with:
+          subject-path: plexus-installer/build/distributions/PlexusModLoader-${{ env.PLEXUS_VERSION }}.jar
+      - name: Publish
+        if: env.PLEXUS_RELEASE_EXISTS != 'true'
+        shell: bash
+        working-directory: plexus-installer/build/distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$PLEXUS_VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" \
+            "PlexusModLoader-$PLEXUS_VERSION.jar" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "v$PLEXUS_VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" $prerelease
+      # The Gradle daemon keeps files open on Windows. Skipped with the release: no Java 25 was set up then.
+      - name: Stop Gradle
+        if: always() && env.PLEXUS_RELEASE_EXISTS != 'true'
+        run: ./gradlew.bat --stop

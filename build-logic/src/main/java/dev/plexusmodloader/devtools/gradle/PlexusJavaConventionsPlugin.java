@@ -86,8 +86,8 @@ public abstract class PlexusJavaConventionsPlugin implements Plugin<Project> {
         });
         registerSdkPublication(project, publishing);
 
-        // Every jar carries Plexus Mod Loader's license and the third-party notices, which say where the source is
-        // (MPL 2.0 section 3.2).
+        // Every jar carries Plexus Mod Loader's license and the third-party notices: the MIT License asks every copy
+        // to carry its notice.
         project.getTasks().named("jar", Jar.class).configure(jar -> jar.from(
                 project.files(
                         new File(project.getRootDir(), "LICENSE"),

@@ -1,6 +1,6 @@
 # Trademark policy
 
-Poly Mod Loader's source code is licensed under the Mozilla Public License 2.0 (`LICENSE`). The license covers the
+Poly Mod Loader's source code is licensed under the MIT License (`LICENSE`). The license covers the
 code, not the project's names and logo. This page says how you may use them.
 
 The marks are the names **Poly**, **Poly Mod Loader** and **Poly 모드 로더**, the yellow wireframe cube logo

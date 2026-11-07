@@ -278,8 +278,115 @@ final class GameTestContextView implements GameTestContext {
     }
 
     @Override
+    public void attackBlock(PlayerView player, BlockPos relative, Direction face) {
+        connectedPlayer(player)
+                .gameMode
+                .handleBlockBreakAction(
+                        helper.absolutePos(shifted(relative)),
+                        net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK,
+                        BlockStates.toGame(face),
+                        Integer.MAX_VALUE,
+                        0);
+    }
+
+    @Override
+    public java.util.List<ResourceId> creativeTabItems(dev.plexusmodloader.api.content.CreativeTab tab) {
+        net.minecraft.world.item.CreativeModeTab game =
+                net.minecraft.core.registries.BuiltInRegistries.CREATIVE_MODE_TAB
+                        .getOptional(Views.id(ResourceId.minecraft(tab.name().toLowerCase(java.util.Locale.ROOT))))
+                        .orElseThrow(() -> new IllegalArgumentException("No creative tab " + tab));
+        MinecraftServer server = helper.getLevel().getServer();
+        game.buildContents(new net.minecraft.world.item.CreativeModeTab.ItemDisplayParameters(
+                server.getWorldData().enabledFeatures(), true, server.registryAccess()));
+        java.util.List<ResourceId> ids = new java.util.ArrayList<>();
+        for (net.minecraft.world.item.ItemStack stack : game.getDisplayItems()) {
+            ids.add(Views.id(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem())));
+        }
+        return ids;
+    }
+
+    @Override
+    public void tickPlayer(PlayerView player) {
+        ServerPlayer connected = connectedPlayer(player);
+        // The game ticks a player twice: the level calls tick(), the player's connection calls doTick().
+        connected.tick();
+        connected.doTick();
+    }
+
+    @Override
     public boolean breakBlock(PlayerView player, BlockPos relative) {
         return serverPlayer(player).gameMode.destroyBlock(helper.absolutePos(shifted(relative)));
+    }
+
+    @Override
+    public java.util.Optional<String> sendChat(PlayerView player, String text) {
+        ServerPlayer sender = serverPlayer(player);
+        String[] delivered = new String[1];
+        dev.plexusmodloader.game.layer.v1_20_4.ChatHooks.capture(
+                shown -> delivered[0] = shown,
+                () -> helper.getLevel()
+                        .getServer()
+                        .getPlayerList()
+                        .broadcastChatMessage(
+                                net.minecraft.network.chat.PlayerChatMessage.unsigned(sender.getUUID(), text),
+                                sender,
+                                net.minecraft.network.chat.ChatType.bind(
+                                        net.minecraft.network.chat.ChatType.CHAT, sender)));
+        return java.util.Optional.ofNullable(delivered[0]);
+    }
+
+    @Override
+    public java.util.Optional<String> sendSystemMessage(PlayerView player, String text, boolean overlay) {
+        ServerPlayer receiver = serverPlayer(player);
+        String[] delivered = new String[1];
+        dev.plexusmodloader.game.layer.v1_20_4.ChatHooks.captureSystem(
+                shown -> delivered[0] = shown,
+                () -> receiver.sendSystemMessage(net.minecraft.network.chat.Component.literal(text), overlay));
+        return java.util.Optional.ofNullable(delivered[0]);
+    }
+
+    @Override
+    public boolean startGliding(PlayerView player) {
+        ServerPlayer glider = serverPlayer(player);
+        glider.setItemSlot(
+                net.minecraft.world.entity.EquipmentSlot.CHEST,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.ELYTRA));
+        glider.setOnGround(false);
+        glider.tryToStartFallFlying();
+        return glider.isFallFlying();
+    }
+
+    @Override
+    public void wakeUp(PlayerView player) {
+        serverPlayer(player).stopSleepInBed(true, true);
+    }
+
+    @Override
+    public java.util.List<dev.plexusmodloader.api.trade.TradeOffer> villagerOffers(ResourceId profession, int level) {
+        var id = Views.id(profession);
+        if (!net.minecraft.core.registries.BuiltInRegistries.VILLAGER_PROFESSION.containsKey(id)) {
+            throw new IllegalArgumentException("No villager profession " + profession + " is registered");
+        }
+        net.minecraft.world.entity.npc.Villager villager = new net.minecraft.world.entity.npc.Villager(
+                net.minecraft.world.entity.EntityType.VILLAGER, helper.getLevel());
+        villager.setVillagerData(villager.getVillagerData()
+                .setProfession(net.minecraft.core.registries.BuiltInRegistries.VILLAGER_PROFESSION.get(id))
+                .setLevel(level));
+        return offers(villager.getOffers());
+    }
+
+    @Override
+    public java.util.List<dev.plexusmodloader.api.trade.TradeOffer> wanderingTraderOffers() {
+        return offers(new net.minecraft.world.entity.npc.WanderingTrader(
+                        net.minecraft.world.entity.EntityType.WANDERING_TRADER, helper.getLevel())
+                .getOffers());
+    }
+
+    private static java.util.List<dev.plexusmodloader.api.trade.TradeOffer> offers(
+            net.minecraft.world.item.trading.MerchantOffers offers) {
+        return offers.stream()
+                .map(dev.plexusmodloader.game.layer.v1_20_4.TradeInstaller::toApi)
+                .toList();
     }
 
     private static ServerPlayer serverPlayer(PlayerView player) {

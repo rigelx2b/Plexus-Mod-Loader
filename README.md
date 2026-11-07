@@ -15,13 +15,13 @@ Current version: **2.0.0** (stable). Supported Minecraft versions: **1.20.1**, *
 | Plexus Mods | Verified | Mods written against the Native API. |
 | Fabric mods | Verified | Entry points, Fabric Loader API, nested JARs, Mixin, MixinExtras, and class tweakers. For Fabric Loader internal classes, only what real mods use is provided. |
 | Quilt mods | Verified | `quilt.mod.json`, Quilt Loader API, Mixin, and access wideners. Mods that need Quilt Standard Libraries (QSL) are left out because QSL has no release for these versions. |
-| NeoForge mods | Verified | Runs NeoForge's own FML 11 (`26.3.0.98` on 26.3, `26.2.0.93` on 26.2). Pre-26.1 versions are excluded (`PLEXUS-COMPAT-216`). |
-| Forge mods | Verified | Runs Forge itself (`66.1.0` on 26.3, `65.1.5` on 26.2). Pre-26.1 versions are excluded (`PLEXUS-COMPAT-206`). |
+| NeoForge mods | Verified | Runs NeoForge's own FML 11 (`26.3.0.98` on 26.3, `26.2.0.93` on 26.2). On 1.20.4, 1.21.1 and 1.21.11 it runs NeoForge `20.4.253`, `21.1.265` and `21.11.48` (headless, 2.1.0). There is no NeoForge for 1.20.1 (`PLEXUS-COMPAT-216`). |
+| Forge mods | Verified | Runs Forge itself (`66.1.0` on 26.3, `65.1.5` on 26.2). On 1.20.1, 1.20.4, 1.21.1 and 1.21.11 it runs Forge `47.4.28`, `49.2.13`, `52.1.21` and `61.2.5` (headless, 2.1.0). |
 | Fabric or Quilt next to Forge or NeoForge | Partial | A Fabric or Quilt mod whose mixins do not fit the patched game is left out (`PLEXUS-COMPAT-224`), and so are mods that need it. |
 
 - **Mixing:** Fabric and Quilt mods run together and next to Plexus Mods. Forge mods and NeoForge mods cannot share one game: each patches the game's classes in its own way (`PLEXUS-COMPAT-221`).
 - **What `Verified` means:** Run, not just loaded. Real popular mods from Modrinth enter a saved world on the client, tick, save and quit, and start a dedicated server. Compatibility claims come from those runs: [compatibility reference](https://www.plexusmc.net/docs/reference/compatibility/).
-- **Pre-26.1 versions (1.20.1, 1.20.4, 1.21.1, 1.21.11):** Plexus Mods run there. Fabric's intermediary names are not translated yet, so most released Fabric and Quilt mods for these versions are left out with a reason (`PLEXUS-COMPAT-112`, `PLEXUS-COMPAT-126`), and Forge and NeoForge mods are not supported (`PLEXUS-COMPAT-206`, `PLEXUS-COMPAT-216`). Real Modrinth Fabric mods were checked with headless runs only (a game test server and a dedicated server). Quilt mods were checked only with the test mods of `compatibilityMatrix`, not with a real mod set. Runs that open a game window have not been done for these versions yet.
+- **Pre-26.1 versions (1.20.1, 1.20.4, 1.21.1, 1.21.11):** Plexus Mods run there. Fabric and Quilt mods are translated once, on the player's computer, from intermediary names to Mojang names (2.1.0), so most of the popular ones load; mods that still do not fit are left out with a reason. Forge and NeoForge mods run on their own loaders there (2.1.0; see the rows above). These runs were headless (a game test server, a dedicated server, and real Modrinth mod sets). Runs that open a game window have not been done for these versions yet.
 
 ## Install
 
@@ -96,9 +96,9 @@ Every module has its own README in English and Korean.
 
 ## License
 
-Licensed under the **Mozilla Public License 2.0** (see [`LICENSE`](LICENSE)). Copyright 2026 _xyrz and the Plexus Mod Loader contributors.
+Licensed under the **MIT License** (see [`LICENSE`](LICENSE)). Copyright 2026 _xyrz and the Plexus Mod Loader contributors.
 
-- You may use, study, modify, and redistribute Plexus Mod Loader for any purpose, including commercial use. If you distribute a modified version, the MPL files you changed stay under MPL 2.0 and you must make their source available; your own new files can use any license.
+- You may use, copy, modify, merge, publish, distribute, sublicense, and sell Plexus Mod Loader for any purpose, including in commercial or closed-source works, provided the copyright and license notice are kept in all copies or substantial portions. Releases after 1.1.0 up to 2.0.0 remain under MPL-2.0.
 - Mods, modpacks, and launchers that use Plexus Mod Loader choose their own license. `templates/` is under MIT No Attribution (see [`templates/LICENSE`](templates/LICENSE)).
 - The license does not cover the names "Plexus" and "Plexus Mod Loader" or the logo: a modified version needs its own name (see [`TRADEMARKS.md`](TRADEMARKS.md)).
 - Third-party components: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

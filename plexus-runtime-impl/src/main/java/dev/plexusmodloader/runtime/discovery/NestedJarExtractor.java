@@ -125,7 +125,7 @@ public final class NestedJarExtractor {
                         continue;
                     }
                     ForeignMod child = new ForeignMod(
-                                    extracted,
+                                    nested.get().jar(),
                                     nested.get().bridge(),
                                     nested.get().assessment(),
                                     mod.jar(),

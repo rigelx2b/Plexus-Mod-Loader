@@ -37,5 +37,31 @@ public final class PlayerEvents {
     public static final EventKey<LoginCheckListener> LOGIN_CHECK =
             EventKey.of("plexus:player/login_check", LoginCheckListener.class);
 
+    /**
+     * A server player starts a tick (20 times a second while the player is in a world). Fired on the
+     * server thread, for connected and mock server players alike; not fired on the client. Fabric
+     * API has no event for this (mods use a server tick event and loop over players); NeoForge:
+     * {@code PlayerTickEvent.Pre}.
+     */
+    public static final EventKey<PlayerTickListener> TICK = EventKey.of("plexus:player/tick", PlayerTickListener.class);
+
+    /**
+     * A player clicked a bed and tries to lie down; a decision event: {@code DENY} keeps the player up. Fired on the
+     * server thread before the game's own checks (daylight, distance, monsters), which still apply when no listener
+     * denies. Fabric API: {@code EntitySleepEvents.ALLOW_SLEEPING}, which can also force sleep (not offered here);
+     * NeoForge: {@code CanPlayerSleepEvent}.
+     */
+    public static final EventKey<AllowSleepingListener> ALLOW_SLEEPING =
+            EventKey.of("plexus:player/allow_sleeping", AllowSleepingListener.class);
+
+    /**
+     * A player who wears working gliding gear presses jump in the air and the game is about to start gliding; a decision
+     * event: {@code DENY} keeps the player from gliding. It can only forbid (see {@link AllowFallFlyingListener}).
+     * Fabric API: {@code EntityElytraEvents.ALLOW}; NeoForge has no event for it (items decide with {@code
+     * canElytraFly}).
+     */
+    public static final EventKey<AllowFallFlyingListener> ALLOW_FALL_FLYING =
+            EventKey.of("plexus:player/allow_fall_flying", AllowFallFlyingListener.class);
+
     private PlayerEvents() {}
 }

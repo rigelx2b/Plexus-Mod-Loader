@@ -150,6 +150,40 @@ public interface WorldView {
      */
     List<ResourceId> naturalSpawns(BlockPos pos, dev.plexusmodloader.api.content.entity.MobCategory category);
 
+    /**
+     * Placed features the biome at {@code pos} generates in {@code step} (since 2.1.0), in the game's order; for checking
+     * what {@code WorldgenRegistrar.addFeature} and {@code removeFeature} did. A feature without an ID (not from a registry)
+     * is left out.
+     */
+    List<ResourceId> biomeFeatures(BlockPos pos, dev.plexusmodloader.api.worldgen.GenerationStepName step);
+
     /** Another loaded dimension of the same server, such as a mod dimension from data; server side only. */
     Optional<WorldView> otherDimension(ResourceId dimension);
+
+    /**
+     * The server's loaded recipes, for asking what an input crafts or smelts into (since 2.1.0).
+     *
+     * @throws IllegalStateException on the client side
+     */
+    dev.plexusmodloader.api.recipe.RecipeLookup recipes();
+
+    /**
+     * The item slots of the block at {@code pos}, as {@code side} of it sees them (since 2.1.0): chests, barrels,
+     * furnaces, hoppers, and any block built on the game's containers.
+     *
+     * @param pos the block holding the items
+     * @param side the face of that block the items go through; blocks with sided slots (furnaces, brewing stands)
+     *     offer different slots to different faces, other blocks ignore it
+     * @return the storage, or empty when the block holds no items or is not loaded
+     * @throws IllegalStateException on the client side
+     */
+    Optional<dev.plexusmodloader.api.transfer.ItemStorage> itemStorage(BlockPos pos, Direction side);
+
+    /**
+     * The fluid storage of the block at {@code pos} (since 2.1.0): in the vanilla game the cauldrons.
+     *
+     * @return the storage, or empty when the block holds no fluid or is not loaded
+     * @throws IllegalStateException on the client side
+     */
+    Optional<dev.plexusmodloader.api.transfer.FluidStorage> fluidStorage(BlockPos pos);
 }

@@ -188,6 +188,107 @@ public final class ItemComponents {
         }
 
         @Override
+        public Map<ResourceId, Integer> enchantments() {
+            Map<ResourceId, Integer> found = new java.util.LinkedHashMap<>();
+            if (!stack.isEmpty()) {
+                net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantments(stack)
+                        .forEach((enchantment, level) ->
+                                found.put(Views.id(BuiltInRegistries.ENCHANTMENT.getKey(enchantment)), level));
+            }
+            return found;
+        }
+
+        @Override
+        public void setEnchantment(ResourceId id, int level) {
+            net.minecraft.world.item.enchantment.Enchantment enchantment = BuiltInRegistries.ENCHANTMENT
+                    .getOptional(Views.id(id))
+                    .orElseThrow(() -> new IllegalArgumentException("Enchantment " + id + " is not registered"));
+            if (level < 0 || level > 255) {
+                throw new IllegalArgumentException("level must be 0-255: " + level);
+            }
+            requireStack();
+            Map<net.minecraft.world.item.enchantment.Enchantment, Integer> all = new java.util.LinkedHashMap<>(
+                    net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantments(stack));
+            if (level == 0) {
+                all.remove(enchantment);
+            } else {
+                all.put(enchantment, level);
+            }
+            net.minecraft.world.item.enchantment.EnchantmentHelper.setEnchantments(all, stack);
+            changed.run();
+        }
+
+        @Override
+        public List<String> lore() {
+            CompoundTag display = stack.isEmpty() ? null : stack.getTagElement("display");
+            if (display == null || !display.contains("Lore", Tag.TAG_LIST)) {
+                return List.of();
+            }
+            net.minecraft.nbt.ListTag list = display.getList("Lore", Tag.TAG_STRING);
+            List<String> lines = new java.util.ArrayList<>();
+            for (int i = 0; i < list.size(); i++) {
+                Component line = Component.Serializer.fromJson(list.getString(i));
+                lines.add(line == null ? "" : line.getString());
+            }
+            return lines;
+        }
+
+        @Override
+        public void setLore(List<String> lines) {
+            requireStack();
+            if (lines.isEmpty()) {
+                CompoundTag display = stack.getTagElement("display");
+                if (display != null) {
+                    display.remove("Lore");
+                    if (display.isEmpty()) {
+                        stack.removeTagKey("display");
+                    }
+                }
+            } else {
+                net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
+                for (String line : lines) {
+                    list.add(StringTag.valueOf(Component.Serializer.toJson(Component.literal(line))));
+                }
+                stack.getOrCreateTagElement("display").put("Lore", list);
+            }
+            changed.run();
+        }
+
+        @Override
+        public boolean unbreakable() {
+            return !stack.isEmpty() && stack.hasTag() && stack.getTag().getBoolean("Unbreakable");
+        }
+
+        @Override
+        public void setUnbreakable(boolean unbreakable) {
+            requireStack();
+            if (unbreakable) {
+                stack.getOrCreateTag().putBoolean("Unbreakable", true);
+            } else if (stack.hasTag()) {
+                stack.removeTagKey("Unbreakable");
+            }
+            changed.run();
+        }
+
+        @Override
+        public java.util.OptionalInt customModelData() {
+            return !stack.isEmpty() && stack.hasTag() && stack.getTag().contains("CustomModelData", Tag.TAG_ANY_NUMERIC)
+                    ? java.util.OptionalInt.of(stack.getTag().getInt("CustomModelData"))
+                    : java.util.OptionalInt.empty();
+        }
+
+        @Override
+        public void setCustomModelData(Integer value) {
+            requireStack();
+            if (value == null) {
+                stack.removeTagKey("CustomModelData");
+            } else {
+                stack.getOrCreateTag().putInt("CustomModelData", value);
+            }
+            changed.run();
+        }
+
+        @Override
         public ItemStackView snapshot() {
             return ItemComponents.snapshot(stack);
         }

@@ -47,6 +47,9 @@ Thumbs.db
 # graphify knowledge graph of this repository (local only)
 /graphify-out/
 
+# Python bytecode cache
+__pycache__/
+
 # Not part of the public repository (ADR-0028)
 /site/
 /.claude/
@@ -59,8 +62,14 @@ Thumbs.db
 /tools/
 /plexus-bootstrap/compat/
 /.run/
-# Only the public CI workflow is tracked; the rest of .github/ stays private.
+# Only the exported workflows and release scripts are tracked; the rest of .github/ stays private.
 /.github/*
+!/.github/scripts/
+/.github/scripts/*
 !/.github/workflows/
 /.github/workflows/*
+!/.github/scripts/check-release-changes.py
+!/.github/scripts/installer-minecraft-versions.py
+!/.github/scripts/release-notes.py
 !/.github/workflows/ci.yml
+!/.github/workflows/release.yml

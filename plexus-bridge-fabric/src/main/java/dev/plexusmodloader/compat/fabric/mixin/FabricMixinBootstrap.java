@@ -419,16 +419,21 @@ public final class FabricMixinBootstrap {
             transformed.setAccessible(true);
             Method select = processor.getClass().getDeclaredMethod("select", MixinEnvironment.class);
             select.setAccessible(true);
-            synchronized (processor) {
-                int count = transformed.getInt(processor);
-                if (count == 0) {
-                    transformed.setInt(processor, 1);
-                }
-                try {
-                    select.invoke(processor, MixinEnvironment.getCurrentEnvironment());
-                } finally {
+            // Mixin locks its transformer before its processor (transformClass, couldTransformClass); taking them
+            // in the same order keeps a class another thread transforms meanwhile (FML's background mod scan) from
+            // deadlocking.
+            synchronized (transformer) {
+                synchronized (processor) {
+                    int count = transformed.getInt(processor);
                     if (count == 0) {
-                        transformed.setInt(processor, transformed.getInt(processor) - 1);
+                        transformed.setInt(processor, 1);
+                    }
+                    try {
+                        select.invoke(processor, MixinEnvironment.getCurrentEnvironment());
+                    } finally {
+                        if (count == 0) {
+                            transformed.setInt(processor, transformed.getInt(processor) - 1);
+                        }
                     }
                 }
             }

@@ -306,6 +306,21 @@ final class ForgeModRequirements {
         }
     }
 
+    /**
+     * Whether FML of Forge {@code forgeVersion} refuses a language loader with an empty {@code loaderVersion}. Seen with
+     * Forge 49.2.13 (Minecraft 1.20.4), which stops the launch with "Missing language javafml version  wanted by ..." for a
+     * multi-loader jar that leaves it empty; Forge 52 and later accept it. Forge 47 is treated like 49 (same loader code;
+     * not run with such a jar).
+     */
+    static boolean emptyLanguageRangeRefused(String forgeVersion) {
+        int dot = forgeVersion.indexOf('.');
+        try {
+            return Integer.parseInt(dot < 0 ? forgeVersion : forgeVersion.substring(0, dot)) < 50;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private static List<String> reasons(
             ModsToml toml,
             Map<String, String> installed,
@@ -325,6 +340,12 @@ final class ForgeModRequirements {
         if (FORGE_LANGUAGES.contains(toml.modLoader()) && !ranges.contains(toml.loaderVersion(), forgeVersion)) {
             reasons.add("its language loader " + toml.modLoader() + " must be " + toml.loaderVersion() + ", Forge has "
                     + forgeVersion + " (the mod was built for another Forge version)");
+        } else if (FORGE_LANGUAGES.contains(toml.modLoader())
+                && toml.loaderVersion().isBlank()
+                && emptyLanguageRangeRefused(forgeVersion)) {
+            reasons.add("its language loader " + toml.modLoader()
+                    + " has no version range (loaderVersion is empty), which" + " Forge " + forgeVersion
+                    + " refuses (\"Missing language ... version\"); Forge 50 and later take it as any version");
         }
         for (Dependency dependency : toml.dependencies()) {
             if (!dependency.side().equals("BOTH") && !dependency.side().equals(side)) {

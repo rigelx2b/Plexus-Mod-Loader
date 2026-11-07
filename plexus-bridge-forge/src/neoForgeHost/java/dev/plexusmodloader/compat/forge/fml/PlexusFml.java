@@ -71,6 +71,11 @@ public final class PlexusFml implements NeoForgeLaunch {
         System.setProperty("libraryDirectory", request.libraryDirectory().toString());
         Set<File> claimed = new HashSet<>();
         request.claimedFiles().forEach(path -> claimed.add(path.toFile()));
+        // FML 10 takes the game for a development setup when its parent class loader shows the game's classes.
+        ClassLoader parent =
+                ProductionCheckClassLoader.needed(FMLLoader.class.getPackage().getImplementationVersion())
+                        ? new ProductionCheckClassLoader(request.gameClassLoader())
+                        : request.gameClassLoader();
         StartupArgs arguments = new StartupArgs(
                 request.gameDirectory(),
                 request.headless(),
@@ -79,7 +84,7 @@ public final class PlexusFml implements NeoForgeLaunch {
                 request.programArguments().toArray(String[]::new),
                 claimed,
                 earlyServiceCandidates(request.modJars(), request.gameDirectory()),
-                request.gameClassLoader());
+                parent);
         Thread.currentThread().setContextClassLoader(request.gameClassLoader());
         ForeignModList.install(request.otherMods());
         FMLLoader loader = FMLLoader.create(null, arguments);

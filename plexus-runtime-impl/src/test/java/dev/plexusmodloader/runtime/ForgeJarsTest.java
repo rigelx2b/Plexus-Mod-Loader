@@ -42,6 +42,24 @@ class ForgeJarsTest {
         assertEquals(List.of(), PlexusRuntime.forgeJars(List.of(EVERY_LOADER, FORGE_AND_NEOFORGE, FABRIC)));
     }
 
+    /** A mods.toml that depends on both Forge and NeoForge (ADR-0043): Forge kind, also for NeoForge. */
+    private static final DiscoveredModFile EITHER = file("either.jar", ModFileKind.FORGE, ModFileKind.NEOFORGE);
+
+    /** The jar for either loader runs on NeoForge when there are NeoForge mods: it does not make Forge the runtime. */
+    @Test
+    void aJarForEitherLoaderDoesNotMakeForgeTheRuntimeBesideNeoForgeMods() {
+        assertEquals(List.of(), PlexusRuntime.forgeJars(List.of(EITHER, NEOFORGE)));
+        assertEquals(List.of(path(EITHER), path(NEOFORGE)), PlexusRuntime.neoForgeJars(List.of(EITHER, NEOFORGE)));
+    }
+
+    /** With Forge mods, or with nothing else, Forge runs it, as it did before the jar was told apart. */
+    @Test
+    void aJarForEitherLoaderRunsOnForgeWithForgeModsOrAlone() {
+        assertEquals(List.of(path(EITHER), path(FORGE)), PlexusRuntime.forgeJars(List.of(EITHER, FORGE)));
+        assertEquals(List.of(path(EITHER)), PlexusRuntime.forgeJars(List.of(EITHER)));
+        assertEquals(List.of(path(FORGE), path(EITHER)), PlexusRuntime.forgeJars(List.of(FORGE, EITHER, NEOFORGE)));
+    }
+
     private static DiscoveredModFile file(String name, ModFileKind kind, ModFileKind... alsoFor) {
         return new DiscoveredModFile(Path.of(name), kind, Optional.empty(), Optional.empty(), Set.of(alsoFor));
     }

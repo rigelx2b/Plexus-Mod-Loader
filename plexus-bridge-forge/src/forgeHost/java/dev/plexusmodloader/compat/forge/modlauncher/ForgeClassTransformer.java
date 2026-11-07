@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
@@ -48,14 +49,16 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
     private static final String FIELD_TO_METHOD_TRANSFORMER =
             "net.minecraftforge.forge.transformers.FieldToMethodTransformer";
 
-    private final Collection<ILaunchPluginService> plugins;
+    /** The launch plugins now; a mod may replace the map they come from (ModernFix adds its own). */
+    private final Supplier<Collection<ILaunchPluginService>> plugins;
+
     private final GameClassBytes classes;
     private final Map<String, List<ITransformer<?>>> transformersByTarget = new HashMap<>();
     private final Set<String> classesWithTransformers = new HashSet<>();
     /** How deep this thread is in {@link #transform(String, byte[], boolean)}. */
     private final ThreadLocal<Integer> processing = ThreadLocal.withInitial(() -> 0);
 
-    ForgeClassTransformer(Collection<ILaunchPluginService> plugins, GameClassBytes classes) {
+    ForgeClassTransformer(Supplier<Collection<ILaunchPluginService>> plugins, GameClassBytes classes) {
         this.plugins = plugins;
         this.classes = classes;
     }
@@ -64,19 +67,58 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
     void addTransformers(ITransformationService service) {
         for (ITransformer<?> transformer : service.transformers()) {
             for (ITransformer.Target target : transformer.targets()) {
-                String internalName = target.className().replace('.', '/');
+                String internalName = ((String) read(target, "className")).replace('.', '/');
                 classesWithTransformers.add(internalName);
                 transformersByTarget
                         .computeIfAbsent(
                                 key(
                                         internalName,
-                                        target.targetType(),
-                                        target.elementName(),
-                                        target.elementDescriptor()),
+                                        typeName(read(target, "targetType")),
+                                        (String) read(target, "elementName"),
+                                        (String) read(target, "elementDescriptor")),
                                 k -> new ArrayList<>())
                         .add(transformer);
             }
         }
+    }
+
+    /**
+     * A member of {@code ITransformer.Target}: ModLauncher 10.2 (Forge 26.x, 1.21.x) made it a record with accessors such
+     * as {@code className()}; ModLauncher 10.1 (Forge 49, Minecraft 1.20.4) has a class with {@code getClassName()}.
+     */
+    private static Object read(ITransformer.Target target, String member) {
+        String getter = "get" + Character.toUpperCase(member.charAt(0)) + member.substring(1);
+        for (String name : new String[] {member, getter}) {
+            try {
+                return target.getClass().getMethod(name).invoke(target);
+            } catch (NoSuchMethodException e) {
+                // the other form
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Cannot read " + member + " of " + target, e);
+            }
+        }
+        throw new IllegalStateException("ITransformer.Target has neither " + member + "() nor " + getter + "()");
+    }
+
+    /**
+     * The name of a target type ({@code PRE_CLASS}, {@code CLASS}, {@code METHOD}, {@code FIELD}): ModLauncher 10 has an enum
+     * {@code ITransformer.TargetType}, ModLauncher 11 (NeoForge's FML 4, ADR-0043) the class {@code TargetType} with a
+     * constant of each name.
+     */
+    private static String typeName(Object type) {
+        if (type instanceof Enum<?> constant) {
+            return constant.name();
+        }
+        for (java.lang.reflect.Field field : type.getClass().getFields()) {
+            try {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) && field.get(null) == type) {
+                    return field.getName();
+                }
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("Cannot read " + field, e);
+            }
+        }
+        throw new IllegalStateException("Unknown ModLauncher target type " + type);
     }
 
     @Override
@@ -119,7 +161,7 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
         String reason = ITransformerActivity.CLASSLOADING_REASON;
         EnumMap<ILaunchPluginService.Phase, List<ILaunchPluginService>> phases =
                 new EnumMap<>(ILaunchPluginService.Phase.class);
-        for (ILaunchPluginService plugin : plugins) {
+        for (ILaunchPluginService plugin : plugins.get()) {
             for (ILaunchPluginService.Phase phase : plugin.handlesClass(type, empty, reason)) {
                 phases.computeIfAbsent(phase, p -> new ArrayList<>()).add(plugin);
             }
@@ -171,28 +213,23 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
 
     private ClassNode vote(String internalName, byte[] input, ClassNode node) {
         VotingContext context = new VotingContext(internalName.replace('/', '.'), input);
-        ClassNode result =
-                vote(transformersFor(internalName, ITransformer.TargetType.PRE_CLASS, "", ""), node, context);
+        ClassNode result = vote(transformersFor(internalName, "PRE_CLASS", "", ""), node, context);
         List<FieldNode> fields = new ArrayList<>(result.fields.size());
         for (FieldNode field : result.fields) {
-            fields.add(
-                    vote(transformersFor(internalName, ITransformer.TargetType.FIELD, field.name, ""), field, context));
+            fields.add(vote(transformersFor(internalName, "FIELD", field.name, ""), field, context));
         }
         List<MethodNode> methods = new ArrayList<>(result.methods.size());
         for (MethodNode method : result.methods) {
-            methods.add(vote(
-                    transformersFor(internalName, ITransformer.TargetType.METHOD, method.name, method.desc),
-                    method,
-                    context));
+            methods.add(vote(transformersFor(internalName, "METHOD", method.name, method.desc), method, context));
         }
         result.fields = fields;
         result.methods = methods;
-        return vote(transformersFor(internalName, ITransformer.TargetType.CLASS, "", ""), result, context);
+        return vote(transformersFor(internalName, "CLASS", "", ""), result, context);
     }
 
     @SuppressWarnings("unchecked")
     private <T> List<ITransformer<T>> transformersFor(
-            String internalName, ITransformer.TargetType targetType, String name, String descriptor) {
+            String internalName, String targetType, String name, String descriptor) {
         List<ITransformer<T>> found = new ArrayList<>();
         for (ITransformer<?> transformer :
                 transformersByTarget.getOrDefault(key(internalName, targetType, name, descriptor), List.of())) {
@@ -261,7 +298,7 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
         }
     }
 
-    private static String key(String internalName, ITransformer.TargetType type, String name, String descriptor) {
+    private static String key(String internalName, String type, String name, String descriptor) {
         return type + " " + internalName + " " + name + " " + descriptor;
     }
 

@@ -330,6 +330,26 @@ public final class Views {
         }
 
         @Override
+        public dev.plexusmodloader.api.recipe.RecipeLookup recipes() {
+            return new Recipes(serverLevel(level));
+        }
+
+        @Override
+        public Optional<dev.plexusmodloader.api.transfer.ItemStorage> itemStorage(
+                dev.plexusmodloader.api.world.BlockPos pos, dev.plexusmodloader.api.world.Direction side) {
+            return Storages.item(
+                    serverLevel(level),
+                    pos(pos),
+                    dev.plexusmodloader.game.layer.v1_20_4.content.BlockStates.toGame(side));
+        }
+
+        @Override
+        public Optional<dev.plexusmodloader.api.transfer.FluidStorage> fluidStorage(
+                dev.plexusmodloader.api.world.BlockPos pos) {
+            return Storages.fluid(serverLevel(level), pos(pos));
+        }
+
+        @Override
         public <T> T gameRule(GameRuleKey<T> rule) {
             return EntityInstaller.value(serverLevel(level), rule);
         }
@@ -384,6 +404,19 @@ public final class Views {
                     .stream()
                     .map(weighted -> id(BuiltInRegistries.ENTITY_TYPE.getKey(weighted.type)))
                     .toList();
+        }
+
+        @Override
+        public List<ResourceId> biomeFeatures(BlockPos pos, dev.plexusmodloader.api.worldgen.GenerationStepName step) {
+            List<net.minecraft.core.HolderSet<net.minecraft.world.level.levelgen.placement.PlacedFeature>> steps =
+                    level.getBiome(pos(pos)).value().getGenerationSettings().features();
+            int index = net.minecraft.world.level.levelgen.GenerationStep.Decoration.valueOf(step.name())
+                    .ordinal();
+            List<ResourceId> found = new java.util.ArrayList<>();
+            if (index < steps.size()) {
+                steps.get(index).forEach(holder -> holder.unwrapKey().ifPresent(key -> found.add(id(key.location()))));
+            }
+            return found;
         }
     }
 

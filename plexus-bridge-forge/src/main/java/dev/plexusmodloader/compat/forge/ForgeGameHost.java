@@ -49,6 +49,9 @@ final class ForgeGameHost implements GameHost {
     private final List<Path> modJars;
     private final Path hostJar;
     private final List<SharedMixinConfig> sharedMixinConfigs;
+    /** Copies of the nested jars whose Mixin configurations a shared Mixin applies ({@link ForgeMixinConfigs}). */
+    private final List<Path> nestedMixinJars;
+
     private final List<BridgeLaunchContext.LoadedMod> hostMods;
     private final List<String> leftOutMods;
     private ForeignModIndex otherMods = ForeignModIndex.EMPTY;
@@ -61,6 +64,7 @@ final class ForgeGameHost implements GameHost {
             List<Path> modJars,
             Path hostJar,
             List<SharedMixinConfig> sharedMixinConfigs,
+            List<Path> nestedMixinJars,
             List<BridgeLaunchContext.LoadedMod> hostMods,
             List<String> leftOutMods) {
         this.request = request;
@@ -69,6 +73,7 @@ final class ForgeGameHost implements GameHost {
         this.modJars = List.copyOf(modJars);
         this.hostJar = hostJar;
         this.sharedMixinConfigs = List.copyOf(sharedMixinConfigs);
+        this.nestedMixinJars = List.copyOf(nestedMixinJars);
         this.hostMods = List.copyOf(hostMods);
         this.leftOutMods = List.copyOf(leftOutMods);
     }
@@ -107,13 +112,20 @@ final class ForgeGameHost implements GameHost {
                 .map(ForgeModRequirements.Excluded::modId)
                 .toList();
         List<SharedMixinConfig> mixinConfigs = request.sharedMixin() ? ForgeMixinConfigs.read(runnable) : List.of();
+        // The jars FML reads: for a release whose files carry SRG names, copies renamed to Mojang's, which the nested
+        // jars a shared Mixin reads come from as well.
+        List<Path> fmlJars = ForgeInstallation.forFml(files, request.side(), runnable, request.log());
+        List<Path> nestedMixinJars = request.sharedMixin()
+                ? ForgeMixinConfigs.extractNested(fmlJars, files.directory().resolve("nested-mixin-jars"))
+                : List.of();
         return new ForgeGameHost(
                 request,
                 files,
                 libraries,
-                runnable,
+                fmlJars,
                 extractHostJar(files.directory()),
                 mixinConfigs,
+                nestedMixinJars,
                 hostMods(runnable),
                 leftOut);
     }
@@ -198,6 +210,7 @@ final class ForgeGameHost implements GameHost {
         List<Path> jars = new ArrayList<>(libraries.modFiles());
         jars.add(files.patchedGame());
         jars.addAll(modJars);
+        jars.addAll(nestedMixinJars);
         return jars;
     }
 
@@ -215,15 +228,28 @@ final class ForgeGameHost implements GameHost {
         if (host == null) {
             throw new IllegalStateException("forge-host.jar has no PlexusModLauncher");
         }
+        // Read by the game test launch handler of Forge 47 while FML discovers the Minecraft mod.
+        System.setProperty("plexus.forge.patchedGame", files.patchedGame().toString());
+        System.setProperty(
+                "plexus.forge.modFiles",
+                libraries.modFiles().stream()
+                        .map(Path::toString)
+                        .collect(java.util.stream.Collectors.joining(java.io.File.pathSeparator)));
+        // Forge 47 has to be given the mods too (Paths47).
+        System.setProperty(
+                "plexus.forge.mods",
+                modJars.stream()
+                        .map(Path::toString)
+                        .collect(java.util.stream.Collectors.joining(java.io.File.pathSeparator)));
         Method start = host.getMethod("start", ForgeLaunch.Request.class);
         try {
             launch = (ForgeLaunch) start.invoke(
                     null,
                     new ForgeLaunch.Request(
-                            launchTarget(request.launchTarget()),
+                            launchTarget(request.launchTarget(), files.release().forgeVersion()),
                             request.gameVersion(),
                             request.gameDirectory(),
-                            request.gameArguments(),
+                            launchArguments(),
                             modJars,
                             otherMods,
                             boot,
@@ -243,6 +269,26 @@ final class ForgeGameHost implements GameHost {
             ForgeForeignPayloads.install(
                     launch.gameLayer().modules().iterator().next().getClassLoader());
         }
+    }
+
+    /**
+     * The game's arguments, then the {@code --fml.*} options Forge's own launcher profile adds that the game's do not
+     * have. Only Forge 47 needs them (its {@code fmlloader} marks them required); later FML builds read the same values
+     * from the jars' manifests, so they are added only where Minecraft's fields are renamed (Forge 1.20.x).
+     */
+    private List<String> launchArguments() {
+        List<String> arguments = new ArrayList<>(request.gameArguments());
+        if (files.srgNames().isEmpty()) {
+            return arguments;
+        }
+        List<String> fml = files.fmlArguments();
+        for (int i = 0; i + 1 < fml.size(); i += 2) {
+            if (!arguments.contains(fml.get(i))) {
+                arguments.add(fml.get(i));
+                arguments.add(fml.get(i + 1));
+            }
+        }
+        return arguments;
     }
 
     @Override
@@ -427,12 +473,23 @@ final class ForgeGameHost implements GameHost {
      * dedicated server, and Plexus Mod Loader's {@code GameTestLaunchHandler} for the game test server, which Forge runs only
      * outside production.
      */
-    static String launchTarget(String plexusTarget) {
+    static String launchTarget(String plexusTarget, String forgeVersion) {
+        // Forge 47 (Minecraft 1.20.1): Plexus Mod Loader has its own handlers for the client and the server, as for the
+        // game
+        // test server, because FML 47's look for Minecraft under libraryDirectory (ForgeBootModules.launchHandlers).
+        boolean older = isOlderThan49(forgeVersion);
         return switch (plexusTarget) {
-            case "client" -> "forge_client";
+            case "client" -> older ? "plexusmodloader_client" : "forge_client";
             case "game_test_server" -> "plexusmodloader_server_gametest";
-            default -> "forge_server";
+            default -> older ? "plexusmodloader_server" : "forge_server";
         };
+    }
+
+    /** Whether {@code forgeVersion} ({@code 1.20.1-47.4.28}) is a Forge build before 49, the first with launch types. */
+    static boolean isOlderThan49(String forgeVersion) {
+        String number = forgeVersion.substring(forgeVersion.indexOf('-') + 1);
+        int major = Integer.parseInt(number.substring(0, number.indexOf('.')));
+        return major < 49;
     }
 
     /** Copies Plexus Mod Loader's {@code forge-host.jar} next to Forge's files, replacing an older copy. */

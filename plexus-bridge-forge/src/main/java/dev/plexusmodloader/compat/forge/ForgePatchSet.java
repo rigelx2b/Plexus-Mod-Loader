@@ -100,6 +100,13 @@ final class ForgePatchSet {
                     bytes = mainAttributesOnly(bytes);
                 }
                 ForgeBinaryPatch patch = byPatchedEntry.get(entry.getName());
+                if (patch != null && patch.exists() && patch.delta().length == 0) {
+                    // An empty delta removes the class: binarypatcher 1.2.0 (Forge 52, Minecraft 1.21.1) writes no
+                    // entry
+                    // when the patched bytes are empty (Patcher.process, checked with javap). Forge 61 has none.
+                    changed.add(entry.getName());
+                    continue;
+                }
                 if (patch != null && patch.exists()) {
                     bytes = patch.apply(bytes);
                     changed.add(entry.getName());

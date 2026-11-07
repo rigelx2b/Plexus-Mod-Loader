@@ -32,6 +32,7 @@ final class ForgeFileSystems {
     /** {@code group:artifact} of the four jars, in the order they are appended. */
     static final List<String> ARTIFACTS = List.of(
             "net.minecraftforge:securemodules",
+            "cpw.mods:securejarhandler",
             "net.minecraftforge:unsafe",
             "net.minecraftforge:JarJarFileSystems",
             "net.minecraftforge:roimfs");
@@ -42,6 +43,17 @@ final class ForgeFileSystems {
      * 26.2-65.1.5 and 26.1-62.0.9).
      */
     static final Set<String> SCHEMES = Set.of("union", "jij", "path", "roimfs");
+
+    /**
+     * Jars a Forge release may not list: Forge 52 (Minecraft 1.21.1) has no roimfs and so no {@code roimfs} scheme; Forge
+     * before 49 (Minecraft 1.20.1) has cpw's {@code securejarhandler}, the older name of {@code securemodules}, and Forge
+     * from 49 on {@code securemodules} (exactly one of the two is required, {@link #SECURE_JARS}).
+     */
+    static final Set<String> OPTIONAL =
+            Set.of("net.minecraftforge:roimfs", "net.minecraftforge:securemodules", "cpw.mods:securejarhandler");
+
+    /** The two names of the jar that provides the {@code union} file system; a release lists one of them. */
+    static final Set<String> SECURE_JARS = Set.of("net.minecraftforge:securemodules", "cpw.mods:securejarhandler");
 
     /** securemodules' file system provider: present when the system class loader sees the jars. */
     static final String UNION_PROVIDER_CLASS = "cpw/mods/niofs/union/UnionFileSystemProvider.class";
@@ -114,7 +126,12 @@ final class ForgeFileSystems {
         }
         Set<String> installed = installedSchemes.get();
         Set<String> missing = new LinkedHashSet<>();
+        boolean hasRoimfs =
+                jars.stream().anyMatch(jar -> jar.getFileName().toString().startsWith("roimfs-"));
         for (String scheme : SCHEMES.stream().sorted().toList()) {
+            if (scheme.equals("roimfs") && !hasRoimfs) {
+                continue;
+            }
             if (!installed.contains(scheme)) {
                 missing.add(scheme);
             }

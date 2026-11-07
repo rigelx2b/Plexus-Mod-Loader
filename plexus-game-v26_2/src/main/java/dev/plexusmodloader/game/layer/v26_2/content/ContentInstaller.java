@@ -45,6 +45,8 @@ public final class ContentInstaller {
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
     private static final Map<CreativeTab, List<Item>> TAB_CONTENTS = new EnumMap<>(CreativeTab.class);
     private static final AtomicBoolean TAB_WARNING = new AtomicBoolean();
+    /** The item each listed item goes directly after in its tab, where the definition says so. */
+    private static final Map<Item, ResourceId> TAB_AFTER = new HashMap<>();
 
     private ContentInstaller() {}
 
@@ -73,6 +75,9 @@ public final class ContentInstaller {
                         .ifPresent(layout ->
                                 entityBlock.setMenuType(PlexusMenus.register(Views.id(declaration.id()), layout)));
             }
+            if (definition.igniteOdds() > 0) {
+                Flammability.add(block, definition.igniteOdds(), definition.burnOdds());
+            }
             blocks.put(declaration.id(), block);
             declaration.registered().run();
         }
@@ -85,16 +90,23 @@ public final class ContentInstaller {
                 BlockItem blockItem = new BlockItem(block, properties.useBlockDescriptionPrefix());
                 blockItem.registerBlocks(Item.BY_BLOCK, blockItem);
                 item = blockItem;
+            } else if (Equipment.handles(declaration.definition())) {
+                item = Equipment.create(properties, declaration.definition());
             } else {
                 item = new PlexusItem(properties, declaration.definition().behavior());
             }
             Registry.register(BuiltInRegistries.ITEM, key, item);
-            declaration
-                    .definition()
-                    .creativeTab()
-                    .ifPresent(tab -> TAB_CONTENTS
-                            .computeIfAbsent(tab, ignored -> new ArrayList<>())
-                            .add(item));
+            if (declaration.definition().fuelTicks() > 0) {
+                ModFuel.add(item, declaration.definition().fuelTicks());
+            }
+            if (declaration.definition().compostChance() > 0) {
+                net.minecraft.world.level.block.ComposterBlock.COMPOSTABLES.put(
+                        item, declaration.definition().compostChance());
+            }
+            declaration.definition().creativeTab().ifPresent(tab -> {
+                TAB_CONTENTS.computeIfAbsent(tab, ignored -> new ArrayList<>()).add(item);
+                declaration.definition().creativeTabAfter().ifPresent(after -> TAB_AFTER.put(item, after));
+            });
             declaration.registered().run();
         }
         if (!blocks.isEmpty() || !declarations.items().isEmpty()) {
@@ -128,7 +140,7 @@ public final class ContentInstaller {
             return;
         }
         try {
-            add(tab.getDisplayItems(), items);
+            insert(tab.getDisplayItems(), items);
             add(tab.getSearchTabDisplayItems(), items);
         } catch (UnsupportedOperationException e) {
             if (TAB_WARNING.compareAndSet(false, true)) {
@@ -137,6 +149,39 @@ public final class ContentInstaller {
                                 + "mod items are not listed");
             }
         }
+    }
+
+    /** Adds the items at the end, or after the item their definition names, keeping declaration order. */
+    private static void insert(Collection<ItemStack> stacks, List<Item> items) {
+        if (items.stream().noneMatch(TAB_AFTER::containsKey)) {
+            add(stacks, items);
+            return;
+        }
+        List<ItemStack> ordered = new ArrayList<>(stacks);
+        Map<ResourceId, Integer> placedAfter = new HashMap<>();
+        for (Item item : items) {
+            ItemStack stack = new ItemStack(item);
+            ResourceId after = TAB_AFTER.get(item);
+            int index = after == null ? -1 : indexOf(ordered, after);
+            if (index < 0) {
+                ordered.add(stack);
+            } else {
+                int offset = placedAfter.merge(after, 1, Integer::sum) - 1;
+                ordered.add(index + 1 + offset, stack);
+            }
+        }
+        stacks.clear();
+        stacks.addAll(ordered);
+    }
+
+    private static int indexOf(List<ItemStack> stacks, ResourceId id) {
+        for (int index = 0; index < stacks.size(); index++) {
+            if (Views.id(BuiltInRegistries.ITEM.getKey(stacks.get(index).getItem()))
+                    .equals(id)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static void add(Collection<ItemStack> stacks, List<Item> items) {

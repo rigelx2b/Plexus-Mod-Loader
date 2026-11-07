@@ -120,6 +120,100 @@ class ModFileScannerTest {
         assertTrue(files.get(2).isFor(ModFileKind.FORGE));
     }
 
+    private static String modsToml(String own, String... dependencies) {
+        StringBuilder toml = new StringBuilder("modLoader=\"javafml\"\nloaderVersion=\"[2,)\"\nlicense=\"MIT\"\n");
+        toml.append("[[mods]]\nmodId=\"").append(own).append("\"\nversion=\"1\"\n");
+        for (String dependency : dependencies) {
+            toml.append("[[dependencies.")
+                    .append(own)
+                    .append("]]\n    modId = \"")
+                    .append(dependency)
+                    .append("\" # needed\n    type=\"required\"\n");
+        }
+        return toml.toString();
+    }
+
+    private Path jarWith(String name, java.util.Map<String, String> entries) throws IOException {
+        Path path = mods.resolve(name);
+        try (OutputStream file = Files.newOutputStream(path);
+                JarOutputStream jar = new JarOutputStream(file)) {
+            for (java.util.Map.Entry<String, String> entry : entries.entrySet()) {
+                jar.putNextEntry(new JarEntry(entry.getKey()));
+                jar.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                jar.closeEntry();
+            }
+        }
+        return path;
+    }
+
+    private DiscoveredModFile scanned(String name) {
+        return scan().stream()
+                .filter(file -> file.path().getFileName().toString().equals(name))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** NeoForge 20.4's mods have META-INF/mods.toml only; the mods they depend on say which loader they are for. */
+    @Test
+    void aModsTomlThatDependsOnNeoForgeAndNotOnForgeIsANeoForgeMod() throws IOException {
+        jar("neo.jar", null, "META-INF/mods.toml", modsToml("neo", "neoforge", "minecraft"));
+        jar("forge.jar", null, "META-INF/mods.toml", modsToml("forge_mod", "forge", "minecraft"));
+        jar("plain.jar", null, "META-INF/mods.toml", modsToml("plain", "minecraft"));
+
+        assertEquals(ModFileKind.NEOFORGE, scanned("neo.jar").kind());
+        assertEquals(Set.of(), scanned("neo.jar").alsoFor());
+        assertEquals(ModFileKind.FORGE, scanned("forge.jar").kind());
+        assertEquals(ModFileKind.FORGE, scanned("plain.jar").kind());
+    }
+
+    /** A jar for several loaders keeps its first kind; its mods.toml then names NeoForge, not Forge, as the other one. */
+    @Test
+    void aFabricJarWhoseModsTomlIsNeoForgesIsAlsoForNeoForgeNotForge() throws IOException {
+        jarWith(
+                "multi.jar",
+                java.util.Map.of(
+                        "fabric.mod.json", "{}", "META-INF/mods.toml", modsToml("multi", "neoforge", "minecraft")));
+        jarWith(
+                "multi-forge.jar",
+                java.util.Map.of(
+                        "fabric.mod.json", "{}", "META-INF/mods.toml", modsToml("multi_forge", "forge", "minecraft")));
+
+        DiscoveredModFile neo = scanned("multi.jar");
+        assertEquals(ModFileKind.FABRIC, neo.kind());
+        assertEquals(Set.of(ModFileKind.NEOFORGE), neo.alsoFor());
+        DiscoveredModFile forge = scanned("multi-forge.jar");
+        assertEquals(Set.of(ModFileKind.FORGE), forge.alsoFor());
+    }
+    /** A jar built for both Forge and NeoForge runs on whichever of the two the launch runs (ADR-0043). */
+    @Test
+    void aModsTomlThatDependsOnBothIsForEitherAndOnlyTheOtherLoadersMetadataCounts() throws IOException {
+        jar("both.jar", null, "META-INF/mods.toml", modsToml("both", "forge", "neoforge"));
+        jar("two-files.jar", null, "META-INF/neoforge.mods.toml", "");
+
+        List<DiscoveredModFile> files = scan();
+        DiscoveredModFile both = files.get(0);
+        assertEquals(ModFileKind.FORGE, both.kind());
+        assertEquals(Set.of(ModFileKind.NEOFORGE), both.alsoFor());
+        assertTrue(both.isFor(ModFileKind.NEOFORGE));
+    }
+
+    @Test
+    void theDependencyTablesDecideNotTheModsOwnId() {
+        // A mod called "neoforge" in [[mods]] is not a dependency on it; a quoted, commented or spaced modId is read.
+        assertEquals(
+                ModFileScanner.ModsTomlFamily.FORGE_ONLY,
+                ModFileScanner.modsTomlFamily(
+                        "[[mods]]\nmodId=\"neoforge\"\n[[dependencies.x]]\nmodId=\"minecraft\"\n"));
+        assertEquals(
+                ModFileScanner.ModsTomlFamily.NEOFORGE_ONLY,
+                ModFileScanner.modsTomlFamily("[[dependencies.x]]\nmodId = 'neoforge'\r\ntype=\"required\"\n"));
+        assertEquals(
+                ModFileScanner.ModsTomlFamily.BOTH,
+                ModFileScanner.modsTomlFamily(
+                        "[[dependencies.x]]\n modId=\"forge\" # old\n[[dependencies.x]]\nmodId=\"neoforge\"\n"));
+        assertEquals(ModFileScanner.ModsTomlFamily.FORGE_ONLY, ModFileScanner.modsTomlFamily("not toml at all ["));
+    }
+
     /** CustomSkinLoader's jar: fabric.mod.json and a ModLauncher transformation service, which Forge runs. */
     @Test
     void aModLauncherTransformationServiceIsForForgeToo() throws IOException {

@@ -197,9 +197,28 @@ class QuiltLoaderApiLinkTest {
                     "net/fabricmc/loader/impl/gui/",
                     "net/fabricmc/loader/impl/launch/knot/")) {
                 assertFalse(
-                        jar.stream().anyMatch(entry -> entry.getName().startsWith(quiltCopy)),
+                        jar.stream()
+                                .map(JarEntry::getName)
+                                .filter(name -> !isPackedFabricGuiEntry(name))
+                                .anyMatch(name -> name.startsWith(quiltCopy)),
                         "Quilt Loader's copy of " + quiltCopy + " is not packed");
             }
+            // The one bridge jar serves Fabric and Quilt mods alike, so its error window classes are packed once:
+            // FabricStatusTree from Fabric Loader 0.19.5 (the quiltLoaderApi copy takes org/quiltmc only) and the
+            // bridge's own FabricGuiEntry stand-in, which opens no window. Leaving them out would break mods such as
+            // ModernFix that report through them.
+            assertNotNull(jar.getEntry("net/fabricmc/loader/impl/gui/FabricGuiEntry.class"), "the stand-in");
+            assertNotNull(jar.getEntry("net/fabricmc/loader/impl/gui/FabricStatusTree.class"));
         }
+    }
+
+    /** The bridge's error window classes, packed for Fabric and Quilt mods alike; nothing else under impl/gui/. */
+    private static boolean isPackedFabricGuiEntry(String name) {
+        String gui = "net/fabricmc/loader/impl/gui/";
+        return name.equals(gui)
+                || name.startsWith(gui + "FabricGuiEntry.")
+                || name.startsWith(gui + "FabricGuiEntry$")
+                || name.startsWith(gui + "FabricStatusTree.")
+                || name.startsWith(gui + "FabricStatusTree$");
     }
 }

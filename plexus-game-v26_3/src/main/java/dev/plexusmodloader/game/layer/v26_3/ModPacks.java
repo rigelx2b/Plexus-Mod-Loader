@@ -57,6 +57,8 @@ final class ModPacks {
             }
             if (type == PackType.SERVER_DATA) {
                 LayerState.generatedDataPack()
+                        .ifPresent(directory -> GeneratedDataPack.checkTrades(context.declarations(), directory));
+                LayerState.generatedDataPack()
                         .ifPresent(directory -> output.accept(pack(
                                 location(
                                         "plexus/generated",

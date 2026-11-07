@@ -25,6 +25,48 @@ public interface WorldgenRegistrar {
     void addFeature(BiomeSelector biomes, GenerationStepName step, ResourceId placedFeature);
 
     /**
+     * Adds a natural spawn of any entity type to every selected biome (since 2.1.0): a vanilla mob, a mob of another mod,
+     * or the mod's own. The game's own spawns of the biome stay. The natural spawns of an {@code EntityDefinition} do the
+     * same for a mod's own entity type; this is for entity types the mod does not define.
+     *
+     * <p>The entity type is looked up when a server loads its worlds. A type that is not registered then (for example a
+     * mod that is not installed) is logged with {@code PLEXUS-WORLDGEN-006} and skipped, so optional mobs do not stop the
+     * server. Fabric API: {@code BiomeModifications.addSpawn}; NeoForge: biome modifiers.
+     *
+     * @param spawn the entity type, spawn group, weight, and group size
+     */
+    void addSpawn(BiomeSelector biomes, BiomeSpawn spawn);
+
+    /**
+     * Takes the natural spawn of an entity type out of every selected biome (since 2.1.0), whoever put it there: the
+     * game, a data pack, or another mod. It removes the type from every spawn category of the biome. Removals are applied
+     * before additions, so a mod replaces a spawn by calling this and then {@link #addSpawn} with its own numbers.
+     *
+     * <p><b>When:</b> common entrypoints; applied each time a server loads its worlds. Affects spawning from then on;
+     * mobs that already exist stay. An entity type that is not registered then is logged with
+     * {@code PLEXUS-WORLDGEN-007} and skipped. A type the biome does not spawn is not an error. Fabric API:
+     * {@code BiomeModifications} with {@code removeSpawn}.
+     *
+     * @param entityType ID of the entity type, for example {@code minecraft:sheep}
+     * @throws IllegalStateException when called after registration ended ({@code PLEXUS-WORLDGEN-002})
+     */
+    void removeSpawn(BiomeSelector biomes, ResourceId entityType);
+
+    /**
+     * Takes a placed feature out of {@code step} in every selected biome (since 2.1.0), for example the trees or ores of
+     * the game. Removals are applied before additions, so a mod replaces a feature by removing it and calling
+     * {@link #addFeature} with its own.
+     *
+     * <p><b>When:</b> common entrypoints; applied each time a server loads its worlds, so it affects chunks generated
+     * afterwards (chunks already generated keep what they have). A placed feature that does not exist is logged with
+     * {@code PLEXUS-WORLDGEN-007} and skipped; a feature the biome does not have in that step is not an error.
+     *
+     * @param placedFeature ID of a placed feature, for example {@code minecraft:trees_plains}
+     * @throws IllegalStateException when called after registration ended ({@code PLEXUS-WORLDGEN-002})
+     */
+    void removeFeature(BiomeSelector biomes, GenerationStepName step, ResourceId placedFeature);
+
+    /**
      * Registers terrain written in code as generator type {@code <mod id>:<path>}, for dimensions in
      * data packs.
      *

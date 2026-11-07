@@ -52,6 +52,8 @@ import org.tomlj.TomlTable;
 final class NeoForgeModRequirements {
 
     static final String METADATA = "META-INF/neoforge.mods.toml";
+    /** The metadata file of NeoForge 20.4's FML 2, the same name MinecraftForge uses. */
+    static final String LEGACY_METADATA = "META-INF/mods.toml";
 
     /** NeoForge JarJar's list of the jars nested in a jar. */
     static final String JAR_JAR_METADATA = "META-INF/jarjar/metadata.json";
@@ -79,9 +81,10 @@ final class NeoForgeModRequirements {
             ForgeModRequirements.VersionRanges ranges) {
         Map<Path, ModsToml> mods = new LinkedHashMap<>();
         Map<Path, List<String>> failures = new LinkedHashMap<>();
+        boolean fml2 = NeoForgeFml4GameHost.usesFml2(neoForgeVersion);
         for (Path jar : jars) {
             try {
-                ModsToml toml = ModsToml.read(jar);
+                ModsToml toml = ModsToml.read(jar, fml2);
                 if (toml != null) {
                     mods.put(jar, toml);
                 }
@@ -207,13 +210,18 @@ final class NeoForgeModRequirements {
      * with it. A nested mod's jar is the outer one, where FML reads it from. Jars without readable metadata add nothing.
      */
     static List<BridgeLaunchContext.LoadedMod> hostMods(List<Path> modJars) {
+        return hostMods(modJars, false);
+    }
+
+    /** {@link #hostMods(List)} for FML 2 (NeoForge 20.4) when {@code fml2}: it reads {@code META-INF/mods.toml}. */
+    static List<BridgeLaunchContext.LoadedMod> hostMods(List<Path> modJars, boolean fml2) {
         List<BridgeLaunchContext.LoadedMod> own = new ArrayList<>();
         List<BridgeLaunchContext.LoadedMod> nested = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (Path jar : modJars) {
             ModsToml toml;
             try {
-                toml = ModsToml.read(jar);
+                toml = ModsToml.read(jar, fml2);
             } catch (IOException | RuntimeException e) {
                 continue; // the requirements check left such a jar out
             }
@@ -284,8 +292,24 @@ final class NeoForgeModRequirements {
          * @throws IllegalArgumentException when the file is not valid TOML or names an unknown dependency type or side
          */
         static ModsToml read(Path jar) throws IOException {
+            return read(jar, false);
+        }
+
+        /**
+         * As {@link #read(Path)}. FML 2 (NeoForge 20.4) reads {@code META-INF/mods.toml}, the file MinecraftForge mods have, and
+         * knows no {@code neoforge.mods.toml}: with {@code fml2} the first is read, the second only when it is missing.
+         */
+        static ModsToml read(Path jar, boolean fml2) throws IOException {
             try (JarFile file = new JarFile(jar.toFile())) {
-                ZipEntry entry = file.getEntry(METADATA);
+                ZipEntry entry = fml2 ? file.getEntry(LEGACY_METADATA) : null;
+                if (entry == null) {
+                    entry = file.getEntry(METADATA);
+                }
+                if (entry == null) {
+                    // A mod of NeoForge 20.4 in a newer game: its mods.toml still says what it needs of NeoForge and
+                    // Minecraft, and the requirement check says why FML would not run it.
+                    entry = file.getEntry(LEGACY_METADATA);
+                }
                 if (entry == null) {
                     List<NestedMod> nestedMods = nestedMods(file);
                     return nestedMods.isEmpty()

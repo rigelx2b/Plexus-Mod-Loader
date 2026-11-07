@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
@@ -65,6 +66,72 @@ final class ForgeBootModules {
     private static final Set<String> LEFT_OUT_PROVIDERS =
             Set.of("net.minecraftforge.fml.loading.moddiscovery.ModsFolderLocator");
 
+    private static final String LAUNCH_HANDLER_SERVICE = "cpw.mods.modlauncher.api.ILaunchHandlerService";
+
+    /**
+     * What differs between the FML families this BOOT layer is made for: MinecraftForge's FML (47 and later) and NeoForge's
+     * FML 4 (21.1, 20.4; ADR-0043), which runs on ModLauncher too with its types in {@code net.neoforged}.
+     *
+     * @param fmlLoaderModule the module name of FML's loader jar, which Plexus Mod Loader's launch handlers extend
+     * @param hostReads further BOOT modules Plexus Mod Loader's part of {@code cpw.mods.modlauncher} reads when present
+     * @param leftOutProviders service implementations the layer leaves out (FML's mods folder scan)
+     * @param manifestMarksModFiles whether a jar with an {@code FMLModType} manifest entry is a mod file FML finds itself
+     *     (Forge's fmlcore and language providers) rather than a library
+     * @param hostUses services Plexus Mod Loader's part of {@code cpw.mods.modlauncher} loads that its jar does not declare
+     * @param hostProvides the services Plexus Mod Loader's part of {@code cpw.mods.modlauncher} provides, from the
+     *     ModLauncher jar: launch handlers and, for NeoForge, the locator of the mods Plexus Mod Loader found
+     */
+    record Flavor(
+            String fmlLoaderModule,
+            List<String> hostReads,
+            Set<String> leftOutProviders,
+            Function<Path, Map<String, List<String>>> hostProvides,
+            boolean manifestMarksModFiles,
+            List<String> hostUses) {
+
+        /** MinecraftForge's FML: 47 for Minecraft 1.20.1, 49 and later after it. */
+        static final Flavor FORGE = new Flavor(
+                FMLLOADER,
+                HOST_READS,
+                LEFT_OUT_PROVIDERS,
+                jar -> Map.of(LAUNCH_HANDLER_SERVICE, launchHandlers(jar)),
+                true,
+                List.of());
+
+        /** NeoForge's FML 4 on ModLauncher 11. */
+        static final Flavor NEOFORGE_FML4 = new Flavor(
+                "fml_loader",
+                List.of(),
+                Set.of("net.neoforged.fml.loading.moddiscovery.locators.ModsFolderLocator"),
+                jar -> Map.of(
+                        LAUNCH_HANDLER_SERVICE,
+                        List.of(
+                                HOST_PACKAGE + ".GameTestLaunchHandler4",
+                                HOST_PACKAGE + ".ServerLaunchHandler4",
+                                HOST_PACKAGE + ".ClientLaunchHandler4"),
+                        "net.neoforged.neoforgespi.locating.IModFileCandidateLocator",
+                        List.of(HOST_PACKAGE + ".PlexusModsLocator4")),
+                // FML 4's own libraries (loader, earlydisplay) carry FMLModType: LIBRARY and are BOOT modules.
+                false,
+                // ModLauncher 11 dropped the naming service Plexus Mod Loader's implementation still asks for.
+                List.of("cpw.mods.modlauncher.api.INameMappingService"));
+
+        /** NeoForge's FML 2 (NeoForge 20.4) on ModLauncher 10.0.9, with its types in {@code net.neoforged} (ADR-0043). */
+        static final Flavor NEOFORGE_FML2 = new Flavor(
+                "fml_loader",
+                List.of(),
+                Set.of("net.neoforged.fml.loading.moddiscovery.ModsFolderLocator"),
+                jar -> Map.of(
+                        LAUNCH_HANDLER_SERVICE,
+                        List.of(
+                                HOST_PACKAGE + ".GameTestLaunchHandler2",
+                                HOST_PACKAGE + ".ServerLaunchHandler2",
+                                HOST_PACKAGE + ".ClientLaunchHandler2")),
+                // FML 2's own libraries (loader, spi, earlydisplay) carry FMLModType: LIBRARY and are BOOT modules.
+                false,
+                List.of());
+    }
+
     /**
      * Forge's libraries sorted by where they go.
      *
@@ -102,6 +169,12 @@ final class ForgeBootModules {
      * Libraries#withSharedMixinExtras}).
      */
     static Libraries sort(List<Path> libraries, ClassLoader classPath, boolean ownMixin) throws IOException {
+        return sort(libraries, classPath, ownMixin, Flavor.FORGE);
+    }
+
+    /** {@link #sort(List, ClassLoader, boolean)} for the FML family {@code flavor}. */
+    static Libraries sort(List<Path> libraries, ClassLoader classPath, boolean ownMixin, Flavor flavor)
+            throws IOException {
         List<Path> modules = new ArrayList<>();
         List<Path> modFiles = new ArrayList<>();
         List<Path> onClassPath = new ArrayList<>();
@@ -110,7 +183,7 @@ final class ForgeBootModules {
             try (JarFile jar = new JarFile(library.toFile())) {
                 if (!ownMixin && contains(jar, MIXIN_BOOTSTRAP)) {
                     onClassPath.add(library);
-                } else if (isModFile(jar)) {
+                } else if (isModFile(jar, flavor.manifestMarksModFiles())) {
                     modFiles.add(library);
                 } else if (contains(jar, "net/minecraftforge/bootstrap/ForgeBootstrap.class")) {
                     // Forge's own entry point, which Plexus Mod Loader replaces.
@@ -147,6 +220,17 @@ final class ForgeBootModules {
             GameModuleLayers layers,
             ClassLoader classPath,
             UnaryOperator<ModuleReference> library) {
+        return define(libraries, hostJar, layers, classPath, library, Flavor.FORGE);
+    }
+
+    /** {@link #define(Libraries, Path, GameModuleLayers, ClassLoader, UnaryOperator)} for the FML family {@code flavor}. */
+    static ModuleLayer define(
+            Libraries libraries,
+            Path hostJar,
+            GameModuleLayers layers,
+            ClassLoader classPath,
+            UnaryOperator<ModuleReference> library,
+            Flavor flavor) {
         Map<String, ModuleReference> references = new HashMap<>();
         for (ModuleReference reference :
                 ModuleFinder.of(libraries.modules().toArray(Path[]::new)).findAll()) {
@@ -154,7 +238,7 @@ final class ForgeBootModules {
         }
         references.computeIfPresent(
                 NightConfigEmptyFilePatch.MODULE, (name, reference) -> NightConfigEmptyFilePatch.patching(reference));
-        ModuleReference modLauncher = modLauncher(libraries.modLauncher(), hostJar, references.keySet());
+        ModuleReference modLauncher = modLauncher(libraries.modLauncher(), hostJar, references.keySet(), flavor);
         references.put(MODLAUNCHER, modLauncher);
         Set<String> available = new HashSet<>(references.keySet());
         ModuleFinder.ofSystem()
@@ -162,7 +246,7 @@ final class ForgeBootModules {
                 .forEach(system -> available.add(system.descriptor().name()));
         Map<String, ModuleReference> rewritten = new HashMap<>();
         for (Map.Entry<String, ModuleReference> entry : references.entrySet()) {
-            rewritten.put(entry.getKey(), withRequires(entry.getValue(), available));
+            rewritten.put(entry.getKey(), withRequires(entry.getValue(), available, flavor.leftOutProviders()));
         }
         ModuleFinder finder = new ModuleFinder() {
             @Override
@@ -204,9 +288,14 @@ final class ForgeBootModules {
      * {@linkplain #LEFT_OUT_PROVIDERS left-out} service implementations.
      */
     static ModuleReference withRequires(ModuleReference reference, Set<String> available) {
+        return withRequires(reference, available, LEFT_OUT_PROVIDERS);
+    }
+
+    private static ModuleReference withRequires(
+            ModuleReference reference, Set<String> available, Set<String> leftOutProviders) {
         ModuleDescriptor descriptor = reference.descriptor();
         if (descriptor.isAutomatic()) {
-            return withoutLeftOutProviders(reference);
+            return withoutLeftOutProviders(reference, leftOutProviders);
         }
         // An open module, as securemodules reads a module-info for Forge's own BOOT layer: MixinExtras, a GAME layer
         // module, reflects into Mixin's internals.
@@ -219,32 +308,33 @@ final class ForgeBootModules {
         }
         descriptor.exports().forEach(builder::exports);
         descriptor.uses().forEach(builder::uses);
-        provideKept(descriptor, builder);
+        provideKept(descriptor, builder, leftOutProviders);
         builder.packages(descriptor.packages());
         descriptor.mainClass().ifPresent(builder::mainClass);
         return delegate(builder.build(), reference);
     }
 
     /** An automatic module (FML's loader) as it is, but without the left-out service implementations. */
-    private static ModuleReference withoutLeftOutProviders(ModuleReference reference) {
+    private static ModuleReference withoutLeftOutProviders(ModuleReference reference, Set<String> leftOutProviders) {
         ModuleDescriptor descriptor = reference.descriptor();
         if (descriptor.provides().stream()
                 .flatMap(provides -> provides.providers().stream())
-                .noneMatch(LEFT_OUT_PROVIDERS::contains)) {
+                .noneMatch(leftOutProviders::contains)) {
             return reference;
         }
         ModuleDescriptor.Builder builder = ModuleDescriptor.newAutomaticModule(descriptor.name());
         descriptor.version().ifPresent(builder::version);
-        provideKept(descriptor, builder);
+        provideKept(descriptor, builder, leftOutProviders);
         builder.packages(descriptor.packages());
         descriptor.mainClass().ifPresent(builder::mainClass);
         return delegate(builder.build(), reference);
     }
 
-    private static void provideKept(ModuleDescriptor descriptor, ModuleDescriptor.Builder builder) {
+    private static void provideKept(
+            ModuleDescriptor descriptor, ModuleDescriptor.Builder builder, Set<String> leftOutProviders) {
         for (ModuleDescriptor.Provides provides : descriptor.provides()) {
             List<String> kept = provides.providers().stream()
-                    .filter(provider -> !LEFT_OUT_PROVIDERS.contains(provider))
+                    .filter(provider -> !leftOutProviders.contains(provider))
                     .toList();
             if (!kept.isEmpty()) {
                 builder.provides(provides.service(), kept);
@@ -257,7 +347,8 @@ final class ForgeBootModules {
      * Launcher}, {@code Environment} and launch. ModLauncher's own implementation classes stay out, and so do the
      * services it provides with them.
      */
-    private static ModuleReference modLauncher(Path modLauncherJar, Path hostJar, Set<String> available) {
+    private static ModuleReference modLauncher(
+            Path modLauncherJar, Path hostJar, Set<String> available, Flavor flavor) {
         ModuleReference real =
                 ModuleFinder.of(modLauncherJar).findAll().iterator().next();
         ModuleReference host = ModuleFinder.of(hostJar).findAll().iterator().next();
@@ -270,16 +361,18 @@ final class ForgeBootModules {
         descriptor.opens().forEach(builder::opens);
         descriptor.uses().forEach(builder::uses);
         // Plexus Mod Loader's game test launch handler extends FML's CommonLaunchHandler.
-        builder.requires(FMLLOADER);
+        builder.requires(flavor.fmlLoaderModule());
         // ForeignModList shows other mods as forgespi mod files, with Maven versions (ADR-0025).
-        for (String module : HOST_READS) {
+        for (String module : flavor.hostReads()) {
             if (available.contains(module)
                     && descriptor.requires().stream().noneMatch(r -> r.name().equals(module))) {
                 builder.requires(module);
             }
         }
-        builder.provides(
-                "cpw.mods.modlauncher.api.ILaunchHandlerService", List.of(HOST_PACKAGE + ".GameTestLaunchHandler"));
+        flavor.hostProvides().apply(modLauncherJar).forEach(builder::provides);
+        flavor.hostUses().stream()
+                .filter(use -> !descriptor.uses().contains(use))
+                .forEach(builder::uses);
         Set<String> packages = new HashSet<>(descriptor.packages());
         packages.add(HOST_PACKAGE);
         builder.packages(packages);
@@ -290,6 +383,20 @@ final class ForgeBootModules {
                 return new OverlayReader(host.open(), real.open());
             }
         };
+    }
+
+    /**
+     * The launch handler classes Plexus Mod Loader adds for this ModLauncher: Forge 47 (Minecraft 1.20.1) runs ModLauncher 10.0.x, whose FML
+     * launch handlers have another shape ({@code GameTestLaunchHandler47}); later Forge builds run 10.1 and later (their own handlers serve the dedicated server and the client).
+     */
+    static List<String> launchHandlers(Path modLauncherJar) {
+        String name = modLauncherJar.getFileName().toString();
+        return name.startsWith("modlauncher-10.0.")
+                ? List.of(
+                        HOST_PACKAGE + ".GameTestLaunchHandler47",
+                        HOST_PACKAGE + ".ServerLaunchHandler47",
+                        HOST_PACKAGE + ".ClientLaunchHandler47")
+                : List.of(HOST_PACKAGE + ".GameTestLaunchHandler");
     }
 
     private static ModuleReference delegate(ModuleDescriptor descriptor, ModuleReference original) {
@@ -355,12 +462,14 @@ final class ForgeBootModules {
         }
     }
 
-    private static boolean isModFile(JarFile jar) throws IOException {
-        if (jar.getEntry("META-INF/mods.toml") != null) {
+    private static boolean isModFile(JarFile jar, boolean manifestMarks) throws IOException {
+        if (jar.getEntry("META-INF/mods.toml") != null || jar.getEntry("META-INF/neoforge.mods.toml") != null) {
             return true;
         }
         var manifest = jar.getManifest();
-        return manifest != null && manifest.getMainAttributes().getValue(new Attributes.Name("FMLModType")) != null;
+        return manifestMarks
+                && manifest != null
+                && manifest.getMainAttributes().getValue(new Attributes.Name("FMLModType")) != null;
     }
 
     /** Whether none of {@code targets} is a module of {@code layer} or its parents, so the class path answers them. */
@@ -376,11 +485,35 @@ final class ForgeBootModules {
     private static boolean onClassPath(JarFile jar, ClassLoader classPath) {
         Enumeration<? extends ZipEntry> entries = jar.entries();
         while (entries.hasMoreElements()) {
-            String name = entries.nextElement().getName();
+            ZipEntry entry = entries.nextElement();
+            String name = entry.getName();
             if (name.endsWith(".class") && !name.startsWith("META-INF/") && !name.equals("module-info.class")) {
-                return classPath.getResource(name) != null;
+                if (classPath.getResource(name) == null) {
+                    return false;
+                }
+                return !versionSensitive(jar) || sameBytes(jar, entry, classPath, name);
             }
         }
         return false;
+    }
+
+    /**
+     * Libraries whose generated code only runs on the very release it was generated for: ANTLR's serialized ATN has a
+     * version (Forge 49's access transformers, generated with 4.9.1, stop on Plexus Mod Loader's 4.11.1: "Could not
+     * deserialize ATN with version 3 (expected 4)"). These are shared with the game only when the class path has the
+     * same bytes, otherwise Forge gets its own copy as a module (ADR-0038).
+     */
+    private static boolean versionSensitive(JarFile jar) {
+        String file = java.nio.file.Path.of(jar.getName()).getFileName().toString();
+        return file.startsWith("antlr4-runtime-");
+    }
+
+    private static boolean sameBytes(JarFile jar, ZipEntry entry, ClassLoader classPath, String name) {
+        try (java.io.InputStream mine = jar.getInputStream(entry);
+                java.io.InputStream theirs = classPath.getResourceAsStream(name)) {
+            return theirs != null && java.util.Arrays.equals(mine.readAllBytes(), theirs.readAllBytes());
+        } catch (java.io.IOException e) {
+            return false;
+        }
     }
 }

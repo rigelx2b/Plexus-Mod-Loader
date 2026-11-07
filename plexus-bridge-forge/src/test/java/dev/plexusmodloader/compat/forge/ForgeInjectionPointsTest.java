@@ -565,6 +565,90 @@ class ForgeInjectionPointsTest {
                 tesselate.replacement());
     }
 
+    /**
+     * Forge 52's furnace tick calls {@code NonNullList.set} for the fuel remainder twice where vanilla does once, so Fabric
+     * API's {@code allow = 1} modify-arg of fabric-item-api-v1 cannot apply; both of the module's handlers are taken out
+     * together (they share a ThreadLocal).
+     */
+    @Test
+    void furnaceRemainderHandlersAreTakenOutTogether() {
+        List<InjectionPointReplacement> points = ForgeInjectionPoints.all();
+
+        for (String handler : List.of("getStackRemainder", "setStackRemainder")) {
+            InjectionPointReplacement rule =
+                    point(points, "fabric/mixin/item/AbstractFurnaceBlockEntityMixin#" + handler);
+            assertEquals(Placement.HOST_COVERS, rule.placement());
+            assertEquals("net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity", rule.targetClass());
+            assertEquals("serverTick", rule.method());
+        }
+    }
+
+    /**
+     * Forge 52's {@code isFuel} and {@code getBurnDuration} ask {@code ForgeHooks.getBurnTime}, which reads a table filled
+     * from {@code getFuel()}; the fuel registry's two redirects of {@code getFuel()} have nothing left to redirect.
+     */
+    @Test
+    void furnaceFuelRedirectsAreTakenOutBecauseForgeReadsTheFuelTable() {
+        List<InjectionPointReplacement> points = ForgeInjectionPoints.all();
+
+        InjectionPointReplacement canUse =
+                point(points, "content/registry/AbstractFurnaceBlockEntityMixin#canUseAsFuelRedirect");
+        assertEquals(Placement.HOST_COVERS, canUse.placement());
+        assertEquals("isFuel", canUse.method());
+        InjectionPointReplacement duration =
+                point(points, "content/registry/AbstractFurnaceBlockEntityMixin#getFuelTimeRedirect");
+        assertEquals(Placement.HOST_COVERS, duration.placement());
+        assertEquals("getBurnDuration", duration.method());
+    }
+
+    /** Forge 49 (Minecraft 1.20.4) moved the End platform check of {@code changeDimension} into a lambda. */
+    @Test
+    void endPlatformCheckMovesToForge49sChangeDimensionLambda() {
+        InjectionPointReplacement end = point(ForgeInjectionPoints.all(), "Level;END:");
+
+        assertEquals(Placement.IN_METHOD, end.placement());
+        assertEquals("net/minecraft/world/entity/Entity", end.targetClass());
+        assertEquals("changeDimension", end.method());
+        assertTrue(end.replacement().startsWith("lambda$changeDimension$16("), end.replacement());
+    }
+
+    /**
+     * Forge 52 (Minecraft 1.21.1) changes where Fabric API's item remainder, ingredient network codec, block entity
+     * unload and block breaking hooks meet the game; each rule is checked here for its target and kind, and against the
+     * patched jar by the bootstrap's mixed corpus run.
+     */
+    @Test
+    void minecraft121PointsNameTheirTargetsAndKinds() {
+        List<InjectionPointReplacement> points = ForgeInjectionPoints.all();
+
+        for (String handler : List.of("captureItemStack", "hasStackRecipeRemainder", "createStackRecipeRemainder")) {
+            InjectionPointReplacement rule = point(points, "item/BrewingStandBlockEntityMixin#" + handler);
+            assertEquals(Placement.HOST_COVERS, rule.placement());
+            assertEquals("doBrew", rule.method());
+        }
+        for (String handler :
+                List.of("captureStack", "hasStackRemainder", "replaceGetRecipeRemainder", "getStackRemainder")) {
+            InjectionPointReplacement rule = point(points, "item/RecipeMixin#" + handler);
+            assertEquals(Placement.HOST_COVERS, rule.placement());
+            assertEquals("net/minecraft/world/item/crafting/Recipe", rule.targetClass());
+            assertEquals("getRemainingItems", rule.method());
+        }
+        InjectionPointReplacement codec = point(points, "IngredientMixin#useCustomIngredientPacketCodec");
+        assertEquals(Placement.HOST_COVERS, codec.placement());
+        assertEquals("<clinit>", codec.method());
+        InjectionPointReplacement unload = point(points, "WorldChunkMixin#onRemoveBlockEntity(Ljava/util/Map;");
+        assertEquals(Placement.HOST_COVERS, unload.placement());
+        assertEquals("getBlockEntity", unload.method());
+
+        InjectionPointReplacement beforeBreak = points.stream()
+                .filter(rule -> rule.replacement().endsWith("ServerPlayerGameMode;isCreative()Z"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no rule replacing a call with isCreative()"));
+        assertEquals(Placement.SAME_PLACE, beforeBreak.placement());
+        assertEquals("destroyBlock", beforeBreak.method());
+        assertTrue(beforeBreak.replaced().contains("Block;playerWillDestroy("), beforeBreak.replaced());
+    }
+
     private static InjectionPointReplacement point(List<InjectionPointReplacement> points, String replaced) {
         return points.stream()
                 .filter(point -> point.replaced().contains(replaced))

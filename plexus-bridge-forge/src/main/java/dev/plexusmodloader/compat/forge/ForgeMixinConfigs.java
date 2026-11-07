@@ -1,8 +1,10 @@
 package dev.plexusmodloader.compat.forge;
 
 import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -40,7 +42,10 @@ final class ForgeMixinConfigs {
                 Enumeration<? extends ZipEntry> entries = file.entries();
                 while (entries.hasMoreElements()) {
                     ZipEntry entry = entries.nextElement();
-                    if (!entry.getName().startsWith(NESTED) || !entry.getName().endsWith(".jar")) {
+                    // MixinExtras comes from the shared Mixin's class path (ForgeBootModules.Libraries
+                    // withSharedMixinExtras); a mod's own copy (Carry On nests 0.5.0) must not register its
+                    // configuration a second time.
+                    if (!isNestedJar(entry)) {
                         continue;
                     }
                     try (InputStream input = file.getInputStream(entry);
@@ -53,6 +58,52 @@ final class ForgeMixinConfigs {
             }
         }
         return List.copyOf(configs);
+    }
+
+    /**
+     * Copies each jar nested in {@code jars} that registers a configuration ({@link #read} lists the same ones) to a
+     * file of its own in {@code directory}, named after the mod jar and the nested entry, and returns the copies. A
+     * Mixin that serves every loader reads a configuration and its classes from a jar on the class path; FML reads a
+     * nested jar from inside its mod jar, which that Mixin does not look into (Balm nests Kuma API, whose {@code
+     * kuma_api.mixins.json} Mixin then could not read). A copy that is already there with the same size is kept.
+     */
+    static List<Path> extractNested(List<Path> jars, Path directory) throws IOException {
+        List<Path> copies = new ArrayList<>();
+        for (Path jar : jars) {
+            try (JarFile file = new JarFile(jar.toFile())) {
+                Enumeration<? extends ZipEntry> entries = file.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (!isNestedJar(entry)) {
+                        continue;
+                    }
+                    byte[] bytes;
+                    try (InputStream input = file.getInputStream(entry)) {
+                        bytes = input.readAllBytes();
+                    }
+                    try (JarInputStream nested = new JarInputStream(new ByteArrayInputStream(bytes))) {
+                        if (registered(nested.getManifest()).isEmpty()) {
+                            continue;
+                        }
+                    }
+                    String name = jar.getFileName() + "!" + entry.getName().substring(NESTED.length());
+                    Path copy = directory.resolve(name.replaceAll("[^A-Za-z0-9._!+-]", "_"));
+                    if (!Files.isRegularFile(copy) || Files.size(copy) != bytes.length) {
+                        Files.createDirectories(directory);
+                        Files.write(copy, bytes);
+                    }
+                    copies.add(copy);
+                }
+            }
+        }
+        return List.copyOf(copies);
+    }
+
+    /** Whether {@code entry} is a jar nested in a mod jar whose own Mixin configurations are applied ({@link #read}). */
+    private static boolean isNestedJar(ZipEntry entry) {
+        return entry.getName().startsWith(NESTED)
+                && entry.getName().endsWith(".jar")
+                && !entry.getName().substring(NESTED.length()).startsWith("mixinextras-");
     }
 
     /**

@@ -10,6 +10,8 @@ import dev.plexusmodloader.api.stability.StabilityLevel;
  * and mock players alike. The client's own prediction of the click is not an event yet; when a
  * listener refuses an action the server corrects the client as it does for any refused action.
  *
+ * <p>Attacking a block (starting to dig it) is {@link #ATTACK_BLOCK}.
+ *
  * <p><b>Results:</b> these are decision events (see {@link dev.plexusmodloader.api.event.EventResult}):
  * listeners run in priority order until one decides. The use events take a {@link
  * dev.plexusmodloader.api.world.InteractionResult}: {@code PASS} lets the next listener and then the game
@@ -42,6 +44,15 @@ public final class InteractionEvents {
     /** A player attacks (left-clicks) an entity, before damage and knockback. */
     public static final EventKey<AttackEntityListener> ATTACK_ENTITY =
             EventKey.of("plexus:interaction/attack_entity", AttackEntityListener.class);
+
+    /**
+     * A player starts digging (left-clicks and holds) a block, before the game starts breaking it.
+     * Fired once per dig start, not while the player keeps digging. {@code DENY} refuses the dig.
+     * Fabric API: {@code AttackBlockCallback}; NeoForge: {@code PlayerInteractEvent.LeftClickBlock}
+     * (its server-side start action).
+     */
+    public static final EventKey<AttackBlockListener> ATTACK_BLOCK =
+            EventKey.of("plexus:interaction/attack_block", AttackBlockListener.class);
 
     private InteractionEvents() {}
 }

@@ -206,6 +206,11 @@ public final class EntrypointInvoker {
         }
 
         @Override
+        public dev.plexusmodloader.api.trade.TradeRegistrar trades() {
+            return registrars;
+        }
+
+        @Override
         public GameTestRegistrar gameTests() {
             return registrars;
         }
