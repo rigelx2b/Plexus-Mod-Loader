@@ -41,10 +41,10 @@
 | :--- | :--- | :--- |
 | `dev.plexusmodloader.runtime` | `PlexusRuntime`, `LaunchConfiguration` | 런타임 부팅 오케스트레이션 및 상태 관리 |
 | `dev.plexusmodloader.runtime` | `LoadedModCounter` | 실시간 로더별 모드 수 집계 |
-| `.discovery` | `ModFileScanner`, `NestedJarExtractor`, `ForeignModResolver` | 모드 폴더의 jar 탐색, 중첩 jar 추출, 로더 판별 |
+| `.discovery` | `ModFileScanner`, `NestedJarExtractor`, `ForeignModResolver`, `FabricApiProvision`, `QuiltedFabricApiProvision` | 모드 폴더의 jar 탐색, 중첩 jar 추출, 로더 판별 및 고정된 Fabric API와 Quilted Fabric API 다운로드(ADR-0046, ADR-0048) |
 | `.dependency` | `ModDependencyResolver` | 모드 버전 제약식 해석 및 로드 우선순위 정렬 |
-| `.compat` | `HostPatchCheck`, `CrossLoaderModResolver` | Forge/NeoForge 패치와 Fabric Mixin 간 충돌 사전 진단 |
-| `.classloading` | `GameClassLoader` | 단일 게임 클래스로더 관리 및 미사용 로더 API 은닉(`hideFromParent`) |
+| `.compat` | `HostPatchCheck`, `CrossLoaderModResolver`, `HostFinalOverrides` | Forge/NeoForge 패치와 Fabric Mixin 간 충돌 사전 진단 및 Fabric/Quilt 클래스 대상 검토된 호스트 final 메서드 오버라이드 허용(ADR-0047) |
+| `.classloading` | `GameClassLoader`, `GameLibraries` | 단일 게임 클래스로더 관리 및 미사용 로더 API 은닉(`hideFromParent`), Minecraft jar가 제외된 클래스패스 라이브러리 제공 |
 | `.lifecycle` | `EntrypointInvoker`, `ShutdownCoordinator` | 엔트리포인트 호출 및 JVM 종료 시 종료 작업 실행 |
 
 ---

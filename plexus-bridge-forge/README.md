@@ -32,10 +32,14 @@ Forge and NeoForge were designed assuming their own classloader structures (ModL
   - Conversely, responds with the correct `IModInfo` metadata when Forge/NeoForge mods query Fabric/Quilt mods via `ModList.get().isLoaded(...)`.
 
 ### 4) Early Minecraft Versions (1.20.x and 1.21.x)
-- **Which builds:** MinecraftForge 1.20.1-47.4.28, 1.20.4-49.2.13, 1.21.1-52.1.21 and 1.21.11-61.2.5, and NeoForge 21.11.48 for 1.21.11 (see `forge-releases.properties` and `neoforge-releases.properties`; a line there enables the version). NeoForge for 1.20.4 and 1.21.1 is not supported yet; NeoForge for 1.20.1 does not exist.
+- **Which builds:** MinecraftForge 1.20.1-47.4.28, 1.20.4-49.2.13, 1.21.1-52.1.21 and 1.21.11-61.2.5, and NeoForge 20.4.253 (1.20.4), 21.1.265 (1.21.1) and 21.11.48 (1.21.11) (see `forge-releases.properties` and `neoforge-releases.properties`; a line there enables the version). NeoForge for 1.20.1 does not exist.
 - **Renamed game jar:** Forge and NeoForge patch the jar their own installer tools renamed, so on versions before 26.1 `ForgeInstallerTools` / `NeoForgeInstallerTools` run those tools on the player's PC (from the jars the loader's profile lists) and the patches apply to their output.
-- **SRG member names (Forge 1.20.1 and 1.20.4):** these Forge builds name Minecraft's fields and methods in SRG (`m_123_`, `f_123_`). `SrgMojangNames` joins an SRG-to-Mojang table from the two mapping files the installer tools write, and `SrgTranslator` renames the SRG members in the patched game, Forge's own jars and each Forge mod before FML reads them (class files, string constants, annotations, access transformers, Mixin reference maps, coremod scripts, nested jars). The result is cached; Plexus Mod Loader's game layer and the other bridges see Mojang names only.
+- **SRG member names (Forge 1.20.1 and 1.20.4):** these Forge builds name Minecraft's fields and methods in SRG (`m_123_`, `f_123_`). `SrgMojangNames` joins an SRG-to-Mojang table from the two mapping files the installer tools write, and `SrgTranslator` renames the SRG members in the patched game, Forge's own jars and each Forge mod before FML reads them (class files, string constants, annotations, access transformers, Mixin reference maps, coremod scripts, nested jars anywhere under `META-INF/`). The result is cached; Plexus Mod Loader's game layer and the other bridges see Mojang names only.
 - **Forge 47 launch API (1.20.1):** `src/forgeHost47` holds the launch handlers for FML 47, whose API differs from later builds.
+- **NeoForge FML 2 and FML 4 hosts (1.20.4 and 1.21.1):** `src/neoForgeFml2Host` and `src/neoForgeFml4Host` launch NeoForge FML 2 and FML 4 through the Forge-host `PlexusModLauncher`. A Plexus Mod next to NeoForge 20.4 or 21.1 no longer stops the launch (NeoForge mods do not see Plexus Mods through `ModList` there).
+- **Host-final methods:** `ForgeFinalMethods` lists reviewed host-final methods (`Ingredient.toNetwork(FriendlyByteBuf)` in Forge 47.4.28 and 49.2.13) that Plexus Mod Loader opens for overriding Fabric or Quilt classes, reported as information `PLEXUS-COMPAT-228` (ADR-0047); unlisted host-final methods leave the mod out with `PLEXUS-COMPAT-224` rather than stopping the game, and Forge's `field_to_method` coremod no longer fails when Fabric API widens a field.
+- **Language loader check:** `ForgeModRequirements` checks language loader requirements before launch, leaving out a Forge mod that requires an uninstalled language loader (such as `libIPN` needing Kotlin for Forge) with `PLEXUS-COMPAT-209` instead of stopping all Forge mods.
+- **Dual `mods.toml` and `neoforge.mods.toml` jars:** a jar containing both `mods.toml` and `neoforge.mods.toml` whose `mods.toml` depends on `neoforge` (such as Entity Culling for 1.20.4) counts as a NeoForge mod only.
 
 ---
 
@@ -81,5 +85,9 @@ The tasks in `plexus-bootstrap` require `test-mods/` (and the mod corpus list `p
 
 - **Cannot Run Forge and NeoForge Simultaneously (`PLEXUS-COMPAT-221`):**
   Because MinecraftForge and NeoForge have conflicting vanilla bytecode patches and core class inheritance structures, when mods from both loaders are provided simultaneously, Forge is launched first and NeoForge mods are safely excluded with an explicit reason.
+- **Fabric and Quilt Mods with NeoForge 20.4 and 21.1:**
+  Fabric and Quilt mods do not run alongside NeoForge 20.4 (1.20.4) and 21.1 (1.21.1); NeoForge's own Mixin in FML's boot layer and its ModList require additional adaptation first.
+- **Unverified Game Windows on 1.20.1, 1.20.4, and 1.21.1:**
+  Client game windows for Forge and NeoForge on 1.20.1, 1.20.4, and 1.21.1 are not verified yet due to per-mod stops: Xaero's World Map disconnects the player on Forge 1.21.1; Entity Model Features' Mixin descriptor fails on Forge 1.20.4; FancyMenu's Mixin into LWJGL's GLFW fails on Forge 1.20.1 and NeoForge 21.1 (an `IllegalAccessError` between modules, a Plexus Mod Loader limit); and Entity Texture Features and BadOptimizations construct no mod on NeoForge 20.4.
 - **Remote Download Integrity:**
   Original Forge and NeoForge JARs and FML dependency libraries are not included in the repository for copyright protection; on the first run in a user environment, they are downloaded from official Maven repositories and their SHA-1 checksums are strictly verified.
