@@ -41,10 +41,10 @@
 | :--- | :--- | :--- |
 | `dev.plexusmodloader.runtime` | `PlexusRuntime`, `LaunchConfiguration` | Runtime boot orchestration and state management |
 | `dev.plexusmodloader.runtime` | `LoadedModCounter` | Real-time per-loader mod count aggregation |
-| `.discovery` | `ModFileScanner`, `NestedJarExtractor`, `ForeignModResolver` | Discover jars in mod folder, extract nested jars, identify loaders |
+| `.discovery` | `ModFileScanner`, `NestedJarExtractor`, `ForeignModResolver`, `FabricApiProvision`, `QuiltedFabricApiProvision` | Discover jars in mod folder, extract nested jars, identify loaders, and download pinned Fabric API and Quilted Fabric API (ADR-0046, ADR-0048) |
 | `.dependency` | `ModDependencyResolver` | Resolve mod version constraints and sort load priority |
-| `.compat` | `HostPatchCheck`, `CrossLoaderModResolver` | Pre-diagnose conflicts between Forge/NeoForge patches and Fabric Mixins |
-| `.classloading` | `GameClassLoader` | Manage the single game classloader and hide unused loader APIs (`hideFromParent`) |
+| `.compat` | `HostPatchCheck`, `CrossLoaderModResolver`, `HostFinalOverrides` | Pre-diagnose conflicts between Forge/NeoForge patches and Fabric Mixins, and permit reviewed host-final method overrides for Fabric/Quilt classes (ADR-0047) |
+| `.classloading` | `GameClassLoader`, `GameLibraries` | Manage the single game classloader, hide unused loader APIs (`hideFromParent`), and supply classpath libraries with Minecraft jars excluded |
 | `.lifecycle` | `EntrypointInvoker`, `ShutdownCoordinator` | Invoke entrypoints and execute shutdown tasks upon JVM termination |
 
 ---

@@ -50,6 +50,13 @@
 ### 3-4) 호스트 검사에서의 refmap 이름
 Fabric 모드는 믹스인을 개발할 때 쓴 이름(`method = "tryBreakBlock"`, yarn 메서드를 가리키는 `@At`의 `target`)으로 쓰고, Mixin 설정의 `"refmap"`이 가리키는 참조 맵이 그것을 게임의 이름으로 바꿔 줍니다. 그 조회는 Mixin이 믹스인을 적용할 때 합니다. MinecraftForge·NeoForge와 함께 실행하면 `HostPatchAdjustments`가 이 문자열을 패치 전후의 게임 클래스와 비교하므로 게임의 이름이 필요합니다. yarn 이름 그대로는 메서드를 찾지 못해, 호출이나 필드를 기준으로 하는 규칙(`SAME_PLACE`, `IN_METHOD`)이 적용되지 않았고 핸들러 이름을 기준으로 하는 규칙(`HOST_COVERS`)만 작동했습니다. 이제 `HostRefmapNames`가 참조 맵을 읽고(Mixin처럼 `mappings`, 그다음 `data`의 `named:intermediary`, 믹스인 클래스와 문자열 기준) 인젝터의 `method`·`target` 문자열(중첩 `@At`·`@Slice`, MixinExtras `@Definition` 포함)을 게임의 이름으로 바꿔 믹스인 클래스에 씁니다. 믹스인을 검사할 때와 로드할 때 둘 다 같습니다. 참조 맵이 없는 모드, 맵에 없는 문자열, `remap = false`(믹스인·인젝터·`@At`)인 것은 쓰인 그대로 둡니다. 바뀐 문자열은 맵에 없으므로 Mixin은 그대로 씁니다. 26.1 이전 버전에서는 번역이 이미 Mojang 이름으로 고친 맵을 읽습니다(3-1).
 
+### 3-5) 26.1 이전 Quilt 모드 (ADR-0048)
+- **헤드리스 Quilt 모드 실행:** Quilt 모드는 Minecraft 1.20.1, 1.20.4, 1.21.1 및 1.21.11에서 헤드리스로 실행됩니다. EULA 확인 전까지의 전용 서버 실제 모드 묶음 로드/미로드(중첩 모드 포함): 1.20.1 189/821, 1.20.4 111/153, 1.21.1 109/123, 1.21.11 123/96이며, 게임 테스트 서버 실행: 1.20.4 112/153, 1.21.1 115/173, 1.21.11 123/141입니다(1.20.1 게임 테스트 서버 실행은 Cardinal Components API의 block 모듈에서 중단됩니다).
+- **Quilt Config 번들 제공:** Quilt Config 1.3.3(Apache-2.0) 및 Quilt Loader의 QuiltConfig API(`QuiltConfigImpl`)가 번들로 제공되어 Quilt 모드 설정 파일을 JSON5로 저장합니다(TOML 제외).
+- **Refmap 및 접근자 변환:** Intermediary→Mojang 변환(`ModJarTranslator`, `SelectorAwareClassRemapper`)은 Mixin refmap 키를 유지하고 대상 클래스 내부의 `@Accessor`/`@Invoker` 이름을 해석합니다.
+- **QSL 스택 맵 제한:** 26.1 이전 Quilt Standard Libraries (QSL) / Quilted Fabric API는 다시 매핑된 게임 jar의 스택 맵 프레임이 난독화된 jar와 달라 QSL Mixin이 실패하므로 아직 실행되지 않습니다.
+- **선택적 Quilted Fabric API 프로비저닝:** 1.20.1, 1.20.4, 1.21.1용 고정 Quilted Fabric API 다운로드(`QuiltedFabricApiProvision`, `PLEXUS-DISCOVERY-006` 추가 / `007` 실패)는 기본적으로 꺼져 있으며 `-Dplexus.qsl=on`으로만 활성화됩니다(1.21.11 및 26.x용 QSL은 존재하지 않습니다).
+
 ### 4) 진입점 생명주기 관리 및 언어 어댑터
 - **언어 어댑터(Language Adapters):** Fabric의 `languageAdapters` 및 Quilt의 `quilt_loader.language_adapters`에 선언된 사용자 정의 언어 어댑터(`org.quiltmc.loader.api.LanguageAdapter` 또는 `net.fabricmc.loader.api.LanguageAdapter` 구현체)를 지원합니다. 양쪽 로더의 어댑터를 단일 런타임 저장소에서 통합 관리하여 상호 로더 간 진입점 생성을 지원하며, 어댑터를 찾을 수 없는 경우 Quilt 모드는 `PLEXUS-COMPAT-312`, Fabric 모드는 `PLEXUS-COMPAT-114`로 안전하게 차단합니다.
 - **`pre_launch` / `preLaunch`:** Mixin 준비 직후 및 게임 초기화 직전에 호출.
@@ -89,6 +96,6 @@ Fabric 모드는 믹스인을 개발할 때 쓴 이름(`method = "tryBreakBlock"
 
 ## 4. 제약 사항
 - 호스트 패치가 처리기의 일을 이미 하는 주입은 `HOST_COVERS` 규칙으로만 덜어냅니다(자동 아님, ADR-0032). 덜어낸 처리기의 기능은 Fabric 단독 실행과 다를 수 있습니다(MinecraftForge 옆: 위치별 파티클·벽 안 스프라이트, 자동 블록 아이템 모델).
-- Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 없으므로, QSL 모듈이 필요한 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-114`와 `308`)와 함께 제외되고, QSL 진입점은 실행하지 않습니다(`303`). 예외로, 클래스가 Fabric 초기화 인터페이스를 구현한 QSL 진입점은 Fabric 진입점으로 실행하며, 그 모드의 `quilt_base` 의존은 충족된 것으로 봅니다(`PLEXUS-COMPAT-311`).
+- Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 없으므로, QSL 모듈이 필요한 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-114`와 `308`)와 함께 제외되고, QSL 진입점은 실행하지 않습니다(`303`). 예외로, 클래스가 Fabric 초기화 인터페이스를 구현한 QSL 진입점은 Fabric 진입점으로 실행하며, 그 모드의 `quilt_base` 의존은 충족된 것으로 봅니다(`PLEXUS-COMPAT-311`). 26.1 이전에는 다시 매핑된 게임 jar의 스택 맵 프레임 차이로 인해 QSL / Quilted Fabric API가 아직 실행되지 않으므로(ADR-0048), `-Dplexus.qsl=on`이 설정되지 않는 한 Quilted Fabric API를 다운로드하지 않습니다.
 - 모드가 Fabric Loader나 Quilt Loader의 비공개 내부 패키지(`net.fabricmc.loader.impl.*` 등)에 직접 접근하는 경우 링크 검증 단계(`PLEXUS-COMPAT-111`)에서 거부될 수 있습니다. 모드가 실제로 쓰는 몇 가지 내부 클래스는 제공합니다(`FabricLauncher`, `FabricLoaderImpl`, `GameProvider`, `FabricGuiEntry`, `FabricStatusTree`, `FormattedException`). `MappingConfiguration`은 Fabric Loader 자신의 매핑 트리를 내주므로 제공하지 않습니다.
 - Mixin 라이브러리는 이후 클래스 로드에 필요한 것(`ClassInfo` 캐시, 모든 Mixin 클래스의 클래스 노드)을 스스로 쥐고 있습니다. 브리지는 두 번째 사본을 들고 있지 않으며, 라이브러리를 고치지 않고는 그것을 놓을 수 없습니다. Fabric Loader도 같은 것을 쥡니다.
