@@ -140,20 +140,26 @@ public final class ModFileScanner {
             // NeoForge 20.4's FML 2 (and 20.2, 20.3) reads META-INF/mods.toml, the file MinecraftForge mods have, and
             // knows no neoforge.mods.toml: a mods.toml alone says which of the two it is for by the mods it depends
             // on (ADR-0043).
-            if (found != null
-                    && jarFile.getEntry(ModFileKind.NEOFORGE.metadataPath()) == null
-                    && jarFile.getEntry(ModFileKind.FORGE.metadataPath()) != null) {
+            // A jar with both files whose mods.toml depends on neoforge alone (tr7zw's 1.20.4 builds) is a NeoForge mod
+            // too: its mods.toml is for NeoForge 20.4, its neoforge.mods.toml for later NeoForge.
+            if (found != null && jarFile.getEntry(ModFileKind.FORGE.metadataPath()) != null) {
+                boolean neoForgeMetadata = jarFile.getEntry(ModFileKind.NEOFORGE.metadataPath()) != null;
                 switch (modsTomlFamily(jarFile)) {
                     case NEOFORGE_ONLY -> {
                         // A mod for NeoForge, whatever else the jar has: the kind NeoForge's own metadata would give.
                         if (found == ModFileKind.FORGE) {
                             found = ModFileKind.NEOFORGE;
                         } else {
-                            alsoFor.remove(ModFileKind.FORGE);
                             alsoFor.add(ModFileKind.NEOFORGE);
                         }
+                        alsoFor.remove(ModFileKind.FORGE);
+                        alsoFor.remove(found);
                     }
-                    case BOTH -> alsoFor.add(ModFileKind.NEOFORGE); // runs on either; the runtime that runs decides
+                    case BOTH -> {
+                        if (!neoForgeMetadata) {
+                            alsoFor.add(ModFileKind.NEOFORGE); // runs on either; the runtime that runs decides
+                        }
+                    }
                     case FORGE_ONLY -> {}
                 }
             }

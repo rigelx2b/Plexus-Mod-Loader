@@ -1,5 +1,45 @@
 # Changelog
 
+## 2.1.2 — 2026-11-08
+
+### Summary
+
+Plexus Mod Loader 2.1.2 enables Fabric API alongside MinecraftForge on Minecraft 1.20.1 and 1.20.4, runs Quilt mods headless on 1.20.1, 1.20.4, 1.21.1, and 1.21.11, and verifies Forge 61.2.5 and NeoForge 21.11.48 in game client windows on 1.21.11.
+
+### What's New
+
+- Run Fabric API next to MinecraftForge on Minecraft 1.20.1 (Forge 47.4.28) and 1.20.4 (Forge 49.2.13) by opening reviewed host-final methods (specifically `Ingredient.toNetwork` for `CustomIngredientImpl`), reported as informational `PLEXUS-COMPAT-228` (ADR-0047), extending automatic Fabric API download (ADR-0046) to Forge on both versions, and passing headless real-mod runs (`corpusFabricForge`) with `fabric-recipe-api-v1` loaded (1.20.1: 29 loaded / 50 not loaded; 1.20.4: 52 / 86; 1.21.1, 1.21.11, 26.2, and 26.3 unchanged and passing).
+- Run Quilt mods headless on Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11, bundling Quilt Config 1.3.3 (Apache-2.0) and Quilt Loader's QuiltConfig API saving configs as JSON5, preserving Mixin refmap keys during intermediary-to-Mojang translation, and resolving `@Accessor` and `@Invoker` names inside target classes, verified on dedicated servers up to the EULA check (1.20.1: 189 loaded / 821 not loaded; 1.20.4: 111 / 153; 1.21.1: 109 / 123; 1.21.11: 123 / 96) and on game test servers (1.20.4: 112 / 153; 1.21.1: 115 / 173; 1.21.11: 123 / 141).
+- Run Forge and NeoForge in game windows on Minecraft 1.21.11 with Forge 61.2.5 and NeoForge 21.11.48, verified using real-mod sets in development environments and installed launcher profiles joining a world for 200 ticks and leaving via the new `plexus-client-session` test mod.
+- Add an optional pinned Quilted Fabric API download for Minecraft 1.20.1, 1.20.4, and 1.21.1 (`PLEXUS-DISCOVERY-006` added, `PLEXUS-DISCOVERY-007` failed), disabled by default and enabled via `-Dplexus.qsl=on` (ADR-0048), noting that pre-26.1 Quilt Standard Libraries (QSL) / Quilted Fabric API do not run yet due to differing stack map frames in remapped game jars and that no QSL exists for 1.21.11 or 26.x.
+
+### Improvements & Fixes
+
+- Fix launch stops (`PLEXUS-TRANSFORM-002` under rule `plexus:server_tick_events`) in installed launcher profiles with Fabric API next to Forge 1.21.11 by excluding the obfuscated Minecraft jar on the JVM class path from library inspection so host-patch checks inspect Forge's patched classes.
+- Fix Forge's `field_to_method` coremod failure ("Field climateSettings is not private") when Fabric API widens field access, and exclude mods overriding unreviewed host-final methods with `PLEXUS-COMPAT-224` instead of stopping the game.
+- Fix automatic Fabric API downloads being triggered by multi-loader universal jars that the host loader already runs, such as CustomSkinLoader next to Forge.
+- Fix pre-launch and compatibility handling on Minecraft 1.20.1, 1.20.4, and 1.21.1 by excluding Forge mods with missing language loaders (such as libIPN needing Kotlin for Forge) with `PLEXUS-COMPAT-209`, renaming nested jars under `META-INF/jars/` from SRG to Mojang names on Forge 1.20.x, allowing Plexus Mods alongside NeoForge 20.4 and 21.1 without stopping launch, and treating dual-manifest jars requiring neoforge (such as Entity Culling for 1.20.4) strictly as NeoForge mods.
+- Keep Fabric and Quilt mods separate from NeoForge 20.4 (1.20.4) and 21.1 (1.21.1), where NeoForge's boot-layer Mixins in FML and ModList require further development.
+- Keep game windows on Minecraft 1.20.1, 1.20.4, and 1.21.1 unverified pending individual mod fixes (Xaero's World Map disconnects on Forge 1.21.1; Entity Model Features Mixin descriptor fails on Forge 1.20.4; FancyMenu Mixin into LWJGL GLFW fails with an IllegalAccessError between modules on Forge 1.20.1 and NeoForge 21.1; Entity Texture Features and BadOptimizations fail mod construction on NeoForge 20.4; Cardinal Components API block module stops the 1.20.1 Quilt game test server).
+
+### 주요 변경
+
+#### Fabric·Quilt
+- Minecraft 1.20.1(Forge 47.4.28) 및 1.20.4(Forge 49.2.13)에서 MinecraftForge 옆 Fabric API를 실행할 수 있도록 지원합니다. Forge가 `final`로 지정한 `Ingredient.toNetwork`를 Fabric API의 `CustomIngredientImpl`이 오버라이드할 때, 사전에 검토된 호스트 `final` 메서드 목록(여기서는 정확히 `Ingredient.toNetwork`)에 한해 해당 Fabric·Quilt 클래스에 메서드를 개방하고 정보 코드 `PLEXUS-COMPAT-228`을 기록합니다(ADR-0047). 목록에 없는 호스트 `final` 메서드는 게임을 멈추는 대신 `PLEXUS-COMPAT-224`와 함께 모드를 제외하며, Fabric API가 필드 접근 범위를 넓혔을 때 Forge의 `field_to_method` 코어모드가 실패(`Field climateSettings is not private`)하던 문제를 해결했습니다. 헤드리스 실제 모드 실행(`corpusFabricForge`)에서 1.20.1은 29개 로드 / 50개 미로드, 1.20.4는 52개 로드 / 86개 미로드되었고 `fabric-recipe-api-v1`이 정상 로드되었으며, 1.21.1, 1.21.11, 26.2, 26.3은 변경 없이 통과했습니다.
+- 자동 Fabric API 다운로드(ADR-0046)가 1.20.1 및 1.20.4의 Forge 환경에서도 Fabric API를 자동으로 추가하도록 확장되었습니다. 또한 `CustomSkinLoader`의 유니버설 jar처럼 호스트 로더가 자체 실행하는 다중 로더 지원 jar로 인해 자동 Fabric API 다운로드가 잘못 트리거되던 동작을 수정했습니다.
+- Quilt 모드가 Minecraft 1.20.1, 1.20.4, 1.21.1, 1.21.11에서 헤드리스로 실행됩니다. 중첩 모드를 포함한 실제 Quilt 모드 세트의 로드 / 미로드 결과는 전용 서버(EULA 확인까지)에서 1.20.1 189 / 821, 1.20.4 111 / 153, 1.21.1 109 / 123, 1.21.11 123 / 96이며, 게임 테스트 서버(월드 생성, GameTest, 저장)에서 1.20.4 112 / 153, 1.21.1 115 / 173, 1.21.11 123 / 141입니다(1.20.1 게임 테스트 서버는 `Cardinal Components API` 블록 모듈로 인해 정지됨). `Quilt Config` 1.3.3(Apache-2.0) 및 Quilt Loader의 `QuiltConfig` API를 번들하고 모드 설정 파일은 JSON5로 저장하며, Intermediary에서 Mojang 매핑으로 변환할 때 Mixin refmap 키를 유지하고 대상 클래스 내부의 `@Accessor` 및 `@Invoker` 이름을 정상 해석합니다.
+- 26.1 이전 Quilt Standard Libraries(QSL) 및 Quilted Fabric API는 재매핑된 게임 jar의 스택 맵 프레임 차이로 Mixin이 실패하여 아직 기본 실행되지 않습니다. 1.20.1, 1.20.4, 1.21.1용 고정 빌드 다운로드(`PLEXUS-DISCOVERY-006` 추가, `PLEXUS-DISCOVERY-007` 실패)를 구현했으나 기본값은 꺼짐 상태이며 `-Dplexus.qsl=on`으로 활성화할 수 있습니다(ADR-0048). 1.21.11 및 26.x용 QSL은 제공되지 않습니다.
+
+#### Forge·NeoForge
+- 설치된 런처 프로필 실행 시 JVM 클래스패스의 난독화된 Minecraft jar를 라이브러리로 인식하지 않도록 수정하여 호스트 패치 검사가 Forge의 패치 클래스를 정상 참조하도록 개선했습니다. 이를 통해 설치된 프로필의 Forge 1.21.11 환경에서 Fabric API 실행 시 발생하던 기동 중단(`PLEXUS-TRANSFORM-002`, 규칙 `plexus:server_tick_events`)을 해결했습니다.
+- 1.20.1, 1.20.4, 1.21.1 환경의 Forge·NeoForge 호환성을 개선했습니다. 설치되지 않은 언어 로더를 요구하는 Forge 모드(`Kotlin for Forge`가 필요한 `libIPN`)는 전체 모드 실행을 멈추지 않고 실행 전 `PLEXUS-COMPAT-209`로 안전하게 제외합니다. Forge 1.20.x에서 `META-INF/jarjar/` 외에 `META-INF/jars/` 경로의 중첩 jar도 SRG에서 Mojang 이름으로 매핑을 변환하며, `mods.toml`과 `neoforge.mods.toml`을 모두 포함하고 `mods.toml`에서 `neoforge`를 요구하는 jar(1.20.4용 `Entity Culling`)는 NeoForge 전용 모드로만 인식합니다.
+- NeoForge 20.4(1.20.4) 및 21.1(1.21.1) 환경에 Plexus 모드가 함께 존재해도 기동이 중단되지 않도록 수정했습니다(해당 버전의 NeoForge 모드는 `ModList`를 통해 Plexus 모드를 조회하지 않음). 단, FML 부트 레이어의 NeoForge 자체 Mixin 및 `ModList` 처리가 추가로 필요하여 NeoForge 20.4 및 21.1 옆에서의 Fabric 및 Quilt 모드 실행은 아직 지원되지 않습니다.
+
+#### 게임 창 검증
+- Minecraft 1.21.11에서 Forge 61.2.5 및 NeoForge 21.11.48 환경의 실제 모드 세트 게임 창 검증(개발 환경 및 설치된 런처 프로필에서 월드 진입, 200틱 유지, 퇴장)을 통과했습니다. 1.x 버전의 Forge 및 NeoForge 창 테스트는 200틱 동안 플레이하고 월드를 종료하는 신규 테스트 모드 `plexus-client-session`을 통해 구동되었습니다.
+- 1.20.1, 1.20.4, 1.21.1의 게임 창 실행은 개별 모드 이슈로 인해 아직 완료되지 않았습니다. Forge 1.21.1에서는 `Xaero's World Map`에 의한 플레이어 연결 끊김, Forge 1.20.4에서는 `Entity Model Features`의 Mixin 디스크립터 실패, Forge 1.20.1 및 NeoForge 21.1에서는 `FancyMenu`의 LWJGL `GLFW` 대상 Mixin 오류(모듈 간 `IllegalAccessError`로 인한 Plexus 모드 로더 한계), NeoForge 20.4에서는 `Entity Texture Features` 및 `BadOptimizations`의 모드 인스턴스 미생성으로 중단되어 해당 버전들의 창 검증은 미완료 상태입니다.
+- 2026-11-08 릴리스 전 검증으로 `check`, `build-logic`의 `check`, 9개 버전 헤드리스 검증(서버 부팅, 월드 저장, GameTest, 호환성 매트릭스, 1.x Quilt 및 Forge+Fabric API 실행이 추가된 실제 모드 코퍼스), 독립 프로젝트 `crystal-garden`, 9개 버전의 게임 창 내 클라이언트 월드 재접속(`clientWorldReloadTest`), 설치된 런처 프로필 3종(Fabric, Forge, NeoForge) 및 1.21.11 Forge/NeoForge 창 테스트를 모두 완료했습니다.
+
 ## 2.1.1 — 2026-11-08
 
 ### Summary

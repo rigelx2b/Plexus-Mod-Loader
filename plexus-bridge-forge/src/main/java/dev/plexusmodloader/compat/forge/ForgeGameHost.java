@@ -8,6 +8,7 @@ import dev.plexusmodloader.compat.bridge.GameHost;
 import dev.plexusmodloader.compat.bridge.GameModuleLayers;
 import dev.plexusmodloader.compat.bridge.InjectionPointReplacement;
 import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
+import dev.plexusmodloader.internal.transform.MethodTarget;
 import dev.plexusmodloader.internal.transform.TransformRuleDefinition;
 import java.io.IOException;
 import java.io.InputStream;
@@ -390,6 +391,15 @@ final class ForgeGameHost implements GameHost {
     @Override
     public List<InjectionPointReplacement> injectionPointReplacements() {
         return ForgeInjectionPoints.all();
+    }
+
+    /**
+     * The methods Forge's patch made final that other loaders' classes may override as on vanilla ({@link
+     * ForgeFinalMethods}).
+     */
+    @Override
+    public List<MethodTarget> overridableFinalMethods() {
+        return ForgeFinalMethods.all();
     }
 
     /**

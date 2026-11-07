@@ -106,10 +106,9 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         try {
             ForeignModList.install(request.otherMods());
         } catch (NoClassDefFoundError e) {
-            // NeoForge's FML 4 (ADR-0043) has no forgespi, and its ModList is not patched to ask for other mods yet.
-            if (!request.otherMods().isEmpty()) {
-                throw e;
-            }
+            // NeoForge's FML 2 and 4 (ADR-0043) have no forgespi, and their ModList is not patched to ask for other
+            // mods: NeoForge mods do not see Plexus Mods through it (ForgeModListPatch logs PLEXUS-COMPAT-211); the
+            // other mods still run.
         }
         if (request.launchTarget().equals(GAME_TEST_TARGET)) {
             // The game test launch is not production, so that Forge runs game tests (ForgeGameTestHooks reads

@@ -459,6 +459,38 @@ class QuiltBridgeTest {
                 FabricLoaderImpl.INSTANCE.getEntrypoints("main", Object.class).stream()
                         .noneMatch(QslInit.class::isInstance),
                 "other mods asking for main do not get the init entrypoint");
+        // QSL, when installed, asks for init with its own interface; the entrypoint already ran as main (311).
+        assertEquals(List.of(), QuiltLoaderImpl.INSTANCE.getEntrypointContainers("init", Runnable.class));
+        assertEquals(
+                1,
+                QuiltLoaderImpl.INSTANCE
+                        .getEntrypointContainers("init", Object.class)
+                        .size());
+    }
+
+    @Test
+    void aQslEntrypointThatAlsoImplementsQslsInterfaceIsLeftToQsl() throws IOException {
+        org.objectweb.asm.ClassWriter writer = new org.objectweb.asm.ClassWriter(0);
+        writer.visit(
+                org.objectweb.asm.Opcodes.V21,
+                org.objectweb.asm.Opcodes.ACC_PUBLIC,
+                "a/Both",
+                null,
+                "java/lang/Object",
+                new String[] {"net/fabricmc/api/ModInitializer", "org/quiltmc/qsl/base/api/entrypoint/ModInitializer"});
+        writer.visitEnd();
+        byte[] bytes = writer.toByteArray();
+        ModJarContents jar = path -> path.equals("a/Both.class") ? Optional.of(bytes) : Optional.empty();
+
+        BridgeAssessment assessment = bridge.assess(
+                withLoader("\"entrypoints\": {\"init\": \"a.Both\"}, \"depends\": [\"quilt_base\"]"),
+                GameSide.DEDICATED_SERVER,
+                jar);
+
+        assertFalse(
+                codes(assessment).contains("PLEXUS-COMPAT-311"),
+                codes(assessment).toString());
+        assertTrue(assessment.dependencies().stream().anyMatch(d -> d.modId().equals("quilt_base")));
     }
 
     @Test
@@ -761,7 +793,7 @@ class QuiltBridgeTest {
         assertTrue(bridge.providedPackages().contains("org/quiltmc/loader/api/"));
         assertTrue(bridge.providedPackages().contains("net/fabricmc/loader/api/"));
         assertTrue(bridge.runtimePackages().contains("org/quiltmc/loader/"));
-        assertEquals(List.of("org.quiltmc.loader."), bridge.sharedLibraryPackages());
+        assertEquals(List.of("org.quiltmc.loader.", "org.quiltmc.config."), bridge.sharedLibraryPackages());
     }
 
     @Test

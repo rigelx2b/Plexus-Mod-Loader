@@ -1,12 +1,14 @@
 package dev.plexusmodloader.runtime.compat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.plexusmodloader.api.runtime.GameSide;
 import dev.plexusmodloader.compat.bridge.BridgeAssessment;
 import dev.plexusmodloader.compat.bridge.BridgeLaunchContext;
+import dev.plexusmodloader.compat.bridge.BridgedAccessWidening;
 import dev.plexusmodloader.compat.bridge.BridgedDependency;
 import dev.plexusmodloader.compat.bridge.BridgedEntrypoint;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
@@ -14,12 +16,18 @@ import dev.plexusmodloader.compat.bridge.CompatibilityStatus;
 import dev.plexusmodloader.compat.bridge.GameClassBytes;
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
 import dev.plexusmodloader.compat.bridge.ModLoaderBridge;
+import dev.plexusmodloader.internal.transform.MethodTarget;
 import dev.plexusmodloader.runtime.discovery.ForeignModResolver.ForeignMod;
+import java.lang.classfile.ClassFile;
+import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
+import java.lang.constant.MethodTypeDesc;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
@@ -149,5 +157,137 @@ class HostPatchCheckTest {
 
         assertSame(mods, checked);
         assertTrue(bridge.askedFor.isEmpty());
+    }
+
+    // A class of a mod that overrides a method the host's patch made final (ADR-0047).
+
+    private static final String INGREDIENT = "net/minecraft/world/item/crafting/Ingredient";
+    private static final MethodTarget TO_NETWORK = new MethodTarget(INGREDIENT, "toNetwork", "(I)V");
+
+    /** A test bridge that finds nothing wrong with any mixin. */
+    private static final class QuietBridge implements ModLoaderBridge {
+
+        @Override
+        public String loaderName() {
+            return "Fabric";
+        }
+
+        @Override
+        public String metadataPath() {
+            return "fabric.mod.json";
+        }
+
+        @Override
+        public BridgeAssessment assess(String metadata, GameSide side) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void invokeEntrypoint(BridgedEntrypoint entrypoint, ClassLoader gameClassLoader) {}
+    }
+
+    private static byte[] ingredient(int flags) {
+        return ClassFile.of()
+                .build(
+                        ClassDesc.ofInternalName(INGREDIENT),
+                        builder -> builder.withFlags(ClassFile.ACC_PUBLIC)
+                                .withMethodBody(
+                                        "toNetwork",
+                                        MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_int),
+                                        flags,
+                                        code -> code.return_()));
+    }
+
+    private Path jar(String name, String entry, byte[] bytes) throws Exception {
+        Path jar = directory.resolve(name);
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
+            output.putNextEntry(new ZipEntry(entry + ".class"));
+            output.write(bytes);
+            output.closeEntry();
+        }
+        return jar;
+    }
+
+    private List<ForeignMod> overridingMod(List<MethodTarget> reviewed, ModLoaderBridge bridge) throws Exception {
+        Path patched = jar("patched-game.jar", INGREDIENT, ingredient(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL));
+        Path vanilla = jar("vanilla-game.jar", INGREDIENT, ingredient(ClassFile.ACC_PUBLIC));
+        Path modJar = jar(
+                "recipes.jar",
+                "mod/CustomIngredientImpl",
+                ClassFile.of()
+                        .build(
+                                ClassDesc.of("mod.CustomIngredientImpl"),
+                                builder -> builder.withSuperclass(ClassDesc.ofInternalName(INGREDIENT))
+                                        .withMethodBody(
+                                                "toNetwork",
+                                                MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_int),
+                                                ClassFile.ACC_PUBLIC,
+                                                code -> code.return_())));
+        ForeignMod mod = new ForeignMod(
+                modJar,
+                bridge,
+                BridgeAssessment.of(
+                        "Fabric", "recipes", "1.0.0", List.of(), List.of(), CompatibilityStatus.EXPERIMENTAL));
+        return HostPatchCheck.apply(
+                GameSide.DEDICATED_SERVER,
+                new HostedLaunch("MinecraftForge 1.20.1-47.4.28", List.of(), List.of(), vanilla),
+                reviewed,
+                List.of(patched),
+                HostPatchCheckTest.class.getClassLoader(),
+                List.of(bridge),
+                List.of(mod));
+    }
+
+    @Test
+    void aReviewedMethodTheHostMadeFinalIsOpenedForTheModThatOverridesIt() throws Exception {
+        QuietBridge bridge = new QuietBridge();
+        ForeignMod checked = overridingMod(List.of(TO_NETWORK), bridge).getFirst();
+
+        assertEquals(CompatibilityStatus.EXPERIMENTAL, checked.assessment().status());
+        assertEquals(
+                List.of(new BridgedAccessWidening(
+                        HostPatchCheck.OPENED_CODE,
+                        INGREDIENT,
+                        BridgedAccessWidening.Kind.METHOD,
+                        "toNetwork",
+                        "(I)V",
+                        Set.of(BridgedAccessWidening.Access.EXTENDABLE))),
+                checked.assessment().accessWidenings());
+        CompatibilityFinding finding = checked.assessment().findings().getFirst();
+        assertEquals(HostPatchCheck.OPENED_CODE, finding.code());
+        assertFalse(finding.blocking());
+        assertTrue(
+                finding.detail().contains("MinecraftForge 1.20.1-47.4.28")
+                        && finding.detail().contains(TO_NETWORK.toString())
+                        && finding.detail().contains("CustomIngredientImpl"),
+                finding.detail());
+
+        // The runtime checks the mods again after it replaced host modules: no second widening or finding.
+        List<ForeignMod> again = HostPatchCheck.apply(
+                GameSide.DEDICATED_SERVER,
+                new HostedLaunch(
+                        "MinecraftForge 1.20.1-47.4.28", List.of(), List.of(), directory.resolve("vanilla-game.jar")),
+                List.of(TO_NETWORK),
+                List.of(directory.resolve("patched-game.jar")),
+                HostPatchCheckTest.class.getClassLoader(),
+                List.of(bridge),
+                List.of(checked));
+        assertSame(checked, again.getFirst());
+    }
+
+    @Test
+    void aMethodTheHostMadeFinalThatNoOneReviewedKeepsTheModOut() throws Exception {
+        ForeignMod checked = overridingMod(List.of(), new QuietBridge()).getFirst();
+
+        assertEquals(CompatibilityStatus.BLOCKED, checked.assessment().status());
+        assertEquals(List.of(), checked.assessment().accessWidenings());
+        CompatibilityFinding finding = checked.assessment().findings().getFirst();
+        assertEquals(HostPatchCheck.CODE, finding.code());
+        assertTrue(finding.blocking());
+        assertTrue(
+                finding.detail().contains("CustomIngredientImpl")
+                        && finding.detail().contains(TO_NETWORK.toString())
+                        && finding.detail().contains("MinecraftForge 1.20.1-47.4.28"),
+                finding.detail());
     }
 }

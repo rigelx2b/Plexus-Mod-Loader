@@ -39,6 +39,8 @@ dependencies {
     "forgeHostCompileOnly"(libs.maven.artifact)
     // ForeignModFileInfoTest checks the forgespi views of other loaders' mods (ADR-0025) against forgespi itself.
     testImplementation(forgeHost.output)
+    // ForgeClassTransformerTest asks transformers for their labels, as ModLauncher's ITransformer has them.
+    testImplementation(libs.forge.modlauncher) { isTransitive = false }
     testImplementation(libs.forge.forgespi) { isTransitive = false }
     testImplementation(libs.forge.securemodules) { isTransitive = false }
 }

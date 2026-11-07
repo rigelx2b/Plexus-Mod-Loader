@@ -105,6 +105,7 @@ includeIfPresent(
     "test-mods:transform-conflict",
     // Cross-loader dependency and robustness scenarios (compatibilityMatrix).
     "test-mods:native-library",
+    "test-mods:plexus-client-session",
     "test-mods:native-addon",
     "test-mods:fabric-library",
     "test-mods:fabric-addon",

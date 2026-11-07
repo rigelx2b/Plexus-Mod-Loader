@@ -302,13 +302,41 @@ public final class QuiltLoaderRuntime {
         return instances;
     }
 
-    /** {@code QuiltLoader.getEntrypointContainers}: instances are created when first asked for. */
+    /**
+     * {@code QuiltLoader.getEntrypointContainers}: instances are created when first asked for. A Quilt mod's QSL
+     * entrypoint that Plexus Mod Loader already runs as the Fabric phase ({@code PLEXUS-COMPAT-311}: its class
+     * implements the Fabric initializer itself and is not a {@code type}) is left out, so QSL, when it is installed, does
+     * not run it a second time or fail to cast it.
+     */
     public <T> List<EntrypointContainer<T>> getEntrypointContainers(String key, Class<T> type) {
         List<EntrypointContainer<T>> containers = new ArrayList<>();
         for (FabricLoaderRuntime.DeclaredEntrypoint declared : fabric.declarations(key)) {
-            containers.add(new LazyEntrypoint<>(this, declared, type));
+            if (!runAsFabricPhase(declared, type)) {
+                containers.add(new LazyEntrypoint<>(this, declared, type));
+            }
         }
         return containers;
+    }
+
+    /** Whether the Quilt bridge runs {@code declared} as a Fabric phase instead of QSL (see {@link QslEntrypoints}). */
+    private boolean runAsFabricPhase(FabricLoaderRuntime.DeclaredEntrypoint declared, Class<?> type) {
+        Class<?> fabricInterface =
+                QslEntrypoints.fabricInterface(declared.key()).orElse(null);
+        if (fabricInterface == null
+                || !declared.loader().equals("Quilt")
+                || !declared.adapter().equals("default")
+                || declared.value().contains("::")) {
+            return false;
+        }
+        Class<?> entrypoint;
+        try {
+            entrypoint = Class.forName(declared.value(), false, fabric.gameClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            // Left in the list: creating it reports the failure as Quilt Loader would.
+            return false;
+        }
+        return !type.isAssignableFrom(entrypoint)
+                && List.of(entrypoint.getInterfaces()).contains(fabricInterface);
     }
 
     /** Whether a loaded Fabric or Quilt mod declares {@code key}. */
@@ -444,6 +472,12 @@ public final class QuiltLoaderRuntime {
     public Path getConfigDir() {
         return QuiltLoaderImpl.ensureDirExists(
                 getGameDir().resolve(System.getProperty("loader.configDir", "config")), "config");
+    }
+
+    /** Quilt Loader's internal {@code getModsDir}: {@code <game>/<loader.modsDir, default mods>}, created if missing. */
+    public Path getModsDir() {
+        return QuiltLoaderImpl.ensureDirExists(
+                getGameDir().resolve(System.getProperty("loader.modsDir", "mods")), "mods");
     }
 
     /** {@code QuiltLoader.getCacheDir}: {@code <game>/<loader.cacheDir, default .cache>}, created if missing. */

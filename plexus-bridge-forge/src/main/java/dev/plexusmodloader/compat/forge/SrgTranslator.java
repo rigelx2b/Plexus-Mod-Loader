@@ -32,7 +32,7 @@ import org.objectweb.asm.commons.Remapper;
  * ADR-0038 point 5): in class files (member declarations and references, method handles, {@code invokedynamic} names,
  * string constants that are exactly one SRG name such as the ones given to {@code ObfuscationReflectionHelper}, and
  * annotation strings that contain one, such as Mixin's {@code method} and {@code target}); in access transformers and
- * Mixin reference maps; and in jars nested in {@code META-INF/jarjar/}. Jar signatures are dropped because the content
+ * Mixin reference maps; and in jars nested under {@code META-INF/} ({@code META-INF/jarjar/}, {@code META-INF/jars/}). Jar signatures are dropped because the content
  * changes.
  *
  * <p>The member is identified by its name alone (an SRG id is unique), so no class hierarchy is read. Classes without an
@@ -43,7 +43,11 @@ import org.objectweb.asm.commons.Remapper;
 final class SrgTranslator {
 
     private static final int MAX_NESTING = 4;
-    private static final String NESTED_JARS = "meta-inf/jarjar/";
+    /** Changes when the translation changes (2: jars nested anywhere under META-INF, such as META-INF/jars/). */
+    static final int FORMAT = 2;
+
+    // JarJar puts nested jars where its metadata.json says: META-INF/jarjar/ or META-INF/jars/ in practice.
+    private static final String NESTED_JARS = "meta-inf/";
 
     private final SrgMojangNames names;
 

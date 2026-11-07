@@ -10,6 +10,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.api.DedicatedServerModInitializer;
+import net.fabricmc.api.ModInitializer;
 import org.objectweb.asm.ClassReader;
 
 /**
@@ -27,11 +30,27 @@ final class QslEntrypoints {
 
     /** QSL entrypoint key → Fabric phase and the Fabric interface the class must implement. */
     private static final Map<String, Phase> PHASES = Map.of(
-            "init", new Phase("common", "net/fabricmc/api/ModInitializer"),
-            "client_init", new Phase("client", "net/fabricmc/api/ClientModInitializer"),
-            "server_init", new Phase("server", "net/fabricmc/api/DedicatedServerModInitializer"));
+            "init",
+            new Phase(
+                    "common", "net/fabricmc/api/ModInitializer", "org/quiltmc/qsl/base/api/entrypoint/ModInitializer"),
+            "client_init",
+            new Phase(
+                    "client",
+                    "net/fabricmc/api/ClientModInitializer",
+                    "org/quiltmc/qsl/base/api/entrypoint/client/ClientModInitializer"),
+            "server_init",
+            new Phase(
+                    "server",
+                    "net/fabricmc/api/DedicatedServerModInitializer",
+                    "org/quiltmc/qsl/base/api/entrypoint/server/DedicatedServerModInitializer"));
 
-    private record Phase(String name, String fabricInterface) {}
+    /** The Fabric initializer of each QSL key, as the runtime checks it ({@code QuiltLoaderRuntime}). */
+    private static final Map<String, Class<?>> FABRIC_INTERFACES = Map.of(
+            "init", ModInitializer.class,
+            "client_init", ClientModInitializer.class,
+            "server_init", DedicatedServerModInitializer.class);
+
+    private record Phase(String name, String fabricInterface, String qslInterface) {}
 
     private record Declared(String key, String value, Phase phase) {}
 
@@ -56,12 +75,21 @@ final class QslEntrypoints {
             }
             for (QuiltModDescription.Entrypoint declaration : declarations) {
                 Declared declared = new Declared(key, declaration.value(), phase);
-                boolean implementsFabric = declaration.adapter().equals("default")
-                        && directInterfaces(jar, declaration.value()).contains(phase.fabricInterface());
+                List<String> interfaces = declaration.adapter().equals("default")
+                        ? directInterfaces(jar, declaration.value())
+                        : List.of();
+                // A class that also implements QSL's own initializer is QSL's to run (it needs QSL to load at all).
+                boolean implementsFabric =
+                        interfaces.contains(phase.fabricInterface()) && !interfaces.contains(phase.qslInterface());
                 (implementsFabric ? runnable : notRunnable).add(declared);
             }
         });
         return new QslEntrypoints(runnable, notRunnable, side);
+    }
+
+    /** The Fabric initializer the class of a QSL entrypoint {@code key} implements when the bridge runs it (311). */
+    static Optional<Class<?>> fabricInterface(String key) {
+        return Optional.ofNullable(FABRIC_INTERFACES.get(key));
     }
 
     /**

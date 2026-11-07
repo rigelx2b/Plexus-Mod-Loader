@@ -2,6 +2,7 @@ package dev.plexusmodloader.internal.transform.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
@@ -216,6 +218,53 @@ class CallSiteAndAccessTest {
         }
         Object instance = load(plan).getConstructor().newInstance();
         assertEquals(7, instance.getClass().getMethod("callSecret").invoke(instance));
+    }
+
+    /**
+     * Late pass reopens extendable methods bridge-stage access transformers made final (Forge 47 public+f {@code
+     * Ingredient.toNetwork}, ADR-0047), changing nothing else.
+     */
+    @Test
+    void anExtendableMethodMadeFinalBetweenThePassesIsOpenedAgain() throws Exception {
+        TransformPlan plan = new ClassTransformPlanner()
+                .plan(
+                        List.of(),
+                        List.of(widening(TARGET, Kind.METHOD, "secret", "()I", Access.EXTENDABLE)),
+                        "26.2",
+                        GameSide.CLIENT,
+                        CallSiteAndAccessTest::bytesOf);
+        ClassTransformExecutor executor = new ClassTransformExecutor(plan, Optional.empty(), entry -> {});
+        ClassNode early = parse(executor.transformEarly(TARGET, bytes(TARGET)));
+        for (MethodNode method : early.methods) {
+            if (method.name.equals("secret")) {
+                method.access |= Opcodes.ACC_FINAL;
+            }
+        }
+        ClassWriter writer = new ClassWriter(0);
+        early.accept(writer);
+        List<String> skipped = new ArrayList<>();
+
+        ClassNode late = parse(executor.transformLate(TARGET, writer.toByteArray(), skipped::add));
+
+        MethodNode secret = late.methods.stream()
+                .filter(method -> method.name.equals("secret"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(0, secret.access & Opcodes.ACC_FINAL);
+        assertEquals(List.of(), skipped);
+        // A class with only other widenings gets no late pass.
+        TransformPlan accessible = new ClassTransformPlanner()
+                .plan(
+                        List.of(),
+                        List.of(widening(TARGET, Kind.METHOD, "secret", "()I", Access.ACCESSIBLE)),
+                        "26.2",
+                        GameSide.CLIENT,
+                        CallSiteAndAccessTest::bytesOf);
+        byte[] unchanged = writer.toByteArray();
+        assertSame(
+                unchanged,
+                new ClassTransformExecutor(accessible, Optional.empty(), entry -> {})
+                        .transformLate(TARGET, unchanged, skipped::add));
     }
 
     @Test

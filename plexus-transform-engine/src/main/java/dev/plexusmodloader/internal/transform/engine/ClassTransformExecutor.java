@@ -142,16 +142,20 @@ public final class ClassTransformExecutor {
 
     /**
      * The second pass: call redirects, on the class as the other transformer left it. A redirect whose call is no
-     * longer there (the other transformer replaced or moved it, as Mixin's {@code @Redirect} and
-     * {@code @WrapOperation} do) is left out and reported to {@code skipped}; the class still loads, and only that rule
-     * does not apply to it.
+     * longer there (the other transformer replaced or moved it, as Mixin's {@code @Redirect} and {@code @WrapOperation}
+     * do) is left out and reported to {@code skipped}; the class still loads, and only that rule does not apply to it.
+     *
+     * <p>Access widenings that make a method extendable apply again in this pass, because a host loader's access
+     * transformer in the other stage may make that method {@code final} again (MinecraftForge's {@code public+f} on
+     * {@code Ingredient.toNetwork}, ADR-0047); applying them twice changes nothing else.
      *
      * @param skipped receives one message per rule left out
      * @throws dev.plexusmodloader.internal.transform.TransformException when the result fails verification
      */
     public byte[] transformLate(String internalName, byte[] bytes, Consumer<String> skipped) {
         List<TransformRuleDefinition> rules = lateRules(internalName);
-        if (rules.isEmpty()) {
+        List<AccessWidening> reopened = lateWidenings(internalName);
+        if (rules.isEmpty() && reopened.isEmpty()) {
             return bytes;
         }
         ClassNode classNode = new ClassNode();
@@ -171,12 +175,23 @@ public final class ClassTransformExecutor {
                 applicable.add(rule);
             }
         }
-        if (applicable.isEmpty()) {
+        if (applicable.isEmpty() && reopened.isEmpty()) {
             return bytes;
         }
-        byte[] transformed = transformUncached(internalName, bytes, applicable, List.of());
-        record(internalName, applicable, List.of(), bytes, transformed, false);
+        // A host's access transformer in the other stage may make such a method final again (Forge's public+f).
+        byte[] transformed = transformUncached(internalName, bytes, applicable, reopened);
+        record(internalName, applicable, reopened, bytes, transformed, false);
         return transformed;
+    }
+
+    /**
+     * The widenings that make a method of {@code internalName} extendable, which {@link #transformLate} applies again.
+     */
+    private List<AccessWidening> lateWidenings(String internalName) {
+        return plan.wideningsByClass().getOrDefault(internalName, List.of()).stream()
+                .filter(widening -> widening.kind() == AccessWidening.Kind.METHOD
+                        && widening.access().contains(AccessWidening.Access.EXTENDABLE))
+                .toList();
     }
 
     private List<TransformRuleDefinition> earlyRules(String internalName) {

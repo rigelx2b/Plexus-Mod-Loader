@@ -74,8 +74,21 @@ public final class GameLibraries {
             }
             return;
         }
-        if (!holdsShared(jar)) {
+        // Another Minecraft jar (a launcher profile's obfuscated vanilla client before 26.1) is never a library.
+        if (!holdsShared(jar) && !isMinecraftJar(jar)) {
             libraries.add(jar);
+        }
+    }
+
+    // A Minecraft client or server jar: its version.json beside the game's main or server class.
+    static boolean isMinecraftJar(Path jar) {
+        try (JarFile file = new JarFile(jar.toFile())) {
+            return file.getEntry("version.json") != null
+                    && (file.getEntry("net/minecraft/client/main/Main.class") != null
+                            || file.getEntry("net/minecraft/server/MinecraftServer.class") != null);
+        } catch (IOException e) {
+            // holdsShared already left a jar Plexus Mod Loader cannot read on the class path.
+            return false;
         }
     }
 

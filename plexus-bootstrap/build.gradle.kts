@@ -1,6 +1,9 @@
+import java.io.IOException
 import java.util.Properties
 import java.util.concurrent.Callable
 import java.util.zip.GZIPInputStream
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 plugins {
     id("plexus.java-conventions")
@@ -283,6 +286,24 @@ dependencies {
 // One installer launch scenario: every launcher profile task wires the installer jar, the client launch spec, the JDK
 // and the saved world of worldCreateSaveTest the same way; only the mods, the world name, the run folder and the
 // expected lines differ.
+// Window runs before 26.1: the Fabric and NeoForge session mods are built against 26.x, and Fabric mods do not run next
+// to Forge on 1.20.x, so a Plexus Mod (Native API, the same on every version) plays 200 ticks and leaves the world.
+val plexusDrivesClient = minecraft.startsWith("1.")
+fun clientSession(loader: String): String =
+    if (plexusDrivesClient) ":test-mods:plexus-client-session" else ":test-mods:$loader-client-session"
+fun clientSessionLines(loader: String): List<String> =
+    if (plexusDrivesClient) {
+        listOf(
+            "[plexus_client_session] 200 client ticks in the world; save and quit",
+            "[plexus_client_session] Client left the world",
+        )
+    } else {
+        listOf(
+            "[${loader}_client_session] 200 client ticks in the world; save and quit",
+            "[${loader}_client_session] left the saved world; stopping the client",
+        )
+    }
+
 fun launcherProfile(name: String, profileDirectory: String, configure: dev.plexusmodloader.devtools.gradle.minecraft.LauncherProfileLaunchTask.() -> Unit) {
     tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.LauncherProfileLaunchTask>(name) {
         group = "verification"
@@ -1679,14 +1700,104 @@ val quiltDataBrokenOnGame = when (minecraft) {
         "crafting_stonecutting_wood_doors_and_trapdoors_v1.12-quilt.jar",
         "crafting_stonecutting_wood_slabs_and_stairs_v1.13-quilt.jar",
     )
+    // Terralith 2.4.10 for 1.20.4 (in both Quilt corpora): its structure set terralith:regular has the salt 235890235372,
+    // which does not fit an int; read as -332965908 the game's codec refuses it (non-negative), so the world's
+    // registries do not load (corpusQuilt 1.20.1 and 1.20.4, 2026-11-08).
+    "1.20.1", "1.20.4" -> listOf("Terralith_1.20.4_v2.4.10.jar")
     else -> listOf()
 }
 val quiltBrokenUnderNeoForge = listOf("more-beets-1.0-release.jar").filter { minecraft == "26.1" }
+// Before 26.1 QSL does not run on Plexus Mod Loader yet (ADR-0048): QSL's quilt_block_content_registry Mixin on
+// EnchantmentMenu (an implicit @ModifyVariable) finds no local, because the game jar's frames are recomputed
+// (MojangJarRemapper) and Mixin 0.8.7 reads the compressed chop frame there differently from the obfuscated jar's full
+// frame, so Bootstrap stops (1.20.1, 1.20.4 and 1.21.1 with Quilted Fabric API, 2026-11-08). The runs leave out every
+// jar that is or nests a QSL or Quilted Fabric API module (older QSL copies nested in other mods then win and fail on
+// their own), and the mods that need QSL are reported not loaded (114): the folder as a player without QSL installs it,
+// with Fabric API, which the 1.21.1 Quilt corpus does not list (Quilted Fabric API stood for it), so its runs take the
+// Fabric corpus's build.
+fun isQslModuleId(id: String) =
+    id == "qsl" || id.startsWith("quilted_fabric_") || (id.startsWith("quilt_") && id != "quilt_loader")
+fun quiltModId(json: String): String? =
+    Regex("\"quilt_loader\"\\s*:\\s*\\{.*?\"id\"\\s*:\\s*\"([^\"]+)\"", RegexOption.DOT_MATCHES_ALL)
+        .find(json)?.groupValues?.get(1)
+fun bringsQsl(jar: File): Boolean = try {
+    ZipFile(jar).use { zip ->
+        val own = zip.getEntry("quilt.mod.json")?.let { zip.getInputStream(it).use { input -> quiltModId(String(input.readAllBytes())) } }
+        (own != null && isQslModuleId(own)) || zip.entries().asSequence().any { entry ->
+            entry.name.startsWith("META-INF/jars/") && entry.name.endsWith(".jar") &&
+                ZipInputStream(zip.getInputStream(entry)).use { nested ->
+                    generateSequence { nested.nextEntry }.firstOrNull { it.name == "quilt.mod.json" }
+                        ?.let { quiltModId(String(nested.readAllBytes())) }
+                        ?.let(::isQslModuleId) == true
+                }
+        }
+    }
+} catch (e: IOException) {
+    false
+}
+val leavesQslOut = minecraft.startsWith("1.")
+// Quilt corpus builds that stop every start, as they would under Quilt Loader (the same Mixin; Quilt Loader itself was
+// not run on these versions):
+// - OctoLib 0.5.0.1 (1.21.1) names octolib-common.mixin.json in quilt.mod.json, but its jar does not hold it; Mixin stops
+//   while it reads the configurations (MixinInitialisationError).
+// - Simple End Disable 1.0.0+1.19.2 (1.21.1) is built for 1.19.2: its required EndPortalBlockMixin redirects a call that
+//   1.21.1's EndPortalBlock no longer makes, so Mixin refuses the class.
+// - All-in-One Veinminer 1.1.1 (1.21.11) lists mta2.client.mixins.json for both sides; its GameMenuMixin class is
+//   annotated @Environment(CLIENT), so on a server Mixin cannot load it and the required configuration stops the start.
+// - Little Star 1.0.0 (1.20.1, 1.20.4) registers Fabric API's ClientTickEvents in its main entrypoint, a client class
+//   that Fabric API's environment annotation keeps off a server.
+// - Restful Hellscape 1.1.0+1.19.2 (1.21.1) injects into BedBlock.use with the hand parameter 1.20.5 removed.
+// - Pride Land 1.1.3 (1.20.1, 1.20.4) registers boats through Terraform API, which it neither declares nor nests and
+//   which the corpus does not hold (the link check's 113 lists com.terraformersmc.terraform.boat.api), so its
+//   initialiser stops with NoClassDefFoundError.
+// - OpenLink 1.1.1 for 1.21 (1.21.1) loads a client class in its main initialiser (fod, the obfuscated name the
+//   server's mappings do not list), so a server stops with NoClassDefFoundError.
+// - Tritium 1.3.2 (1.20.1, 1.21.1) loads its client config screen class in its main initialiser.
+// - Modpack Update Checker 0.12.2 (1.20.1) registers commands through QSL's CommandRegistrationCallback without
+//   declaring QSL, so without QSL its server initialiser stops with NoClassDefFoundError.
+// A Plexus Mod Loader limit, the frames of decision 6 of ADR-0048 again: Origins 1.10.2 (1.20.1) nests Apoli 2.9.2, whose
+// ServerPlayerInteractionManagerMixin captures the locals of ServerPlayerGameMode.destroyBlock at its return; Mixin finds
+// other locals in the recomputed frames ("LVT ... has incompatible changes at opcode 177") and stops the game test
+// server when the class loads.
+val quiltBrokenOnGame = when (minecraft) {
+    "1.20.1" -> listOf(
+        "Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.1-quilt.jar", "tritium-quilt-1.20.1-1.3.2.jar",
+        "modpack-update-checker-1.20.1-quilt-0.12.2.jar", "Origins-1.10.2+mc.1.20.x.jar",
+    )
+    "1.20.4" -> listOf("Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.4-quilt.jar")
+    "1.21.1" -> listOf(
+        "OctoLib-QUILT-0.5.0.1.jar", "simple_end_disable-1.0.0+1.19.2.jar", "restful_hellscape-1.1.0+1.19.2.jar",
+        "openlink-quilt-1.21-1.1.1.jar", "pride_land-1.1.3-1.21.1-quilt.jar", "tritium-quilt-1.21-1.3.2.jar",
+    )
+    "1.21.11" -> listOf("all-in-one-veinminer-quilt-1.1.1.jar")
+    else -> listOf()
+}
+// Left out of the dedicated server runs only, a Plexus Mod Loader limit: owo-lib's MainMixin injects after the call
+// Fabric Loader and Quilt Loader patch into net.minecraft.server.Main.main (Hooks.startServer, a required group of one),
+// which Plexus Mod Loader's Main does not have, so the dedicated server stops while Main loads (1.20.1 and 1.20.4,
+// 2026-11-08). The game test server does not load Main.
+// XDLib 3.1.0 (1.21.1) replaces the EULA check with a prompt that reads the console ("Agree [Y/n]"); the server reaches
+// it, but the run's expected EULA line never comes and the empty console stops it.
+val quiltBrokenOnServer = when (minecraft) {
+    "1.20.1" -> listOf("owo-lib-0.11.2+1.20.jar")
+    "1.20.4" -> listOf("owo-lib-0.12.6+1.20.3.jar")
+    "1.21.1" -> listOf("xdlib-3.1.0-neo+quilt.jar")
+    else -> listOf()
+}
+val quiltFabricApiFromFabricCorpus = minecraft == "1.21.1"
 fun quiltCorpus(gameTestServer: Boolean): FileCollection =
     files(corpusRoot.map {
         it.dir("quilt").asFileTree.matching {
             include("*.jar")
-            exclude(if (gameTestServer) notOnGameTestServer + quiltDataBrokenOnGame else keepsTheServerJvmAlive)
+            exclude(quiltBrokenOnGame)
+            exclude(if (gameTestServer) notOnGameTestServer + quiltDataBrokenOnGame else keepsTheServerJvmAlive + quiltBrokenOnServer)
+            if (leavesQslOut) {
+                exclude { !it.isDirectory && bringsQsl(it.file) }
+            }
+        }
+    }) + files(corpusRoot.map {
+        it.dir("fabric").asFileTree.matching {
+            include(if (quiltFabricApiFromFabricCorpus) "fabric-api-*.jar" else "none")
         }
     })
 // What no Quilt corpus run may show: a bridge that threw (002), and crashes.
@@ -1714,9 +1825,12 @@ val quiltDataPacks = when (minecraft) {
     )
     else -> listOf()
 }
+// Versions before 26.1 freeze registries in their game layers (as corpusFabricMods), so no harness there.
+val quiltGameTestMods = if (minecraft.startsWith("1.")) quiltCorpus(true) else quiltCorpus(true) + modJars(gameTestHarness)
 val quiltCorpusScenarios = listOf(
-    scenarios.gameTest("corpusQuilt", quiltCorpus(true) + modJars(gameTestHarness)) {
+    scenarios.gameTest("corpusQuilt", quiltGameTestMods) {
         dependsOn(modCorpusQuilt)
+        if (quiltFabricApiFromFabricCorpus) dependsOn(modCorpus)
         description = "The Quilt mod corpus on the game test server: world creation, GameTest, saving."
         // 26.2: 114 Quilt-only builds and 3 required mods, nested mods included; every mod left out is compared with
         // real Quilt Loader in docs/COMPATIBILITY.md ("Quilt 완전 지원 점검").
@@ -1725,7 +1839,10 @@ val quiltCorpusScenarios = listOf(
             corpusCounts("[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 55 Fabric, 80 Quilt, 0 Forge", "[Plexus Mod Loader] Loaded mods per loader: "),
             corpusCounts("[Plexus Mod Loader] Mixin: 55 configuration(s) from 42 Fabric mod(s) and 12 Quilt mod(s) for DEDICATED_SERVER", "[Plexus Mod Loader] Mixin: "),
             corpusCounts("[Plexus Mod Loader] Initialising 135 foreign mod(s)", "[Plexus Mod Loader] Initialising "),
-            corpusCounts("[voicechat] Voice chat server started at port", "All 1 required tests passed"),
+            corpusCounts(
+                "[voicechat] Voice chat server started at port",
+                if (minecraft.startsWith("1.")) "[Plexus Mod Loader] Initialising " else "All 1 required tests passed",
+            ),
             worldsSavedLine,
         )
         unexpectedOutput.addAll(quiltCorpusUnexpected)
@@ -1745,6 +1862,7 @@ val quiltCorpusScenarios = listOf(
     },
     scenarios.gameTest("corpusQuiltServer", quiltCorpus(false)) {
         dependsOn(modCorpusQuilt)
+        if (quiltFabricApiFromFabricCorpus) dependsOn(modCorpus)
         description = "The Quilt mod corpus on the real dedicated server, up to the EULA check."
         launchTarget.set("dedicated_server")
         gameArgumentOverrides.set(listOf<String>())
@@ -2429,7 +2547,7 @@ clientWorldReload("corpusForgeClient") {
     description = "Opens the saved world in a MinecraftForge client with every Forge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
     classpath.from(forgeClassPath)
-    devModJars.from(modJars(":test-mods:fabric-client-session"))
+    devModJars.from(modJars(clientSession("fabric")))
     // Crash Assistant starts its own crash-report program on the client, which outlives the game and keeps the run
     // folder open.
     devModJars.from(corpusRoot.map {
@@ -2443,9 +2561,8 @@ clientWorldReload("corpusForgeClient") {
         "MinecraftForge $minecraft-",
         "Forge mod loading, version ",
         "joined the game",
-        "[fabric_client_session] 200 client ticks in the world; save and quit",
-        "[fabric_client_session] left the saved world; stopping the client",
     )
+    expectedOutput.addAll(clientSessionLines("fabric"))
 }
 
 // NeoForge on the client (ADR-0026, N7; opens a window, run it alone after the headless checks): FML's client startup with
@@ -2643,7 +2760,10 @@ clientWorldReload("corpusNeoForgeClient") {
     description = "Opens the saved world in a NeoForge client with every NeoForge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
     javaAgents.from(plexusAgentJar)
-    devModJars.from(modJars(":test-mods:neoforge-client-session", ":test-mods:neoforge-environment-probe"))
+    devModJars.from(modJars(clientSession("neoforge")))
+    if (!plexusDrivesClient) {
+        devModJars.from(modJars(":test-mods:neoforge-environment-probe"))
+    }
     devModJars.from(corpusRoot.map {
         it.dir("neoforge").asFileTree.matching {
             include("*.jar"); exclude(brokenUnderNeoForge); exclude(brokenOnNeoForgeClient)
@@ -2656,12 +2776,15 @@ clientWorldReload("corpusNeoForgeClient") {
         "NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
         "[Plexus Mod Loader] FML ",
         "joined the game",
-        "[neoforge_environment_probe] Fabric Loader API visible: false, Quilt Loader API visible: false",
-        "[neoforge_client_session] 200 client ticks in the world; save and quit",
-        "[neoforge_client_session] left the saved world; stopping the client",
-        "line(s) of mod counts drawn above NeoForge's branding",
     )
-    if (lambDynamicLightsOnNeoForgeClient) {
+    expectedOutput.addAll(clientSessionLines("neoforge"))
+    if (!plexusDrivesClient) {
+        expectedOutput.addAll(
+            "[neoforge_environment_probe] Fabric Loader API visible: false, Quilt Loader API visible: false",
+            "line(s) of mod counts drawn above NeoForge's branding",
+        )
+    }
+    if (lambDynamicLightsOnNeoForgeClient && !plexusDrivesClient) {
         expectedOutput.add("for lambdynlights finds lambdynlights.toml: true")
     }
 }
@@ -2894,7 +3017,7 @@ clientWorldReload("neoForgeFluidClient") {
 // version they are the real Forge mods of that version's corpus, as corpusForgeClient runs them (Forge full support B6).
 launcherProfile("launcherProfileForgeTest", "plexus/launcher-profile-forge-$minecraft/minecraft") {
     description = "Installs Plexus Mod Loader with the installer jar and starts the profile like the Minecraft Launcher with Forge mods (opens a window)."
-    modJars.from(modJars(":test-mods:fabric-client-session"))
+    modJars.from(modJars(clientSession("fabric")))
     worldName.set("plexus_profile_forge")
     expectedOutput.add("[Plexus Mod Loader] Added Forge's file systems to the JVM class path")
     if (minecraft == "26.2") {
@@ -2922,10 +3045,7 @@ launcherProfile("launcherProfileForgeTest", "plexus/launcher-profile-forge-$mine
             "joined the game",
         )
     }
-    expectedOutput.addAll(
-        "[fabric_client_session] 200 client ticks in the world; save and quit",
-        "[fabric_client_session] left the saved world; stopping the client",
-    )
+    expectedOutput.addAll(clientSessionLines("fabric"))
 }
 
 // The same installation with NeoForge mods (ADR-0026, N9; opens a window, run it alone after the headless checks): the
@@ -2935,7 +3055,7 @@ launcherProfile("launcherProfileForgeTest", "plexus/launcher-profile-forge-$mine
 // corpusNeoForgeClient runs them.
 launcherProfile("launcherProfileNeoForgeTest", "plexus/launcher-profile-neoforge-$minecraft/minecraft") {
     description = "Installs Plexus Mod Loader with the installer jar and starts the profile like the Minecraft Launcher with NeoForge mods (opens a window)."
-    modJars.from(modJars(":test-mods:neoforge-client-session"))
+    modJars.from(modJars(clientSession("neoforge")))
     worldName.set("plexus_profile_neoforge")
     if (minecraft == "26.2") {
         modJars.from(modJars(":test-mods:neoforge-hello"))
@@ -2955,9 +3075,8 @@ launcherProfile("launcherProfileNeoForgeTest", "plexus/launcher-profile-neoforge
     expectedOutput.addAll(
         "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
         "joined the game",
-        "[neoforge_client_session] 200 client ticks in the world; save and quit",
-        "[neoforge_client_session] left the saved world; stopping the client",
     )
+    expectedOutput.addAll(clientSessionLines("neoforge"))
     // Without Forge mods nothing of Forge is downloaded (ADR-0024).
     absentPaths.add(".plexus/forge")
 }
@@ -3045,7 +3164,7 @@ tasks.register<Test>("corpusAssessment") {
     filter { includeTestsMatching("*ModCorpusAssessmentTest") }
     // The Quilt corpus sits in the same folder (quilt/) and is assessed with the rest.
     dependsOn("prepareMinecraftClient", "prepareMinecraftServer", modCorpus)
-    if (!minecraft.startsWith("1.")) {
+    if (!minecraft.startsWith("1.") || quiltCorpusLock.exists()) {
         dependsOn(modCorpusQuilt)
     }
     val launchSpecs = layout.buildDirectory.dir("plexus/minecraft")
@@ -3105,12 +3224,18 @@ tasks.register("compatibilityCorpus") {
     description = "Real mods from Modrinth: no-game assessment for both sides and game test server runs (network)."
     if (minecraft.startsWith("1.")) {
         dependsOn("corpusAssessment", "corpusFabric", "corpusFabricServer")
-        // Fabric mods next to MinecraftForge (ADR-0021 G8) where a Forge release is pinned. Not on 1.20.1 and 1.20.4 yet:
-        // Fabric API's fabric-recipe-api-v1 stops there with IncompatibleClassChangeError (CustomIngredientImpl overrides
-        // Forge's final Ingredient.toNetwork); docs/verification/2.1.0/corpus-scenarios.md, 2026-11-07. Run
-        // corpusFabricForge by hand on them.
-        if (hasForgeRelease && minecraft != "1.20.1" && minecraft != "1.20.4") {
+        // Fabric mods next to MinecraftForge (ADR-0021 G8) where a Forge release is pinned (1.20.x since ADR-0047).
+        if (hasForgeRelease) {
             dependsOn("corpusFabricForge")
+        }
+        // Not corpusQuilt on 1.20.1 yet: Cardinal Components API 5.2.3's block module (nested in the corpus's
+        // cardinal-components-api jar) has an implicit @ModifyVariable in BlockInput that finds no local in the recomputed
+        // frames (ADR-0048 decision 6), and the game test server stops when the class loads (2026-11-08).
+        if (quiltCorpusLock.exists()) {
+            dependsOn("corpusQuiltServer")
+            if (minecraft != "1.20.1") {
+                dependsOn("corpusQuilt")
+            }
         }
     } else {
         dependsOn(

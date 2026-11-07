@@ -113,13 +113,31 @@ val quiltLoaderApiClasses = listOf(
     "org/quiltmc/loader/impl/util/ExceptionUtil*",
     "org/quiltmc/loader/impl/util/GlobalPaths*",
     "org/quiltmc/loader/impl/entrypoint/EntrypointUtils*",
+    // QuiltConfig (v1 and v2) for Quilt mods and QSL's registry module; they ask the bridge's own QuiltConfigImpl for
+    // the environment. Quilt Loader's JSON5 serializer uses the packed JSON parser; its TOML one needs NightConfig,
+    // which is not packed (ADR-0048).
+    "org/quiltmc/loader/api/config/**",
+    "org/quiltmc/config/api/serializers/Json5Serializer*",
     "quilt_loader/licenses.json",
     "LICENSE_quilt-loader",
 )
+// Quilt Config (Apache-2.0), the library of Quilt Loader's launcher profile that QuiltConfig returns: all of it, with
+// its licence renamed so that it does not take the jar's root LICENSE path (ADR-0048).
+val quiltConfigJar = configurations.create("quiltConfigJar") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    quiltConfigJar(libs.quilt.config)
+}
 val quiltLoaderApi = tasks.register<Sync>("quiltLoaderApi") {
     inputs.property("classes", quiltLoaderApiClasses)
     from(provider { zipTree(quiltLoaderJar.singleFile) })
     include(quiltLoaderApiClasses)
+    from(provider { zipTree(quiltConfigJar.singleFile) }) {
+        include("org/quiltmc/config/**", "LICENSE")
+        rename("LICENSE", "LICENSE_quilt-config")
+    }
     into(layout.buildDirectory.dir("quilt-loader-api"))
 }
 // Plexus Mod Loader's builds of Fabric API modules on NeoForge's and Forge's hooks and their index (ADR-0031, HostModules): in the jar
