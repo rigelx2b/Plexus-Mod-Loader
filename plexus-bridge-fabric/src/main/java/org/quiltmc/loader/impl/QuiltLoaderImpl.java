@@ -105,6 +105,10 @@ public final class QuiltLoaderImpl {
         return plexusModLoaderRuntime().getConfigDir();
     }
 
+    public Path getModsDir() {
+        return plexusModLoaderRuntime().getModsDir();
+    }
+
     public String[] getLaunchArguments(boolean sanitize) {
         return plexusModLoaderRuntime().getLaunchArguments(sanitize);
     }

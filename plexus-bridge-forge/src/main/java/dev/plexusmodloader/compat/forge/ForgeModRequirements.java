@@ -53,6 +53,8 @@ final class ForgeModRequirements {
     private static final List<String> FORGE_LANGUAGES = List.of("javafml", "lowcodefml");
     private static final String MOD = "net/minecraftforge/fml/common/Mod";
     private static final String ONLY_IN = "net/minecraftforge/api/distmarker/OnlyIn";
+    private static final String LANGUAGE_PROVIDER_SERVICE =
+            "META-INF/services/net.minecraftforge.forgespi.language.IModLanguageProvider";
 
     /** Version ranges as FML reads them: Maven's {@code VersionRange} and {@code DefaultArtifactVersion}. */
     interface VersionRanges {
@@ -138,6 +140,9 @@ final class ForgeModRequirements {
             }
         }
         String sideName = side == GameSide.CLIENT ? "CLIENT" : "SERVER";
+        // A jar that is a language provider (Kotlin for Forge) declares the service; its language name is only known at
+        // run time.
+        boolean otherLanguages = jars.stream().anyMatch(ForgeModRequirements::providesLanguage);
         boolean changed = true;
         while (changed) {
             changed = false;
@@ -161,8 +166,8 @@ final class ForgeModRequirements {
                 if (failures.containsKey(entry.getKey())) {
                     continue;
                 }
-                List<String> reasons =
-                        reasons(entry.getValue(), installed, excludedIds, forgeVersion, sideName, ranges);
+                List<String> reasons = reasons(
+                        entry.getValue(), installed, excludedIds, forgeVersion, sideName, ranges, otherLanguages);
                 if (!reasons.isEmpty()) {
                     failures.put(entry.getKey(), reasons);
                     changed = true;
@@ -321,13 +326,22 @@ final class ForgeModRequirements {
         }
     }
 
+    private static boolean providesLanguage(Path jar) {
+        try (JarFile file = new JarFile(jar.toFile())) {
+            return file.getEntry(LANGUAGE_PROVIDER_SERVICE) != null;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static List<String> reasons(
             ModsToml toml,
             Map<String, String> installed,
             Map<String, Path> excludedIds,
             String forgeVersion,
             String side,
-            VersionRanges ranges) {
+            VersionRanges ranges,
+            boolean otherLanguages) {
         List<String> reasons = new ArrayList<>();
         if (side.equals("SERVER") && declaresMinecraftForClientOnly(toml)) {
             reasons.add("it is a client-only mod (it needs minecraft on the CLIENT side only); on a server Forge would"
@@ -346,6 +360,11 @@ final class ForgeModRequirements {
             reasons.add("its language loader " + toml.modLoader()
                     + " has no version range (loaderVersion is empty), which" + " Forge " + forgeVersion
                     + " refuses (\"Missing language ... version\"); Forge 50 and later take it as any version");
+        }
+        if (!FORGE_LANGUAGES.contains(toml.modLoader()) && !toml.modLoader().isBlank() && !otherLanguages) {
+            reasons.add("its language loader "
+                    + toml.modLoader()
+                    + " is not installed; Forge would stop loading every mod on it");
         }
         for (Dependency dependency : toml.dependencies()) {
             if (!dependency.side().equals("BOTH") && !dependency.side().equals(side)) {

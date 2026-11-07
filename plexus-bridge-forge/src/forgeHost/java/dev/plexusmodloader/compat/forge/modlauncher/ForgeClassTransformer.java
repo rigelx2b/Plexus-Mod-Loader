@@ -49,6 +49,24 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
     private static final String FIELD_TO_METHOD_TRANSFORMER =
             "net.minecraftforge.forge.transformers.FieldToMethodTransformer";
 
+    /** The class of a coremod script's class transformer in Forge's coremods 5 (Forge 47 and 49). */
+    private static final String COREMOD_CLASS_TRANSFORMER =
+            "net.minecraftforge.coremod.transformer.CoreModClassTransformer";
+
+    /**
+     * Functions of Forge's {@code coremods/field_to_method.js} (47.4.28, 49.2.13) calling {@code
+     * ASMAPI.redirectFieldToMethod}, as labels() names them with owner {@code forge}.
+     */
+    private static final Set<String> FIELD_TO_METHOD_COREMOD_FUNCTIONS = Set.of(
+            "biome",
+            "structure",
+            "potion",
+            "flowing_fluid_block",
+            "bucketitem",
+            "stairsblock",
+            "flowerpotblock",
+            "itemstack");
+
     /** The launch plugins now; a mod may replace the map they come from (ModernFix adds its own). */
     private final Supplier<Collection<ILaunchPluginService>> plugins;
 
@@ -273,15 +291,16 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
     }
 
     /**
-     * Runs {@code transformer}; Forge's {@code FieldToMethodTransformer} sees the class's instance fields private, as in
-     * the game Forge patched. That transformer redirects reads of a private field to a getter (Forge's biome modifiers:
-     * {@code Biome.climateSettings}) and refuses a field that is not private, but another loader's mod may have widened
-     * it (Fabric API's biome class tweaker, ADR-0021 G8). The redirect applies as on the unwidened class, and the field
-     * keeps the access the widening gave it afterwards.
+     * Runs {@code transformer}; Forge's {@code FieldToMethodTransformer} sees the class's instance fields private, as
+     * in the game Forge patched. That transformer redirects reads of a private field to a getter (Forge's biome
+     * modifiers: {@code Biome.climateSettings}) and refuses a field that is not private, but another loader's mod may
+     * have widened it (Fabric API's biome class tweaker, ADR-0021 G8). The redirect applies as on the unwidened class,
+     * and the field keeps the access the widening gave it afterwards. {@link #redirectsFieldsToMethods} covers Forge
+     * 47/49's {@code field_to_method.js} ({@code ASMAPI.redirectFieldToMethod}), avoiding {@code Field climateSettings
+     * is not private and an instance field}.
      */
     private static <T> T transformWithPrivateFields(ITransformer<T> transformer, T node, VotingContext context) {
-        if (!(node instanceof ClassNode classNode)
-                || !transformer.getClass().getName().equals(FIELD_TO_METHOD_TRANSFORMER)) {
+        if (!(node instanceof ClassNode classNode) || !redirectsFieldsToMethods(transformer)) {
             return transformer.transform(node, context);
         }
         Map<FieldNode, Integer> widened = new HashMap<>();
@@ -296,6 +315,25 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
         } finally {
             widened.forEach((field, access) -> field.access = access);
         }
+    }
+
+    /**
+     * Whether {@code transformer} redirects private field reads to getters: Forge's {@code FieldToMethodTransformer} or
+     * coremod {@code field_to_method.js} ({@link #FIELD_TO_METHOD_COREMOD_FUNCTIONS}).
+     */
+    static boolean redirectsFieldsToMethods(ITransformer<?> transformer) {
+        String type = transformer.getClass().getName();
+        if (type.equals(FIELD_TO_METHOD_TRANSFORMER)) {
+            return true;
+        }
+        if (!type.equals(COREMOD_CLASS_TRANSFORMER)) {
+            return false;
+        }
+        String[] labels = transformer.labels();
+        return labels != null
+                && labels.length == 2
+                && "forge".equals(labels[0])
+                && FIELD_TO_METHOD_COREMOD_FUNCTIONS.contains(labels[1]);
     }
 
     private static String key(String internalName, String type, String name, String descriptor) {

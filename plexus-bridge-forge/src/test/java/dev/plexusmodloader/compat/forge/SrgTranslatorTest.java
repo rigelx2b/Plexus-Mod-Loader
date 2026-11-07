@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
@@ -200,7 +201,9 @@ class SrgTranslatorTest {
                                                 .getBytes(StandardCharsets.UTF_8),
                                 "coremods/x.js", "methodName: 'm_3_'".getBytes(StandardCharsets.UTF_8),
                                 "META-INF/FORGE.SF", "Signature-Version: 1.0".getBytes(StandardCharsets.UTF_8),
-                                "META-INF/jarjar/inner.jar", inner)));
+                                "META-INF/jarjar/inner.jar", inner,
+                                // Where entityculling's JarJar metadata puts TRender (1.20.1 corpus).
+                                "META-INF/jars/other.jar", inner)));
         Path output = directory.resolve("out.jar");
 
         assertTrue(translator.translateJar(input, output));
@@ -214,12 +217,15 @@ class SrgTranslatorTest {
             assertEquals("{\"mappings\":{\"X\":{\"a\":\"Lq;tick()V\"}}}", text(jar, "mod.refmap.json"));
             assertEquals("methodName: 'compute'", text(jar, "coremods/x.js"));
             assertEquals(Set.of("tick"), inspect(bytes(jar, "mod/Sample.class")).methods());
-            Path nested = directory.resolve("nested.jar");
-            Files.write(nested, bytes(jar, "META-INF/jarjar/inner.jar"));
-            try (JarFile inside = new JarFile(nested.toFile())) {
-                assertEquals(
-                        Set.of("tick"),
-                        inspect(bytes(inside, "mod/Sample.class")).methods());
+            for (String name : List.of("META-INF/jarjar/inner.jar", "META-INF/jars/other.jar")) {
+                Path nested = directory.resolve(name.replace('/', '_'));
+                Files.write(nested, bytes(jar, name));
+                try (JarFile inside = new JarFile(nested.toFile())) {
+                    assertEquals(
+                            Set.of("tick"),
+                            inspect(bytes(inside, "mod/Sample.class")).methods(),
+                            name);
+                }
             }
         }
     }

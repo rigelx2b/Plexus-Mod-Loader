@@ -3,6 +3,7 @@ package dev.plexusmodloader.compat.bridge;
 import dev.plexusmodloader.api.runtime.GameSide;
 import dev.plexusmodloader.api.stability.ApiStability;
 import dev.plexusmodloader.api.stability.StabilityLevel;
+import dev.plexusmodloader.internal.transform.MethodTarget;
 import dev.plexusmodloader.internal.transform.TransformRuleDefinition;
 import java.nio.file.Path;
 import java.util.List;
@@ -303,6 +304,17 @@ public interface GameHost {
      * other loaders' mixins to the host's patched game. Empty by default.
      */
     default List<InjectionPointReplacement> injectionPointReplacements() {
+        return List.of();
+    }
+
+    /**
+     * Methods of the game that the host's patch made {@code final} while vanilla does not, each reviewed so that other
+     * loaders' classes may override them as they do on vanilla. The runtime makes such a method overridable again (an
+     * extendable access widening of exactly that method) only for a mod with a class that overrides it; a mod that
+     * overrides a {@code final} method not listed here is not loaded ({@code PLEXUS-COMPAT-224}, ADR-0047). Known
+     * before {@link #prepare}. Empty by default.
+     */
+    default List<MethodTarget> overridableFinalMethods() {
         return List.of();
     }
 

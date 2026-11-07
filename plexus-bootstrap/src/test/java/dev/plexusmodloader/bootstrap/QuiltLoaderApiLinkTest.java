@@ -154,16 +154,16 @@ class QuiltLoaderApiLinkTest {
     /** A member of Quilt Loader's QuiltLoaderImpl that the stand-in does not have fails as it is used. */
     @Test
     void aQuiltLoaderImplMemberTheStandInLacksBlocks() throws IOException {
-        Path mod = mod("mods_dir_user", code -> {
+        // Quilt Loader's own freeze(); the stand-in has getModsDir since ADR-0048, but not this.
+        Path mod = mod("freeze_user", code -> {
             code.getstatic(QUILT_LOADER_IMPL, "INSTANCE", QUILT_LOADER_IMPL);
-            code.invokevirtual(QUILT_LOADER_IMPL, "getModsDir", MethodTypeDesc.of(ClassDesc.of("java.nio.file.Path")));
-            code.pop();
+            code.invokevirtual(QUILT_LOADER_IMPL, "freeze", MethodTypeDesc.of(ClassDesc.ofDescriptor("V")));
         });
 
         List<CompatibilityFinding> findings = verify(mod);
 
         assertEquals(List.of("PLEXUS-COMPAT-111"), blocking(findings));
-        assertTrue(findings.toString().contains("getModsDir"), findings::toString);
+        assertTrue(findings.toString().contains("freeze"), findings::toString);
     }
 
     /**

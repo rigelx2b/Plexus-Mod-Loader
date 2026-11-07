@@ -44,6 +44,7 @@ import dev.plexusmodloader.runtime.discovery.HostModules;
 import dev.plexusmodloader.runtime.discovery.ModFileKind;
 import dev.plexusmodloader.runtime.discovery.ModFileScanner;
 import dev.plexusmodloader.runtime.discovery.NestedJarExtractor;
+import dev.plexusmodloader.runtime.discovery.QuiltedFabricApiProvision;
 import dev.plexusmodloader.runtime.event.EventBus;
 import dev.plexusmodloader.runtime.lifecycle.EntrypointInvoker;
 import dev.plexusmodloader.runtime.lifecycle.RuntimeLoadedMods;
@@ -126,6 +127,16 @@ public final class PlexusRuntime {
         // DISCOVERY + compatibility classification
         List<DiscoveredModFile> scanned =
                 new ModFileScanner().scan(configuration.modsDirectory(), configuration.devModJars());
+        // QSL (as Quilted Fabric API) for Quilt mods that need it (ADR-0048), first: it also provides fabric-api.
+        List<DiscoveredModFile> withQsl = new QuiltedFabricApiProvision(
+                        configuration.modsDirectory().toAbsolutePath().getParent(),
+                        FabricApiProvision.httpDownloader(),
+                        startup::status)
+                .provide(
+                        scanned,
+                        gameVersion,
+                        fabricApiHost(scanned),
+                        !configuration.devModJars().isEmpty());
         // Fabric API for Fabric mods when the mods folder has none (ADR-0046); the host decides only whether it can
         // run.
         List<DiscoveredModFile> files = new FabricApiProvision(
@@ -133,7 +144,7 @@ public final class PlexusRuntime {
                         FabricApiProvision.httpDownloader(),
                         startup::status)
                 .provide(
-                        scanned,
+                        withQsl,
                         gameVersion,
                         fabricApiHost(scanned),
                         !configuration.devModJars().isEmpty());
@@ -267,6 +278,7 @@ public final class PlexusRuntime {
             assessedForeignMods = HostPatchCheck.apply(
                     configuration.side(),
                     hostedLaunch(host.get(), configuration.gameJar()),
+                    host.get().overridableFinalMethods(),
                     patchedJars.stream().distinct().toList(),
                     PlexusRuntime.class.getClassLoader(),
                     foreignMods.bridges(),
@@ -302,6 +314,7 @@ public final class PlexusRuntime {
                 assessedForeignMods = HostPatchCheck.apply(
                         configuration.side(),
                         hostedLaunch(host.get(), configuration.gameJar()),
+                        host.get().overridableFinalMethods(),
                         patchedJars.stream().distinct().toList(),
                         PlexusRuntime.class.getClassLoader(),
                         foreignMods.bridges(),

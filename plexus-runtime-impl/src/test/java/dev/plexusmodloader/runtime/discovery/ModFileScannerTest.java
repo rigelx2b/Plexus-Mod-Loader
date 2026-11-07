@@ -166,6 +166,27 @@ class ModFileScannerTest {
         assertEquals(ModFileKind.FORGE, scanned("plain.jar").kind());
     }
 
+    /** tr7zw's 1.20.4 NeoForge jars (Entity Culling): a mods.toml for NeoForge 20.4 beside a neoforge.mods.toml. */
+    @Test
+    void aJarWithBothFilesWhoseModsTomlDependsOnNeoForgeIsNotForForge() throws IOException {
+        jarWith(
+                "entityculling.jar",
+                java.util.Map.of(
+                        "META-INF/neoforge.mods.toml", modsToml("entityculling", "neoforge", "minecraft"),
+                        "META-INF/mods.toml", modsToml("entityculling", "neoforge", "minecraft")));
+        jarWith(
+                "forge-and-neoforge.jar",
+                java.util.Map.of(
+                        "META-INF/neoforge.mods.toml", modsToml("multi", "neoforge", "minecraft"),
+                        "META-INF/mods.toml", modsToml("multi", "forge", "minecraft")));
+
+        assertEquals(ModFileKind.NEOFORGE, scanned("entityculling.jar").kind());
+        assertEquals(Set.of(), scanned("entityculling.jar").alsoFor());
+        assertEquals(ModFileKind.NEOFORGE, scanned("forge-and-neoforge.jar").kind());
+        assertEquals(
+                Set.of(ModFileKind.FORGE), scanned("forge-and-neoforge.jar").alsoFor());
+    }
+
     /** A jar for several loaders keeps its first kind; its mods.toml then names NeoForge, not Forge, as the other one. */
     @Test
     void aFabricJarWhoseModsTomlIsNeoForgesIsAlsoForNeoForgeNotForge() throws IOException {

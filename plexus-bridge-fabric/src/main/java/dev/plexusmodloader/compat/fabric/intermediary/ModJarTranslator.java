@@ -15,6 +15,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +72,7 @@ final class ModJarTranslator {
                 ZipOutputStream out = new ZipOutputStream(file)) {
             out.setLevel(Deflater.BEST_SPEED);
             Set<String> refmaps = referenceMaps(zip);
+            Map<String, Set<String>> referenceKeys = referenceKeys(zip, refmaps);
             Set<String> tweakers = classTweakers(zip);
             Set<String> written = new LinkedHashSet<>();
             Enumeration<? extends ZipEntry> entries = zip.entries();
@@ -87,7 +90,7 @@ final class ModJarTranslator {
                 }
                 byte[] bytes = read(zip, entry);
                 if (name.endsWith(".class") && !name.endsWith("module-info.class")) {
-                    ClassResult remapped = remapClass(translation, bytes);
+                    ClassResult remapped = remapClass(translation, bytes, referenceKeys);
                     if (remapped == null) {
                         unreadable++;
                     } else if (remapped.bytes() != bytes) {
@@ -129,7 +132,8 @@ final class ModJarTranslator {
     private record ClassResult(String name, byte[] bytes) {}
 
     /** The remapped class, or {@code null} when ASM cannot read it (a newer class file version than it knows). */
-    private static ClassResult remapClass(IntermediaryTranslation translation, byte[] bytes) {
+    private static ClassResult remapClass(
+            IntermediaryTranslation translation, byte[] bytes, Map<String, Set<String>> referenceKeys) {
         ClassReader reader;
         try {
             reader = new ClassReader(bytes);
@@ -138,7 +142,10 @@ final class ModJarTranslator {
         }
         IntermediaryRemapper remapper = new IntermediaryRemapper(translation);
         ClassWriter writer = new ClassWriter(0);
-        reader.accept(new SelectorAwareClassRemapper(writer, remapper, translation), 0);
+        reader.accept(
+                new SelectorAwareClassRemapper(
+                        writer, remapper, translation, referenceKeys.getOrDefault(reader.getClassName(), Set.of())),
+                0);
         if (!remapper.changed()) {
             return new ClassResult(reader.getClassName(), bytes);
         }
@@ -183,6 +190,41 @@ final class ModJarTranslator {
             }
         }
         return element;
+    }
+
+    /**
+     * The keys of each Mixin class in the jar's reference maps ({@code mappings} and every {@code data} context): the
+     * strings Mixin looks up there, which the class's annotations keep as written ({@link SelectorAwareClassRemapper}).
+     */
+    private static Map<String, Set<String>> referenceKeys(ZipFile zip, Set<String> refmaps) {
+        Map<String, Set<String>> keys = new HashMap<>();
+        for (String refmap : refmaps) {
+            ZipEntry entry = zip.getEntry(refmap);
+            JsonElement root = entry == null ? null : parse(zip, entry);
+            if (root == null || !root.isJsonObject()) {
+                continue;
+            }
+            List<JsonObject> tables = new ArrayList<>();
+            if (root.getAsJsonObject().get("mappings") instanceof JsonObject mappings) {
+                tables.add(mappings);
+            }
+            if (root.getAsJsonObject().get("data") instanceof JsonObject data) {
+                for (Map.Entry<String, JsonElement> context : data.entrySet()) {
+                    if (context.getValue() instanceof JsonObject table) {
+                        tables.add(table);
+                    }
+                }
+            }
+            for (JsonObject table : tables) {
+                for (Map.Entry<String, JsonElement> mixin : table.entrySet()) {
+                    if (mixin.getValue() instanceof JsonObject entries) {
+                        keys.computeIfAbsent(mixin.getKey(), any -> new HashSet<>())
+                                .addAll(entries.keySet());
+                    }
+                }
+            }
+        }
+        return keys;
     }
 
     /** The reference maps the jar's Mixin configurations name. */

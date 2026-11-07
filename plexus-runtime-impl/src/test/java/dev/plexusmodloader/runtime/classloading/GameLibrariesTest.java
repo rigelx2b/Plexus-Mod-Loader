@@ -37,6 +37,27 @@ class GameLibrariesTest {
      * Its entries are taken as if they were on the class path themselves, as the JVM does.
      */
     @Test
+    void anotherMinecraftJarOnTheClassPathIsNoLibrary() throws IOException {
+        // A launcher profile of 1.21.11 runs the remapped game jar and has the obfuscated vanilla client on the class
+        // path too; owned by the game class loader, its MinecraftServer stood for Forge's patched one (TRANSFORM-002).
+        Path library = jar("libraries/datafixerupper.jar", Map.of("com/mojang/datafixers/DSL.class", ""), null);
+        Path obfuscated = jar(
+                "versions/1.21.11/1.21.11.jar",
+                Map.of("version.json", "{}", "net/minecraft/client/main/Main.class", "", "a.class", ""),
+                null);
+        Path server = jar(
+                "versions/server-1.21.11.jar",
+                Map.of("version.json", "{}", "net/minecraft/server/MinecraftServer.class", ""),
+                null);
+        Path remapped =
+                jar("libraries/minecraft-mojang-1.21.11.jar", Map.of("net/minecraft/client/main/Main.class", ""), null);
+
+        assertEquals(
+                List.of(library),
+                GameLibraries.fromClassPath(classPath(library, obfuscated, server, remapped), remapped));
+    }
+
+    @Test
     void aManifestOnlyClassPathJarStandsForItsEntries() throws IOException {
         Path library = jar("libs/datafixerupper.jar", Map.of("com/mojang/datafixers/DSL.class", ""), null);
         Path plexus = jar("libs/plexus-runtime.jar", Map.of("dev/plexusmodloader/X.class", ""), null);

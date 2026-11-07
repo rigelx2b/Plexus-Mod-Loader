@@ -105,6 +105,14 @@ class FabricApiProvisionTest {
         assertSame(withOwn, provision.provide(withOwn, "26.3", FabricApiProvision.Host.NONE, false));
         assertSame(withQuilted, provision.provide(withQuilted, "26.3", FabricApiProvision.Host.NONE, false));
         assertSame(noFabric, provision.provide(noFabric, "26.3", FabricApiProvision.Host.FORGE, false));
+        // CustomSkinLoader's jar for every loader: fabric.mod.json and a ModLauncher service that Forge runs.
+        List<DiscoveredModFile> runByForge = List.of(new DiscoveredModFile(
+                folder.resolve("customskinloader.jar"),
+                ModFileKind.FABRIC,
+                Optional.empty(),
+                Optional.empty(),
+                java.util.Set.of(ModFileKind.FORGE)));
+        assertSame(runByForge, provision.provide(runByForge, "1.21.11", FabricApiProvision.Host.FORGE, false));
         assertEquals(0, downloads.get());
     }
 
@@ -116,8 +124,10 @@ class FabricApiProvisionTest {
 
         assertSame(files, provision.provide(files, "26.3", FabricApiProvision.Host.NONE, true));
         assertSame(files, provision.provide(files, "1.20.1", FabricApiProvision.Host.NONE, false));
-        assertFalse(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "1.20.1"));
-        assertFalse(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "1.20.4"));
+        // Forge 47 and 49 make Ingredient.toNetwork final; Fabric API's override of it runs there (ADR-0047).
+        assertTrue(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "1.20.1"));
+        assertTrue(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "1.20.4"));
+        assertTrue(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "1.21.1"));
         assertFalse(FabricApiProvision.runsNextTo(FabricApiProvision.Host.NEOFORGE, "1.20.4"));
         assertFalse(FabricApiProvision.runsNextTo(FabricApiProvision.Host.NEOFORGE, "1.21.1"));
         assertTrue(FabricApiProvision.runsNextTo(FabricApiProvision.Host.FORGE, "26.3"));

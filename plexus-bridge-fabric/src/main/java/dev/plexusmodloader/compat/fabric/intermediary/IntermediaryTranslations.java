@@ -70,7 +70,7 @@ import java.util.zip.ZipFile;
 public final class IntermediaryTranslations {
 
     /** Revision of the translation rules; part of the cache key, raised when a copy would differ. */
-    public static final int REVISION = 2;
+    public static final int REVISION = 3;
 
     /** A mod jar to use and what to tell the player about it. */
     public record Prepared(Path jar, List<CompatibilityFinding> findings) {

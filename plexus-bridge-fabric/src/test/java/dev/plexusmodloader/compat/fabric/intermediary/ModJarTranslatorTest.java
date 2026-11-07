@@ -316,6 +316,115 @@ class ModJarTranslatorTest {
         assertArrayEquals(new byte[] {3, 4, 5}, read(output, "META-INF/jars/inner.jar"));
     }
 
+    /** A Mixin class whose injector's {@code @At} target is a reference map key in development names. */
+    static byte[] modifyVariableMixin() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "x/V", null, "java/lang/Object", null);
+        MethodVisitor handler = writer.visitMethod(Opcodes.ACC_PRIVATE, "handler", "(I)I", null, null);
+        AnnotationVisitor modify =
+                handler.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/ModifyVariable;", true);
+        AnnotationVisitor selectors = modify.visitArray("method");
+        selectors.visit(null, "method_21");
+        selectors.visitEnd();
+        AnnotationVisitor at = modify.visitAnnotation("at", "Lorg/spongepowered/asm/mixin/injection/At;");
+        at.visit("value", "INVOKE");
+        at.visit("target", "Lnet/minecraft/world/World;method_21()I");
+        at.visitEnd();
+        AnnotationVisitor other = modify.visitAnnotation("slice", "Lorg/spongepowered/asm/mixin/injection/At;");
+        other.visit("target", "Lnet/minecraft/class_1;method_21()I");
+        other.visitEnd();
+        modify.visitEnd();
+        handler.visitCode();
+        handler.visitVarInsn(Opcodes.ILOAD, 1);
+        handler.visitInsn(Opcodes.IRETURN);
+        handler.visitMaxs(0, 0);
+        handler.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    void aReferenceMapKeyInAMixinAnnotationStaysAsWritten(@TempDir Path temp) throws IOException {
+        Path input = temp.resolve("in.jar");
+        Path output = temp.resolve("out.jar");
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("fabric.mod.json", """
+                {"schemaVersion":1,"id":"v","version":"1","mixins":["v.mixins.json"]}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("v.mixins.json", """
+                {"package":"x","refmap":"v-refmap.json","mixins":["V"]}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("v-refmap.json", """
+                {"mappings":{"x/V":{"Lnet/minecraft/world/World;method_21()I":"Lnet/minecraft/class_1;method_21()I"}}}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("x/V.class", modifyVariableMixin());
+        writeJar(input, files);
+
+        ModJarTranslator.translate(TestMappings.translation(), input, output);
+
+        ClassNode node = new ClassNode();
+        new ClassReader(read(output, "x/V.class")).accept(node, 0);
+        AnnotationNode modify = node.methods.stream()
+                .filter(method -> method.name.equals("handler"))
+                .findFirst()
+                .orElseThrow()
+                .visibleAnnotations
+                .getFirst();
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (int i = 0; i < modify.values.size(); i += 2) {
+            values.put((String) modify.values.get(i), modify.values.get(i + 1));
+        }
+        // The key stays, so that Mixin finds its translated value in the reference map.
+        assertEquals("Lnet/minecraft/world/World;method_21()I", ((AnnotationNode) values.get("at")).values.get(3));
+        // A string that is no key is translated as before.
+        assertEquals("Lnet/minecraft/world/Level;size()I", ((AnnotationNode) values.get("slice")).values.get(1));
+        assertEquals(
+                "Lnet/minecraft/world/Level;size()I",
+                JsonParser.parseString(text(output, "v-refmap.json"))
+                        .getAsJsonObject()
+                        .getAsJsonObject("mappings")
+                        .getAsJsonObject("x/V")
+                        .get("Lnet/minecraft/world/World;method_21()I")
+                        .getAsString());
+    }
+
+    @Test
+    void anInvokerOfAReusedIntermediaryNameIsTranslatedInItsMixinsTarget(@TempDir Path temp) throws IOException {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(
+                Opcodes.V21,
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+                "x/I",
+                null,
+                "java/lang/Object",
+                null);
+        AnnotationVisitor mixin = writer.visitAnnotation("Lorg/spongepowered/asm/mixin/Mixin;", false);
+        AnnotationVisitor targets = mixin.visitArray("value");
+        targets.visit(null, org.objectweb.asm.Type.getObjectType("net/minecraft/class_2"));
+        targets.visitEnd();
+        mixin.visitEnd();
+        MethodVisitor invoker = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT, "callRun", "(Lnet/minecraft/class_1;)V", null, null);
+        AnnotationVisitor value = invoker.visitAnnotation("Lorg/spongepowered/asm/mixin/gen/Invoker;", true);
+        value.visit("value", "method_20");
+        value.visitEnd();
+        invoker.visitEnd();
+        writer.visitEnd();
+        Path input = temp.resolve("in.jar");
+        Path output = temp.resolve("out.jar");
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("x/I.class", writer.toByteArray());
+        writeJar(input, files);
+
+        ModJarTranslator.translate(TestMappings.translation(), input, output);
+
+        ClassNode node = new ClassNode();
+        new ClassReader(read(output, "x/I.class")).accept(node, 0);
+        AnnotationNode annotation = node.methods.getFirst().visibleAnnotations.getFirst();
+        // method_20 is tick in class_1 and run in class_2; the Mixin targets class_2.
+        assertEquals(java.util.List.of("value", "run"), annotation.values);
+    }
+
     @Test
     void aClassTweakerInAnotherNamespaceIsNotTouched() {
         String text = "accessWidener\tv1\tofficial\naccessible\tclass\tnet/minecraft/class_1\n";

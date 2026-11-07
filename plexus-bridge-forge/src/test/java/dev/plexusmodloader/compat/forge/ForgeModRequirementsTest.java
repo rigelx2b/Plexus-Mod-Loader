@@ -86,6 +86,24 @@ class ForgeModRequirementsTest {
                 userReasons);
     }
 
+    /** The real corpus case on the 1.21.1 client: libIPN needs Kotlin for Forge's language loader, which is not installed. */
+    @Test
+    void aModOfAnotherLanguageLoaderIsLeftOutUnlessAJarProvidesALanguageLoader() throws Exception {
+        Path kotlinMod = jar("libipn.jar", modsToml("kotlinforforge", "[5,)", "libipn", "6.5.1", ""));
+        Path provider = jar(
+                "kotlinforforge.jar",
+                Map.of("META-INF/services/net.minecraftforge.forgespi.language.IModLanguageProvider", ""));
+
+        ForgeModRequirements.Result without =
+                ForgeModRequirements.check(List.of(kotlinMod), "1.21.1", "52.1.21", GameSide.CLIENT, ranges());
+        ForgeModRequirements.Result with = ForgeModRequirements.check(
+                List.of(kotlinMod, provider), "1.21.1", "52.1.21", GameSide.CLIENT, ranges());
+
+        assertEquals(List.of(), without.kept());
+        assertTrue(String.join("; ", without.excluded().getFirst().reasons()).contains("kotlinforforge"));
+        assertEquals(List.of(kotlinMod, provider), with.kept());
+    }
+
     /** The real corpus case on 1.20.4: YetAnotherConfigLib's multi-loader jar with loaderVersion = "" (Forge 49 refuses it). */
     @Test
     void anEmptyLanguageRangeIsRefusedBeforeForge50AndAcceptedLater() throws Exception {

@@ -87,7 +87,7 @@ public final class QuiltBridge implements ModLoaderBridge {
     /** Quilt Loader's API keeps static state ({@code QuiltLoaderImpl.INSTANCE}); one copy for every mod. */
     @Override
     public List<String> sharedLibraryPackages() {
-        return List.of("org.quiltmc.loader.");
+        return List.of("org.quiltmc.loader.", "org.quiltmc.config.");
     }
 
     @Override

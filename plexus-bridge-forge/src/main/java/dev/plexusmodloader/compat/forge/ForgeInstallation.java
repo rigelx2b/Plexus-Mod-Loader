@@ -360,7 +360,8 @@ final class ForgeInstallation {
             SrgTranslator translator, Path input, Path output, String namesKey, Consumer<String> log)
             throws IOException {
         Path stamp = output.resolveSibling(output.getFileName() + ".input");
-        String key = fileKey(input) + " " + namesKey;
+        // The translator's format joins the key so that a changed translator renames the cached copies again.
+        String key = fileKey(input) + " " + namesKey + ":" + SrgTranslator.FORMAT;
         if (Files.isRegularFile(stamp)) {
             String[] recorded = Files.readString(stamp).strip().split(" ");
             if (recorded.length == 3 && (recorded[0] + " " + recorded[1]).equals(key)) {

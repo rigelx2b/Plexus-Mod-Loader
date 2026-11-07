@@ -43,8 +43,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Not added: with {@code -Dplexus.fabricApi=off}, in a development launch (mods from {@code -Dplexus.devModJars},
  * such as the Gradle runs, unless {@code -Dplexus.fabricApi=on}), without a pinned release for the version, and where
- * Fabric API cannot run next to the host loader of the launch yet (Forge on 1.20.1 and 1.20.4, NeoForge on 1.20.4 and
- * 1.21.1).
+ * Fabric API cannot run next to the host loader of the launch yet (NeoForge on 1.20.4 and 1.21.1).
  *
  * <p>Thread: the launch thread, once per launch.
  */
@@ -112,8 +111,16 @@ public final class FabricApiProvision {
         if (!enabled(System.getProperty("plexus.fabricApi", "auto"), developmentLaunch)) {
             return files;
         }
-        boolean fabricMods =
-                files.stream().anyMatch(file -> file.isFor(ModFileKind.FABRIC) || file.isFor(ModFileKind.QUILT));
+        // A jar for several loaders that the host loader runs (CustomSkinLoader's, with a ModLauncher service) needs no
+        // Fabric API.
+        Optional<ModFileKind> hostKind = switch (host) {
+            case FORGE -> Optional.of(ModFileKind.FORGE);
+            case NEOFORGE -> Optional.of(ModFileKind.NEOFORGE);
+            case NONE -> Optional.empty();
+        };
+        boolean fabricMods = files.stream()
+                .filter(file -> hostKind.map(kind -> !file.isFor(kind)).orElse(true))
+                .anyMatch(file -> file.isFor(ModFileKind.FABRIC) || file.isFor(ModFileKind.QUILT));
         if (!fabricMods || files.stream().anyMatch(FabricApiProvision::isFabricApi)) {
             return files;
         }
@@ -154,7 +161,7 @@ public final class FabricApiProvision {
     static boolean runsNextTo(Host host, String gameVersion) {
         return switch (host) {
             case NONE -> true;
-            case FORGE -> !gameVersion.equals("1.20.1") && !gameVersion.equals("1.20.4");
+            case FORGE -> true;
             case NEOFORGE -> !gameVersion.equals("1.20.4") && !gameVersion.equals("1.21.1");
         };
     }
