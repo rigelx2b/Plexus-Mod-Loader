@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.1 — 2026-11-08
+
+### Summary
+
+Plexus Mod Loader 2.1.1 automatically downloads a pinned Fabric API build on first launch when Fabric or Quilt mods are present without it, and runs Fabric API's recipe module next to NeoForge on Minecraft 26.1, 26.1.1, and 26.1.2.
+
+### What's New
+
+- Download the pinned Fabric API build for the current Minecraft version from Modrinth on first launch when the `mods` folder has Fabric or Quilt mods without Fabric API or Quilted Fabric API, checking it with SHA-512, keeping it in `.plexus/fabric-api/` in the game folder, and loading it as if it were in the `mods` folder.
+- Show the Fabric API download in the early loading window and report `PLEXUS-DISCOVERY-004` in the log when it is added, or `PLEXUS-DISCOVERY-005` if the download fails, with the game still starting and reporting Fabric mods that need Fabric API as missing it as before.
+- Use Fabric API from the `mods` folder instead when present, turn off automatic Fabric API with `-Dplexus.fabricApi=off`, and skip adding it next to Forge on Minecraft 1.20.1 and 1.20.4 or NeoForge on 1.20.4 and 1.21.1, where Fabric API cannot run yet.
+
+### Improvements & Fixes
+
+- Fix Fabric API's recipe module (`fabric-recipe-api-v1`) being left out with `PLEXUS-COMPAT-224` on Minecraft 26.1, 26.1.1, and 26.1.2 with NeoForge by letting NeoForge's `Ingredient.hashCode()` serve both loaders, running Fabric's code for every ingredient that is not a NeoForge custom ingredient so Fabric mods' recipe sync channels work next to NeoForge mods (verified headless on 26.1, 26.1.1, and 26.1.2).
+
 ## 2.1.0 — 2026-11-07
 
 ### Summary

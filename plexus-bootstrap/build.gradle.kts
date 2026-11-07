@@ -1554,10 +1554,10 @@ val corpusScenarios = listOf(
             // Fabric API's registry sync does not fit NeoForge's patch and is not loaded (PLEXUS-COMPAT-224, ADR-0030), but
             // other Fabric API modules register fabric: channels (fabric:custom_ingredient_sync, fabric:recipe_sync/...;
             // measured true on 26.2 and 26.3, 2026-10-28).
-            // 26.1 and 26.1.x (2026-11-07): there fabric-recipe-api-v1 (fabric:recipe_sync, fabric:custom_ingredient_sync)
-            // and fabric-registry-sync-v0 are left out too (224, 26.1.2 with Fabric API 0.155.3), so no fabric: channel
-            // is registered; the join, the play phase and both loaders' payloads are checked as on the other versions.
-            "[fabric_network_probe] the server registered Fabric channels: ${!minecraft.startsWith("26.1")}",
+            // 26.1 and 26.1.x: fabric-recipe-api-v1 was left out (224) because NeoForge 26.1 adds Ingredient.hashCode()
+            // too; its method runs Fabric's code unless NeoForge's own custom ingredient is set, so it now serves both
+            // (HostAddedMembers.guardedByAddedField, 212) and fabric:recipe_sync is registered there as well.
+            "[fabric_network_probe] the server registered Fabric channels: true",
             "[fabric_network_probe] reached the play phase: true",
             "[fabric_network_probe] the server received Fabric echo \"hello\"",
             "[fabric_network_probe] the server answered Fabric's play payload: true",
@@ -2397,6 +2397,32 @@ if (minecraft == "26.2") {
     }
 }
 
+// Fabric API for Fabric mods when the mods folder has none (ADR-0046): Jade and AppleSkin need Fabric API, which is not
+// among the mods; Plexus Mod Loader downloads its pinned build into the game directory's .plexus/fabric-api/ (the run
+// folder is new each time, so every run downloads it) and loads it with them. Development launches leave it off unless
+// -Dplexus.fabricApi=on. Network needed, headless.
+if (!minecraft.startsWith("1.")) {
+    scenarios.gameTest(
+        "fabricApiProvisionGameTest",
+        files(corpusRoot.map {
+            it.dir("fabric").asFileTree.matching { include("Jade-*-Fabric-*.jar", "appleskin-fabric-*.jar") }
+        }) + modJars(gameTestHarness),
+    ) {
+        dependsOn(modCorpus)
+        description = "Fabric mods that need Fabric API, without it: Plexus Mod Loader downloads and adds its pinned Fabric API."
+        systemProperty("plexus.fabricApi", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-DISCOVERY-004 Downloading Fabric API ",
+            "[Plexus Mod Loader] PLEXUS-DISCOVERY-004 Fabric API ",
+            "Fabric mod jade ",
+            "Fabric mod appleskin ",
+            "Fabric mod fabric-api ",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll("PLEXUS-DISCOVERY-005", "requires fabric-api")
+    }
+}
+
 // The real Forge mods of the corpus on a MinecraftForge client (ADR-0021 G7; opens a window, run it alone after the
 // headless checks), with fabric-client-session to play 200 ticks in the saved world and quit.
 clientWorldReload("corpusForgeClient") {
@@ -2423,6 +2449,57 @@ clientWorldReload("corpusForgeClient") {
 }
 
 // NeoForge on the client (ADR-0026, N7; opens a window, run it alone after the headless checks): FML's client startup with
+// The website's pictures (site/static/img/screens) and the home page's pre-launch example (LaunchCheck.js): one mods
+// folder with mods of all four loaders on a MinecraftForge 26.3 client. Sodium, Fabric API and Architectury (Fabric),
+// Freecam (Quilt), Forgeshot (Forge; no Fabric build, from compat/site-screenshots-26.3.json, so the corpus's counts stay
+// as they are) and Jade (NeoForge): Architectury does not fit Forge's patch (224) and NeoForge does not run next to
+// Forge (221). Saves the early window (.plexus/) and title.png with the mod counts and the notice of mods not loaded.
+// Opens a 1600x900 window; run it alone after the headless checks.
+if (minecraft == "26.3") {
+    val siteScreenshotMods = layout.buildDirectory.dir("plexus/site-screenshot-mods")
+    val modSiteScreenshots = tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.ModCorpusTask>("modSiteScreenshots") {
+        group = "verification"
+        description = "Downloads the mods listed in compat/site-screenshots-26.3.json."
+        lockFile = layout.projectDirectory.file("compat/site-screenshots-26.3.json")
+        outputDirectory = siteScreenshotMods
+        gameVersion = minecraft
+        loaders = listOf("forge")
+        refresh = false
+        topPerLoader = 0
+    }
+    clientWorldReload("siteScreenshotsClient") {
+        description = "Runs Fabric, Quilt, Forge and NeoForge mods in one MinecraftForge client and saves the website's screenshots (opens a window)."
+        dependsOn(modCorpus, modCorpusQuilt, modSiteScreenshots)
+        classpath.from(forgeClassPath)
+        systemProperties.addAll("plexus.earlyWindow.snapshots=.plexus", "fabric_client_session.titleScreenshot=true")
+        devModJars.from(modJars(":test-mods:fabric-client-session"))
+        devModJars.from(corpusRoot.map {
+            it.dir("fabric").asFileTree.matching { include("sodium-fabric-*.jar", "fabric-api-*.jar", "architectury-fabric-*.jar") }
+        })
+        devModJars.from(corpusRoot.map { it.dir("quilt").asFileTree.matching { include("Easy-freecam-*.jar") } })
+        devModJars.from(siteScreenshotMods.map { it.dir("forge").asFileTree.matching { include("*.jar") } })
+        devModJars.from(corpusRoot.map { it.dir("neoforge").asFileTree.matching { include("Jade-*-NeoForge-*.jar") } })
+        // GUI scale 2 at 1600x900: the title screen's mod counts stay clear of its buttons.
+        gameArguments.addAll("--width", "1600", "--height", "900")
+        gameOptions.add("guiScale:2")
+        worldName.set("plexus_site_screenshots")
+        runDirectory.set(layout.buildDirectory.dir("plexus/site-screenshots-client-$minecraft"))
+        timeoutSeconds.set(500)
+        expectedOutput.addAll(
+            "Forge mod loading, version 66.1.0",
+            "PLEXUS-COMPAT-221",
+            "PLEXUS-COMPAT-224",
+            "joined the game",
+            "[fabric_client_session] 200 client ticks in the world; save and quit",
+            "[fabric_client_session] screenshot title.png",
+            "[fabric_client_session] closing Plexus Mod Loader's notice of mods not loaded",
+            "[fabric_client_session] screenshot title-counts.png",
+            "[fabric_client_session] left the saved world; stopping the client",
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-225")
+    }
+}
+
 // Plexus Mod Loader's early window in place of its own, the NeoForge test mod, a Plexus Mod, and neoforge-client-session, a NeoForge mod that plays 200 ticks in
 // the world worldCreateSaveTest saved, then saves, quits to the title screen and stops the client.
 if (minecraft == "26.2") {

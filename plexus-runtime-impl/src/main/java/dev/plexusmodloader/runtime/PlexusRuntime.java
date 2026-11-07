@@ -38,6 +38,7 @@ import dev.plexusmodloader.runtime.diagnostics.PlexusLaunchException;
 import dev.plexusmodloader.runtime.diagnostics.StartupReport;
 import dev.plexusmodloader.runtime.diagnostics.TransformationReport;
 import dev.plexusmodloader.runtime.discovery.DiscoveredModFile;
+import dev.plexusmodloader.runtime.discovery.FabricApiProvision;
 import dev.plexusmodloader.runtime.discovery.ForeignModResolver;
 import dev.plexusmodloader.runtime.discovery.HostModules;
 import dev.plexusmodloader.runtime.discovery.ModFileKind;
@@ -123,8 +124,19 @@ public final class PlexusRuntime {
         StartupWindow startup = StartupWindow.start(configuration, adapter, gameVersion, gameArguments);
 
         // DISCOVERY + compatibility classification
-        List<DiscoveredModFile> files =
+        List<DiscoveredModFile> scanned =
                 new ModFileScanner().scan(configuration.modsDirectory(), configuration.devModJars());
+        // Fabric API for Fabric mods when the mods folder has none (ADR-0046); the host decides only whether it can
+        // run.
+        List<DiscoveredModFile> files = new FabricApiProvision(
+                        configuration.modsDirectory().toAbsolutePath().getParent(),
+                        FabricApiProvision.httpDownloader(),
+                        startup::status)
+                .provide(
+                        scanned,
+                        gameVersion,
+                        fabricApiHost(scanned),
+                        !configuration.devModJars().isEmpty());
         LOGGER.info(
                 "[Plexus Mod Loader] Phase {}: {} mod file(s) in {} and {} dev mod jar(s)",
                 RuntimePhase.DISCOVERY,
@@ -1174,6 +1186,15 @@ public final class PlexusRuntime {
             }
         }
         return List.copyOf(leftOut);
+    }
+
+    /** The host loader the launch runs, decided as {@link #launch} decides it, for {@link FabricApiProvision}. */
+    private static FabricApiProvision.Host fabricApiHost(List<DiscoveredModFile> files) {
+        if (!forgeJars(files).isEmpty()
+                || System.getProperty("plexus.forge", "auto").equals("always")) {
+            return FabricApiProvision.Host.FORGE;
+        }
+        return neoForgeJars(files).isEmpty() ? FabricApiProvision.Host.NONE : FabricApiProvision.Host.NEOFORGE;
     }
 
     /**
