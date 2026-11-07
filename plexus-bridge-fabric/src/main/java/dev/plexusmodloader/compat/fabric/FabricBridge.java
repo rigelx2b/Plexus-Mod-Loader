@@ -18,6 +18,7 @@ import dev.plexusmodloader.compat.bridge.GameClassBytes;
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
 import dev.plexusmodloader.compat.bridge.ModJarContents;
 import dev.plexusmodloader.compat.bridge.ModLoaderBridge;
+import dev.plexusmodloader.compat.fabric.intermediary.IntermediaryTranslations;
 import dev.plexusmodloader.compat.fabric.loader.FabricFamilyMod;
 import dev.plexusmodloader.compat.fabric.loader.FabricLoaderRuntime;
 import dev.plexusmodloader.compat.fabric.loader.PlexusFabricLauncher;
@@ -122,7 +123,12 @@ public final class FabricBridge implements ModLoaderBridge {
                 "net/fabricmc/loader/language/LanguageAdapter",
                 "net/fabricmc/loader/impl/launch/FabricLauncher",
                 "net/fabricmc/loader/impl/FabricLoaderImpl",
-                "net/fabricmc/loader/impl/game/GameProvider");
+                "net/fabricmc/loader/impl/game/GameProvider",
+                // Fabric Loader's error window: the status tree a mod fills and the entry that "shows" it (a log line
+                // here; no window). ModernFix uses them to warn about a mod it does not work with.
+                "net/fabricmc/loader/impl/gui/FabricGuiEntry",
+                "net/fabricmc/loader/impl/gui/FabricStatusTree",
+                "net/fabricmc/loader/impl/FormattedException");
     }
 
     /**
@@ -132,6 +138,9 @@ public final class FabricBridge implements ModLoaderBridge {
      */
     @Override
     public void prepareLaunch(BridgeLaunchContext context) {
+        // Every mod jar has been prepared by now: the parsed name tables (33 to 48 MB before 26.1) are not needed again
+        // unless a mod asks the mapping resolver.
+        IntermediaryTranslations.releaseTables();
         FabricLoaderRuntime fabric =
                 FabricLoaderRuntime.create(context, FABRIC_LOADER_VERSION, Map.of("mixinextras", MIXIN_EXTRAS_VERSION));
         FabricLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(fabric);
@@ -229,6 +238,18 @@ public final class FabricBridge implements ModLoaderBridge {
         FabricLoaderImpl.INSTANCE
                 .plexusModLoaderRuntime()
                 .invokeEntrypoints("preLaunch", PreLaunchEntrypoint.class, PreLaunchEntrypoint::onPreLaunch);
+    }
+
+    /**
+     * The jar to assess, link-check and load in place of {@code modJar} on a Minecraft version before 26.1 (ADR-0037):
+     * a copy that names the game in Mojang's names instead of Fabric's intermediary names, made on this machine; {@code
+     * modJar} itself when the game is not obfuscated or the mod has no intermediary names. The runtime calls this
+     * before {@link #assess} for every jar of this loader, nested jars included.
+     */
+    @Override
+    public PreparedJar prepareJar(java.nio.file.Path modJar) {
+        IntermediaryTranslations.Prepared prepared = IntermediaryTranslations.prepare(modJar);
+        return new PreparedJar(prepared.jar(), prepared.findings());
     }
 
     /** Assesses metadata on its own: a declared class tweaker cannot be read and blocks the mod. */

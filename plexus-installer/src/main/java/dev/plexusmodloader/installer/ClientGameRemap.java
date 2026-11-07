@@ -76,7 +76,9 @@ final class ClientGameRemap {
         }
 
         Path clientJar = versionDirectory.resolve(minecraftVersion + ".jar");
-        if (downloads.fetch(VerifiedDownloads.object(offered, "client"), clientJar)) {
+        JsonObject client = VerifiedDownloads.object(offered, "client");
+        JsonObject clientMappings = VerifiedDownloads.object(offered, "client_mappings");
+        if (downloads.fetch(client, clientJar)) {
             progress.accept("Downloaded the Minecraft " + minecraftVersion + " client");
         }
         Path folder = minecraftDirectory
@@ -86,16 +88,18 @@ final class ClientGameRemap {
                 .toAbsolutePath()
                 .normalize();
         Path mappings = folder.resolve("client-mappings-" + minecraftVersion + ".txt");
-        if (downloads.fetch(VerifiedDownloads.object(offered, "client_mappings"), mappings)) {
+        if (downloads.fetch(clientMappings, mappings)) {
             progress.accept(
                     "Downloaded Mojang's client mappings for " + minecraftVersion + " (kept in " + folder + ")");
         }
         List<Path> libraries = libraries(downloads, version, minecraftDirectory.resolve("libraries"), progress);
 
-        String key = RemappedGameJar.key(clientJar, mappings);
+        // Both files were just checked against the SHA-1 Mojang lists, so those values are their SHA-1: the key needs
+        // no further pass over the jar and the mappings.
+        String key = RemappedGameJar.key(listedSha1(client), listedSha1(clientMappings));
         String stem = "minecraft-mojang-" + minecraftVersion + "-" + RemappedGameJar.shortKey(key);
         RemappedGameJar jar =
-                RemappedGameJar.ensure(clientJar, mappings, libraries, folder.resolve(stem + ".jar"), progress);
+                RemappedGameJar.ensure(clientJar, mappings, key, libraries, folder.resolve(stem + ".jar"), progress);
         if (jar.reused()) {
             progress.accept("The remapped Minecraft " + minecraftVersion + " client is up to date");
         }
@@ -104,6 +108,11 @@ final class ClientGameRemap {
                 FOLDER + "/" + minecraftVersion + "/" + stem + ".jar",
                 "dev.plexusmodloader:minecraft-mojang:" + minecraftVersion + "-" + RemappedGameJar.shortKey(key),
                 jar);
+    }
+
+    /** The SHA-1 of one entry of Mojang's version data, in the lower case {@link VerifiedDownloads#sha1} writes. */
+    static String listedSha1(JsonObject download) throws InstallerException {
+        return VerifiedDownloads.string(download, "sha1").toLowerCase(Locale.ROOT);
     }
 
     /** Removes the whole folder of {@code minecraftVersion}: mappings and every remapped jar. */

@@ -118,10 +118,11 @@ val gameTestMain =
 // configuration exchanges in the login phase.
 val transformationPlanLines =
     when (minecraftModules) {
-        "1.20.1" -> listOf("[Plexus Mod Loader] Transformation plan: 52 rule(s) accepted, 0 rejected (2 from mods)")
-        "1.20.4", "1.21.1" -> listOf("[Plexus Mod Loader] Transformation plan: 54 rule(s) accepted, 0 rejected (2 from mods)")
-        "1.21.11" -> listOf("[Plexus Mod Loader] Transformation plan: 53 rule(s) accepted, 0 rejected (2 from mods)")
-        else -> listOf("[Plexus Mod Loader] Transformation plan: 54 rule(s) accepted, 0 rejected (2 from mods)")
+        // 2026-11-07: counted again after the 2.1.0 Native API hooks (all accepted, none rejected).
+        "1.20.1" -> listOf("[Plexus Mod Loader] Transformation plan: 68 rule(s) accepted, 0 rejected (2 from mods)")
+        "1.20.4", "1.21.1" -> listOf("[Plexus Mod Loader] Transformation plan: 70 rule(s) accepted, 0 rejected (2 from mods)")
+        "1.21.11", "26.3" -> listOf("[Plexus Mod Loader] Transformation plan: 69 rule(s) accepted, 0 rejected (2 from mods)")
+        else -> listOf("[Plexus Mod Loader] Transformation plan: 70 rule(s) accepted, 0 rejected (2 from mods)")
     }
 
 tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("serverBootSmokeTest") {
@@ -138,7 +139,7 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("
         "[Plexus Mod Loader] Startup report:",
         *transformationPlanLines.toTypedArray(),
         "[Plexus Mod Loader] Access widenings: 1 accepted, 0 rejected",
-        "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 63 game test(s)",
+        "[Plexus Mod Loader] Native declarations: 8 block(s), 18 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 96 game test(s)",
         "[Plexus Mod Loader] Game layer $gameLayer started",
         "[minimal_native_mod] Hello from minimal_native_mod 0.1.0 on DEDICATED_SERVER",
         "[Plexus Mod Loader] Phase GAME_LAUNCH: net.minecraft.server.Main",
@@ -200,7 +201,7 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.ClientWorldReloadTask>
         "[minimal_native_mod] Server started (dedicated=false",
         "PlexusDev joined the game",
         "[Plexus Mod Loader] Added 1 mod key binding(s) to the controls",
-        "[Plexus Mod Loader] Registered 7 block(s) and 10 item(s) from mods",
+        "[Plexus Mod Loader] Registered 8 block(s) and 18 item(s) from mods",
         "[Plexus Mod Loader] Answered configuration exchange native_showcase:handshake",
         "[native_showcase] Handshake with PlexusDev: showcase 0.1.0",
         "[Plexus Mod Loader] Configuration exchange native_showcase:handshake with PlexusDev: answered, accepted",
@@ -680,24 +681,63 @@ scenarios.gameTest("forgeWorldTest", files()) {
 
 // NeoForge on every supported version (ADR-0026, N10): NeoForge's own mod loading with only the game test harness (built
 // against 26.2's NeoForge, but asking for NeoForge 26.1 or newer), a world, a game test, saving.
-scenarios.gameTest("neoForgeWorldTest", modJars(":test-mods:neoforge-gametest-harness")) {
+// NeoForge 21.1 and 20.4 (FML 4 on ModLauncher, ADR-0043) have no harness build: NeoForge alone, as forgeWorldTest runs Forge.
+val neoForgeOnModLauncher = minecraft == "1.21.1" || minecraft == "1.20.4"
+scenarios.gameTest("neoForgeWorldTest", if (neoForgeOnModLauncher) modJars(":test-mods:neoforge-fml4-hello") else modJars(":test-mods:neoforge-gametest-harness")) {
     description = "Runs NeoForge with the game test harness through Plexus Mod Loader on the game test server of the selected Minecraft version."
     runsNeoForge()
-    expectedOutput.addAll(
-        "NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
-        "[Plexus Mod Loader] FML ",
-        "[neoforge_gametest_harness] NeoForge runs in production and does not tick game tests; the harness ticks them",
-        "All 1 required tests passed",
-        worldsSavedLine,
-    )
+    if (neoForgeOnModLauncher) {
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] FML's game layer:",
+            "[neoforge_fml4_hello] constructed by FML",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+    } else {
+        expectedOutput.addAll(
+            "NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
+            "[Plexus Mod Loader] FML ",
+            "[neoforge_gametest_harness] NeoForge runs in production and does not tick game tests; the harness ticks them",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+    }
 }
 
-val matrix = listOf(
+// NeoForge 21.1 and 20.4 on the dedicated server (ADR-0043): FML 4's own startup on Plexus Mod Loader's ModLauncher, the mod
+// found by FML's discovery (NeoForge 21.1 checks the EULA before it constructs mods; neoForgeWorldTest shows the construction),
+// then the server stops at the EULA check. Plexus Mod Loader does not accept the EULA.
+if (neoForgeOnModLauncher) {
+    scenarios.gameTest("neoForgeFml4ServerBoot", modJars(":test-mods:neoforge-fml4-hello")) {
+        description = "Starts NeoForge 21.1 / 20.4 and a NeoForge mod through Plexus Mod Loader on the dedicated server, up to the EULA check."
+        launchTarget = "dedicated_server"
+        gameArgumentOverrides.set(listOf<String>())
+        runsNeoForge()
+        expectedOutput.set(listOf(
+            "[Plexus Mod Loader] FML's game layer:",
+            // FML 4 lists the mods in a table; FML 2 (NeoForge 20.4) names each mod file its discovery found.
+            if (minecraft == "1.20.4") "Found mod file \"neoforge-fml4-hello-" else "NeoForge FML 4 Hello 1.0.0 (neoforge_fml4_hello)",
+            "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
+            "You need to agree to the EULA in order to run the server",
+        ))
+    }
+}
+
+// How the refusal of NeoForge without the Java agent names FML: FML 4 (NeoForge 21.1 / 20.4, ADR-0043) says so.
+val fmlNeedsInvokeOpened = when {
+    minecraft == "1.20.4" -> "NeoForge's FML 2 needs java.lang.invoke opened to it"
+    neoForgeOnModLauncher -> "NeoForge's FML 4 needs java.lang.invoke opened to it"
+    else -> "NeoForge's FML needs java.lang.invoke opened to it"
+}
+
+val matrix = listOfNotNull(
     // A NeoForge mod laid out as Sodium's NeoForge build (test-mods/neoforge-early-service): the jar players install is
     // an FML library with an early service, and the mod is nested in it. FML loads the outer jar as an early service
     // and the mod from its JarJar, so the mod is constructed and mods that need it find it (corpusNeoForgeClient once
     // found Sodium missing for Iris, Sodium Extra and Reese's Sodium Options).
-    scenarios.gameTest(
+    // Not on FML 4 (NeoForge 21.1 / 20.4): the test mods are built for NeoForge 21.11 and later (they require neoforge
+    // [21.11,)), and FML 4 has no graphics bootstrap plugins of this shape. Sodium's 1.21.1 build is an ordinary mod.
+    if (neoForgeOnModLauncher) null else scenarios.gameTest(
         "neoForgeEarlyService",
         modJars(":test-mods:neoforge-early-service", ":test-mods:neoforge-gametest-harness"),
     ) {
@@ -716,8 +756,9 @@ val matrix = listOf(
                 "[neoforge_early_service] Constructed by FML from the jar nested in the early service jar",
                 "All 1 required tests passed",
             )
-            if (minecraftModules == "26.1" || minecraftModules == "26.2") {
-                // FML 11 runs graphics bootstrap plugins before it decides not to open the early window on a server.
+            if (minecraftModules == "26.1" || minecraftModules == "26.2" || minecraftModules == "1.21.11") {
+                // FML 10 (NeoForge 21.11, Minecraft 1.21.11, ADR-0038) and FML 11 run graphics bootstrap plugins before
+                // they decide not to open the early window on a server.
                 expectedOutput.addAll(
                     "Running graphics bootstrap plugin neoforge_early_service",
                     "[neoforge_early_service] early service ran before mod discovery",
@@ -736,7 +777,7 @@ val matrix = listOf(
     // the NeoForge mod is left out (216) and diagnosed as before.
     scenarios.gameTest("matrixNeoForgeOnly", modJars(neoforge)) {
         expectedOutput.addAll(
-            "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: NeoForge's FML needs java.lang.invoke opened to it",
+            "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: $fmlNeedsInvokeOpened",
             neoforgeBlocked,
         )
     },
@@ -747,7 +788,13 @@ val matrix = listOf(
         expectedOutput.addAll(
             nativeHello,
             fabricHello,
-            "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: NeoForge's FML needs java.lang.invoke opened to it",
+            // On FML 4 the refusal comes first from the shared Mixin (ADR-0043): NeoForge 21.1 / 20.4 do not yet run next
+            // to Fabric or Quilt mods, with or without the agent.
+            if (neoForgeOnModLauncher) {
+                "does not run together with Fabric or Quilt mods yet: FML ${if (minecraft == "1.20.4") "2" else "4"} would start a second Mixin"
+            } else {
+                "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: $fmlNeedsInvokeOpened"
+            },
             neoforgeBlocked,
         )
     },
@@ -1001,15 +1048,15 @@ val nativeApiGameTests = scenarios.gameTest("nativeApiGameTests", modJars(":exam
     gameArgumentOverrides.set(listOf("--universe", "universe", "--tests", "native_showcase:*"))
     expectedOutput.set(
         listOf(
-            "[Plexus Mod Loader] Native declarations: 7 block(s), 10 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 63 game test(s)",
-            "[Plexus Mod Loader] Registered 7 block(s) and 10 item(s) from mods",
+            "[Plexus Mod Loader] Native declarations: 8 block(s), 18 item(s), 3 entity type(s), 1 effect(s), 2 game rule(s), 1 sound(s), 1 command(s), 1 channel(s), 96 game test(s)",
+            "[Plexus Mod Loader] Registered 8 block(s) and 18 item(s) from mods",
             "[Plexus Mod Loader] Registered 1 creative tab(s) from mods on 1 extra page(s)",
             "[Plexus Mod Loader] Transformed net/minecraft/commands/Commands with [plexus:commands]",
             "[Plexus Mod Loader] Added 1 feature(s) to",
-            "[Plexus Mod Loader] Added 1 natural spawn(s) to",
+            "[Plexus Mod Loader] Added 2 natural spawn(s) to",
             "[native_showcase] Loaded 2 showcase message(s)",
             "[native_showcase] Every mod is initialised",
-            "All 63 required tests passed",
+            "All 96 required tests passed",
             "[native_showcase] Mod attributes verified on a cow and a player",
             "[native_showcase] Server starting (dedicated=false)",
             "[native_showcase] Tick lifecycle verified: 10 server ticks, alternating world ticks: true",
@@ -1048,6 +1095,31 @@ val modCorpusQuilt = tasks.register<dev.plexusmodloader.devtools.gradle.minecraf
     refresh = providers.gradleProperty("modCorpusRefresh").map { it != "false" }.orElse(false)
     topPerLoader = 0
 }
+// ADR-0038: NeoForge and Forge run on some versions before 26.1, whose main corpus (mod-corpus-<version>.json) lists
+// Fabric mods only. Their mods are listed in compat/mod-corpus-neoforge-<version>.json and mod-corpus-forge-<version>.json
+// and downloaded into the same folders (build/plexus/mod-corpus/<version>/neoforge/ and forge/) the corpus runs read.
+// Only for a version with a pinned release of the loader (neoforge-releases.properties, forge-releases.properties).
+val hasForgeRelease = Properties().apply {
+    rootProject.file("plexus-bridge-forge/src/main/resources/dev/plexusmodloader/compat/forge/forge-releases.properties")
+        .inputStream().use(::load)
+}.containsKey(minecraft)
+fun registerLoaderCorpus(loader: String, present: Boolean): TaskProvider<dev.plexusmodloader.devtools.gradle.minecraft.ModCorpusTask>? =
+    if (!minecraft.startsWith("1.") || !present) {
+        null
+    } else {
+        tasks.register<dev.plexusmodloader.devtools.gradle.minecraft.ModCorpusTask>("modCorpus${loader.replaceFirstChar(Char::uppercase)}") {
+            group = "verification"
+            description = "Downloads the $loader mod corpus listed in compat/mod-corpus-$loader-$minecraft.json (-PmodCorpusRefresh rebuilds the list from Modrinth)."
+            lockFile = layout.projectDirectory.file("compat/mod-corpus-$loader-$minecraft.json")
+            outputDirectory = corpusRoot
+            gameVersion = minecraft
+            loaders = listOf(loader)
+            refresh = providers.gradleProperty("modCorpusRefresh").map { it != "false" }.orElse(false)
+            topPerLoader = providers.gradleProperty("modCorpusTop").map(String::toInt).orElse(40)
+        }
+    }
+val modCorpusNeoForge = registerLoaderCorpus("neoforge", hasNeoForgeRelease)
+val modCorpusForge = registerLoaderCorpus("forge", hasForgeRelease)
 fun corpus(vararg loaders: String): FileCollection =
     files(loaders.map { loader -> corpusRoot.map { it.dir(loader).asFileTree.matching { include("*.jar") } } })
 
@@ -1082,7 +1154,16 @@ val notOnGameTestServer = listOf("xaero*.jar", "journeymap-forge-*.jar")
 //   shows LoadingErrorScreen, whose buttons do not start it again (javap, Forge 64.1.5 and 65.1.5). Every game event,
 //   ServerStartingEvent among them, then reaches no mod: Xaero's Minimap and World Map never create their server data
 //   and disconnect the player on joining a world.
+//   (2026-11-06, Minecraft 1.20.1) Sinytra Connector and Forgified Fabric API carry a second Fabric Loader (Connector's
+//   language provider net.fabricmc.loader.impl.bootstrap.FabricLoaderHackyInjector, the loader nested in fabric-api).
+//   FML 47 instantiates every language provider it finds and the provider stops with NoSuchFieldException launchPlugins;
+//   they adapt Fabric mods to Forge, which Plexus Mod Loader's Fabric bridge does itself, so they are left out here.
+//   ModernFix 5.27.91 (1.20.1) is not left out any more: it failed with MixinTargetAlreadyLoadedException for
+//   ExtraCodecs$TagOrElementLocation ("loaded too early") because Plexus Mod Loader's game layer loaded Minecraft classes
+//   before the launch plugins were initialized; PlexusModLauncher now initializes them at the end of the setup (ADR-0043).
 val brokenUnderForge = listOf(
+    "Connector-1.0.0-beta.49+1.20.1.jar",
+    "fabric-api-0.92.6+1.11.15+1.20.1.jar",
     "GlitchCore-forge-26.1-26.1.0.4.jar",
     "TerraBlender-forge-26.1-26.1.0.2.jar",
     "cherishedworlds-forge-16.0.1+26.1.2.jar",
@@ -1110,7 +1191,11 @@ val notOnNeoForgeServer = listOf(
 )
 // NeoForge mods that construct client classes on a server: real NeoForge's server stops at mod construction (after the
 // dedicated server's EULA check). Zoomify's bootstrap needs KeyMapping$Category (NoClassDefFoundError).
-val neoForgeClientClassesOnServer = listOf("zoomify-*.jar")
+// NeoForge 20.4 (1.20.4 corpus, ADR-0043): Entity Texture Features and Entity Model Features declare no client side, and
+// their Mixin into ResourceLocation (ETF) calls client classes at once (NoClassDefFoundError net/minecraft/client/gui/screens/Screen
+// from ResourceLocation.isValidPath on the server).
+val neoForgeClientClassesOnServer = listOf("zoomify-*.jar") +
+    listOf("entity_texture_features_*.jar", "entity_model_features_*.jar").filter { minecraft == "1.20.4" }
 // NeoForge mod builds that the pinned NeoForge release cannot run, although their neoforge.mods.toml accepts it
 // (checked against NeoForge's own installed server, 2026-10-24): the 26.1 corpus has builds for later 26.1.x NeoForge
 // releases. On NeoForge 26.1.0.19-beta, Architectury 20.0.4 and Veinminer 2.10.4 need NeoForge's BreakBlockEvent,
@@ -1126,19 +1211,44 @@ val neoForgeClientClassesOnServer = listOf("zoomify-*.jar")
 //   and FML 11.0.5 (NeoForge 26.1.0.19-beta) gives configurations without a behaviorVersion 0.16.5
 //   (MixinFacade.DEFAULT_BEHAVIOUR_VERSION; 0.17.1 in FML 11.0.15 for 26.1.2), so its critical injection into
 //   Camera.calculateFov fails and mod loading stops (sources of FML 11.0.5 and sponge-mixin 0.17.0).
+// NeoForge 21.1 (ADR-0043): no mod of the 1.21.1 corpus is left out. ModernFix 5.27.27 once failed with
+// MixinTargetAlreadyLoadedException ("loaded too early") until the launch plugins were initialized before Plexus Mod
+// Loader's game layer loads Minecraft classes (ADR-0043 point 4); it is constructed now (corpusNeoForge, corpusNeoForgeServer).
+// NeoForge 26.1.1.15-beta (the 26.1.1 corpus) fails the same three on a server (2026-11-07, corpusFabricNeoForge):
+// BreakBlockEvent is missing for Architectury and Veinminer, and Jade's Mixin shadows the field that Minecraft 26.1.x
+// does not have. Modrinth lists no newer Architectury build for NeoForge on Minecraft 26.1.1 than 20.0.4+neoforge (the
+// only other, 20.0.2, is older), so the corpus cannot name one that fits. Iris and Zoomify fail on a client only; they
+// are not checked on 26.1.1 (no window run) and stay in its corpus.
 val brokenUnderNeoForge = listOf(
     "architectury-neoforge-20.0.4.jar",
     "veinminer-neoforge-2.10.4.jar",
     "Jade-mc26.1-NeoForge-26.1.12.jar",
+).filter { minecraft == "26.1" || minecraft == "26.1.1" } + listOf(
     "iris-neoforge-1.11.4+mc26.1.2.jar",
     "zoomify-2.17.0+mc26.1.2-universal.jar",
-).filter { minecraft == "26.1" }
+).filter { minecraft == "26.1" } + listOf<String>(
+).filter { minecraft == "1.21.1" } + listOf(
+    // NeoForge 20.4 (ADR-0043): FML 2.0.17 reads META-INF/mods.toml only (no class of its loader names neoforge.mods.toml).
+    // YACL 3.6.6 has both files; its mods.toml says loaderVersion = "" (its neoforge.mods.toml says "[1,)"), so FML stops
+    // with "Missing language javafml version  wanted by yet_another_config_lib_v3..., found 2.0": the dedicated server
+    // stops, the game test server goes on.
+    "yet_another_config_lib_v3-3.6.6+1.20.4-neoforge.jar",
+    // Jars made for NeoForge 20.4 whose mods.toml depends on neither "neoforge" nor "forge": nothing in the file says which
+    // loader they are for, so they are Forge mods (ModFileScanner, ADR-0043), Forge runs, and the NeoForge mods beside them
+    // are left out (PLEXUS-COMPAT-221). A rule that tells them apart is for the discovery's owner (loaderVersion "[2,)"
+    // against Forge 49's "[49,)" would).
+    "dynamic-fps-3.11.4+minecraft-1.20.2-neoforge.jar",
+    "ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar",
+    "MouseTweaks-neoforge-mc1.20.4-2.26.jar",
+).filter { minecraft == "1.20.4" }
 // NeoForge mod builds that the pinned NeoForge release runs on a server but not on a client. Lambda Dynamic Lights
 // 4.11.2+26.1.2 accepts Minecraft [26.1,26.1.2] and names no NeoForge version, so FML loads it on 26.1; its client
 // initialisation (NeoForgePlatform$1.register, from LambDynLights.onInitializeClient through Yumi) needs NeoForge's
 // TagsUpdatedEvent$ClientPacketReceived, which NeoForge 26.1.2.122's universal jar has and 26.1.0.19-beta's does not
 // (NoClassDefFoundError in the fourth corpusNeoForgeClient run on 26.1, 2026-10-24; the same under NeoForge's own
 // launcher, which loads the same jar with the same FML). The server never reaches that code (corpusNeoForge loads it).
+// NeoForge 26.1.1.15-beta lacks the same class: two 26.1.1 client runs (2026-11-07) stopped in "Initializing game"
+// with that NoClassDefFoundError, so 26.1.1 leaves it out too.
 // FancyMenu 3.9.14 for NeoForge 26.3 stops every client on NeoForge 26.3.0.98 (corpusNeoForgeClient and
 // corpusFabricNeoForgeClient, 2026-10-28): its injection into Minecraft.resizeGui reads Minecraft.getInstance().gui,
 // and NeoForge's EarlyWindowHandoff.completeWindowHandoff calls Window.onFramebufferResize whenever the early loading
@@ -1146,10 +1256,14 @@ val brokenUnderNeoForge = listOf(
 // gui (checked with javap -c on the patched client and the universal jar). Plexus Mod Loader's code is not on that
 // path; the same launch under NeoForge's own launcher was not run. No newer 26.3 build on Modrinth (2026-10-28).
 val brokenOnNeoForgeClient = when (minecraft) {
-    "26.1" -> listOf("lambdynamiclights-4.11.2+26.1.2.jar")
+    "26.1", "26.1.1" -> listOf("lambdynamiclights-4.11.2+26.1.2.jar")
     "26.3" -> listOf("fancymenu_neoforge_3.9.14_MC_26.3.jar")
     else -> listOf()
-}
+} + listOf("zoomify-2.17.0+mc26.1.2-universal.jar").filter { minecraft == "26.1.1" }
+// 26.1.1 (2026-11-07, corpusFabricNeoForgeClientBootstrap, after Lambda Dynamic Lights was left out): Zoomify stops the client at
+// Bootstrap like on 26.1 (brokenUnderNeoForge above): FML 11.0.5 gives Mixin behaviour version 0.16.5, so Zoomify's
+// @Local(name = "partialTicks", argsOnly = true) in Camera.calculateFov fails (SugarApplicationException, PLEXUS-COMPAT-133
+// "could not transform net.minecraft.client.Camera"). A server never reaches it, so it stays in the other runs.
 val lambDynamicLightsOnNeoForgeClient = brokenOnNeoForgeClient.none { it.startsWith("lambdynamiclights-") }
 fun gameTestCorpus(vararg loaders: String): FileCollection =
     files(loaders.map { loader ->
@@ -1220,11 +1334,27 @@ val corpusScenarios = listOf(
             it.dir("neoforge").asFileTree.matching {
                 include("*.jar"); exclude(notOnNeoForgeServer); exclude(neoForgeClientClassesOnServer); exclude(brokenUnderNeoForge)
             }
-        }) + modJars(":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-environment-probe"),
+        }) + (if (neoForgeOnModLauncher) {
+            modJars(":test-mods:neoforge-fml4-hello")
+        } else {
+            modJars(":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-environment-probe")
+        }),
     ) {
         dependsOn(modCorpus)
+        modCorpusNeoForge?.let { dependsOn(it) }
         runsNeoForge()
-        expectedOutput.addAll(
+        // NeoForge 21.1 and 20.4 (ADR-0043): no harness build; Plexus Mod Loader's own game test passes, and FML 4 constructs
+        // the corpus's mods (modloading-worker lines) and the hello mod.
+        if (neoForgeOnModLauncher) {
+            expectedOutput.addAll(
+                "[Plexus Mod Loader] NeoForge ",
+                "[Plexus Mod Loader] FML's game layer:",
+                "[neoforge_fml4_hello] constructed by FML",
+                "All 1 required tests passed",
+                worldsSavedLine,
+            )
+            expectedFiles.add("universe/gametestworld/level.dat")
+        } else expectedOutput.addAll(
             // As under NeoForge, mods do not see Fabric Loader's or Quilt Loader's API (no Fabric or Quilt mods run), so
             // Yumi (in Lambda Dynamic Lights) runs on NeoForge and finds Lambda Dynamic Lights' default configuration;
             // when it saw Fabric Loader, the lookup came back empty and the client stopped (2026-10-24).
@@ -1249,20 +1379,24 @@ val corpusScenarios = listOf(
     scenarios.gameTest(
         "corpusNeoForgeServer",
         files(corpusRoot.map {
-            it.dir("neoforge").asFileTree.matching { include("*.jar"); exclude(notOnNeoForgeServer); exclude(brokenUnderNeoForge) }
+            it.dir("neoforge").asFileTree.matching {
+                include("*.jar"); exclude(notOnNeoForgeServer); exclude(neoForgeClientClassesOnServer); exclude(brokenUnderNeoForge)
+            }
         }),
     ) {
         dependsOn(modCorpus)
+        modCorpusNeoForge?.let { dependsOn(it) }
         runsNeoForge()
         launchTarget.set("dedicated_server")
         gameArgumentOverrides.set(listOf<String>())
         expectedOutput.set(
             listOf(
+                // 2026-11-07: 37 -> 36 since this run leaves out neoForgeClientClassesOnServer too (Zoomify, ADR-0043 merge).
                 corpusCounts(
-                    "[Plexus Mod Loader] NeoForge 26.2.0.93 loads 37 NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
+                    "[Plexus Mod Loader] NeoForge 26.2.0.93 loads 36 NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
                     "[Plexus Mod Loader] NeoForge ",
                 ),
-                "[Plexus Mod Loader] FML ",
+                if (neoForgeOnModLauncher) "[Plexus Mod Loader] FML's game layer:" else "[Plexus Mod Loader] FML ",
                 "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
                 "You need to agree to the EULA",
             ),
@@ -1273,6 +1407,7 @@ val corpusScenarios = listOf(
     // loads mods, and Plexus Mod Loader never accepts it.)
     scenarios.gameTest("corpusForge", gameTestCorpus("forge")) {
         dependsOn(modCorpus)
+        modCorpusForge?.let { dependsOn(it) }
         classpath(forgeClassPath)
         // The requirements check (PLEXUS-COMPAT-209), FML constructing the mods, and the world created, ticked and saved.
         expectedOutput.addAll(
@@ -1294,6 +1429,7 @@ val corpusScenarios = listOf(
         files(corpusRoot.map { it.dir("forge").asFileTree.matching { include("*.jar"); exclude(brokenUnderForge) } }),
     ) {
         dependsOn(modCorpus)
+        modCorpusForge?.let { dependsOn(it) }
         classpath(forgeClassPath)
         launchTarget.set("dedicated_server")
         gameArgumentOverrides.set(listOf<String>())
@@ -1309,6 +1445,7 @@ val corpusScenarios = listOf(
     // the Forge mods, and one Mixin serves both.
     scenarios.gameTest("corpusFabricForge", gameTestCorpus("fabric", "forge") + modJars(gameTestHarness, ":test-mods:fabric-host-patch-probe")) {
         dependsOn(modCorpus)
+        modCorpusForge?.let { dependsOn(it) }
         classpath(forgeClassPath)
         expectedOutput.addAll(
             // The corpus mods, the harness and the probe below. Fabric mods whose mixins do not fit Forge's patch are
@@ -1328,21 +1465,27 @@ val corpusScenarios = listOf(
             // 2026-11-01: fabric-rendering-fluids-v1 runs as Plexus Mod Loader's build too (Forge's fluid overlay check);
             // its two copies in the corpus count once (75 -> 74 not loaded).
             corpusCounts("[Plexus Mod Loader] Foreign mods: 91 loaded, 74 not loaded"),
-            corpusCounts(
-                "PLEXUS-COMPAT-224 1 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury.",
-                "mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge ",
-            ),
-            "share Fabric's Mixin",
-            "Forge mod loading, version ",
-            // Fabric API features whose mixins meet members Forge's patch added or changed (test-mods/fabric-host-patch-probe).
-            // Forge's own getConnection() serves Fabric's accessor; the rest of that accessor mixin applies (212).
-            "[plexus_host_patch_probe] fabric-networking-api-v1: ServerCommonPacketListenerImpl implements ServerCommonPacketListenerImplAccessor: true; getConnection() is the listener's connection: true; getServer() is the listener's server: true",
-            // Forge changed the field Fabric's attribute builder accessor reads to a Map: getBuilder() wraps it, through
-            // the game class loader's own copy of AttributeBuilderBridge (linked to Forge's Guava).
-            "[plexus_host_patch_probe] fabric-object-builder-api-v1: AttributeSupplier\$Builder implements AttributeSupplierBuilderAccessor: true; getBuilder() returns dev.plexusmodloader.compat.fabric.mixin.AttributeBuilderBridge\$ForwardingBuilder",
+            // Without a pinned Forge release for this version (forge-releases.properties) Forge does not start; only Fabric runs.
+            *(if (hasForgeRelease) arrayOf("share Fabric's Mixin", "Forge mod loading, version ") else arrayOf<String>()),
             "All 1 required tests passed",
             worldsSavedLine,
         )
+        if (!minecraft.startsWith("1.")) {
+            // Before 26.1 (ADR-0038) no Fabric API host module stands in for the features below, and the Fabric mods that
+            // Forge's patch rules out are not the 26.x ones, so these are checked on the 26.x versions only.
+            expectedOutput.addAll(
+                corpusCounts(
+                    "PLEXUS-COMPAT-224 1 mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge 26.2-65.1.5 patches it: architectury.",
+                    "mod(s) are NOT loaded, because Plexus Mod Loader cannot run them as written on the game as MinecraftForge ",
+                ),
+                // Fabric API features whose mixins meet members Forge's patch added or changed (test-mods/fabric-host-patch-probe).
+                // Forge's own getConnection() serves Fabric's accessor; the rest of that accessor mixin applies (212).
+                "[plexus_host_patch_probe] fabric-networking-api-v1: ServerCommonPacketListenerImpl implements ServerCommonPacketListenerImplAccessor: true; getConnection() is the listener's connection: true; getServer() is the listener's server: true",
+                // Forge changed the field Fabric's attribute builder accessor reads to a Map: getBuilder() wraps it, through
+                // the game class loader's own copy of AttributeBuilderBridge (linked to Forge's Guava).
+                "[plexus_host_patch_probe] fabric-object-builder-api-v1: AttributeSupplier\$Builder implements AttributeSupplierBuilderAccessor: true; getBuilder() returns dev.plexusmodloader.compat.fabric.mixin.AttributeBuilderBridge\$ForwardingBuilder",
+            )
+        }
         if (minecraft == "26.3") {
             // Fabric API 26.3's TagBuilder.remove(TagEntry) and Forge 26.3's have the same code on their own lists: Forge's
             // stays, and Fabric's getRemovals() reads Forge's removeEntries, so both see the removal (212).
@@ -1411,7 +1554,10 @@ val corpusScenarios = listOf(
             // Fabric API's registry sync does not fit NeoForge's patch and is not loaded (PLEXUS-COMPAT-224, ADR-0030), but
             // other Fabric API modules register fabric: channels (fabric:custom_ingredient_sync, fabric:recipe_sync/...;
             // measured true on 26.2 and 26.3, 2026-10-28).
-            "[fabric_network_probe] the server registered Fabric channels: true",
+            // 26.1 and 26.1.x (2026-11-07): there fabric-recipe-api-v1 (fabric:recipe_sync, fabric:custom_ingredient_sync)
+            // and fabric-registry-sync-v0 are left out too (224, 26.1.2 with Fabric API 0.155.3), so no fabric: channel
+            // is registered; the join, the play phase and both loaders' payloads are checked as on the other versions.
+            "[fabric_network_probe] the server registered Fabric channels: ${!minecraft.startsWith("26.1")}",
             "[fabric_network_probe] reached the play phase: true",
             "[fabric_network_probe] the server received Fabric echo \"hello\"",
             "[fabric_network_probe] the server answered Fabric's play payload: true",
@@ -1462,7 +1608,9 @@ val corpusScenarios = listOf(
         files(corpusRoot.map {
             it.dir("fabric").asFileTree.matching { include("*.jar"); exclude(notOnNeoForgeServer); exclude(brokenUnderNeoForge) }
         }) + files(corpusRoot.map {
-            it.dir("neoforge").asFileTree.matching { include("*.jar"); exclude(notOnNeoForgeServer); exclude(brokenUnderNeoForge) }
+            it.dir("neoforge").asFileTree.matching {
+                include("*.jar"); exclude(notOnNeoForgeServer); exclude(neoForgeClientClassesOnServer); exclude(brokenUnderNeoForge)
+            }
         }),
     ) {
         dependsOn(modCorpus)
@@ -1675,7 +1823,15 @@ val quiltCorpusScenarios = listOf(
             // since 2026-10-29) are left out; the expected counts had not followed.
             // 2026-11-01: both run as Plexus Mod Loader's builds on Forge's hooks (ADR-0031), with the mods that need
             // them (120 -> 122 loaded; the copies the host modules stand for count once).
-            corpusCounts("[Plexus Mod Loader] Foreign mods: 122 loaded, 123 not loaded"),
+            // 2026-11-07: 4a97f8f6 gave fabric-rendering-fluids-v1 a build for Forge's hooks too (as corpusFabricForge,
+            // 75 -> 74); the two copies nested in the corpus's two Fabric API jars count once now (123 -> 121 not loaded;
+            // the same 122 mods load). Bisected 2026-11-07 (3ba1687d: 122 loaded, 123 not loaded; 4a97f8f6: 122, 121; the
+            // commit between them, f47530b8, only releases 1.9.0): the two entries that went are the copy nested in
+            // fabric-api-0.154.2+26.2.jar (PLEXUS-COMPAT-120/121, "inside ... which is not loaded") and its
+            // "another copy of 'fabric-rendering-fluids-v1' is used" (PLEXUS-COMPAT-122); the host build stands for the
+            // module now, so no nested copy is counted and the module's class tweaker and Mixin lines (129, 131) are
+            // gone with it. Nothing else of the PLEXUS-COMPAT lines differs.
+            corpusCounts("[Plexus Mod Loader] Foreign mods: 122 loaded, 121 not loaded"),
             // FusionFix (Quilt) needs Fusion; Forge's build of Fusion, mostly the same classes, stands in for the Fabric
             // build it leaves out (ADR-0026 37).
             corpusCounts("mods that need fusion use MinecraftForge 26.2-65.1.5's build fusion 1.3.16", "share Fabric's Mixin"),
@@ -2872,6 +3028,13 @@ tasks.register("compatibilityCorpus") {
     description = "Real mods from Modrinth: no-game assessment for both sides and game test server runs (network)."
     if (minecraft.startsWith("1.")) {
         dependsOn("corpusAssessment", "corpusFabric", "corpusFabricServer")
+        // Fabric mods next to MinecraftForge (ADR-0021 G8) where a Forge release is pinned. Not on 1.20.1 and 1.20.4 yet:
+        // Fabric API's fabric-recipe-api-v1 stops there with IncompatibleClassChangeError (CustomIngredientImpl overrides
+        // Forge's final Ingredient.toNetwork); docs/verification/2.1.0/corpus-scenarios.md, 2026-11-07. Run
+        // corpusFabricForge by hand on them.
+        if (hasForgeRelease && minecraft != "1.20.1" && minecraft != "1.20.4") {
+            dependsOn("corpusFabricForge")
+        }
     } else {
         dependsOn(
             corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",

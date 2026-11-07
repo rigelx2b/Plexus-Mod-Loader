@@ -12,11 +12,22 @@ dependencyResolutionManagement {
         }
         exclusiveContent {
             forRepository { maven("https://maven.minecraftforge.net/") { name = "MinecraftForge" } }
-            filter { includeGroup("net.minecraftforge") }
+            // cpw.mods: ModLauncher 10 and SecureJarHandler 2 of Forge 47 (Minecraft 1.20.1), which the Forge host compiles one
+            // class against. NeoForge's FML 4 uses ModLauncher 11 and SecureJarHandler 3, from NeoForge's Maven below.
+            filter {
+                includeGroup("net.minecraftforge")
+                includeVersionByRegex("cpw.mods", "modlauncher", "10\\..*")
+                includeVersionByRegex("cpw.mods", "securejarhandler", "2\\.1\\.10")
+            }
         }
         exclusiveContent {
             forRepository { maven("https://maven.neoforged.net/releases/") { name = "NeoForged" } }
-            filter { includeGroupAndSubgroups("net.neoforged") }
+            filter {
+                includeGroupAndSubgroups("net.neoforged")
+                includeVersionByRegex("cpw.mods", "modlauncher", "11\\..*")
+                // 2.1.24: the SecureJarHandler of FML 2 (NeoForge 20.4), whose launch handlers the NeoForge host compiles against.
+                includeVersionByRegex("cpw.mods", "securejarhandler", "3\\..*|2\\.1\\.24")
+            }
         }
         exclusiveContent {
             forRepository { maven("https://maven.quiltmc.org/repository/release/") { name = "QuiltMC" } }
@@ -105,6 +116,7 @@ includeIfPresent(
     "test-mods:fml-library",
     "test-mods:forge-hello",
     "test-mods:neoforge-hello",
+    "test-mods:neoforge-fml4-hello",
     "test-mods:neoforge-mixin",
     "test-mods:fabric-registry",
     "test-mods:multi-loader-fallback",

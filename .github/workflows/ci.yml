@@ -36,6 +36,10 @@ jobs:
         run: ./gradlew.bat -p build-logic check --stacktrace
       - name: Installer jar
         run: ./gradlew.bat :plexus-installer:installerDistributions --stacktrace
+      # Archives are reproducible (Gradle 9 defaults, LF line endings in .gitattributes); compare with a local build.
+      - name: Installer jar checksum
+        shell: bash
+        run: sha256sum plexus-installer/build/distributions/PlexusModLoader-*.jar
       # The Gradle daemon keeps its cache lock files open, and setup-java cannot save a cache it cannot read.
       - name: Stop Gradle
         if: always()

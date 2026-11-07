@@ -46,6 +46,30 @@ public interface ModLoaderBridge {
     }
 
     /**
+     * The jar of this loader's mod that the runtime assesses, link-checks and loads in place of {@code modJar}, and what
+     * to tell the player about the swap. The Fabric bridge uses it on Minecraft before 26.1, where Fabric mods name the
+     * game by intermediary names: it returns a copy translated to the names this game has (ADR-0037). The runtime calls
+     * it for every jar of the loader, nested jars included, before {@link #assess}. Must not throw; a problem is a
+     * blocking finding and the unchanged jar. The default changes nothing.
+     */
+    default PreparedJar prepareJar(java.nio.file.Path modJar) {
+        return new PreparedJar(modJar, List.of());
+    }
+
+    /**
+     * A jar to use and the findings about how it was made.
+     *
+     * @param jar the jar to assess and load; the argument of {@link #prepareJar} when nothing changed
+     * @param findings added to the mod's assessment
+     */
+    record PreparedJar(java.nio.file.Path jar, List<CompatibilityFinding> findings) {
+
+        public PreparedJar {
+            findings = List.copyOf(findings);
+        }
+    }
+
+    /**
      * Instantiates and calls one entrypoint of a loadable mod.
      *
      * @throws Exception whatever the mod's entrypoint throws; Plexus Mod Loader reports it with the mod ID

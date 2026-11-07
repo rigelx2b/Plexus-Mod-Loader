@@ -44,15 +44,20 @@ record RemappedGameJar(Path jar, String sha1, long size, MojangJarRemapper.Resul
 
     /**
      * Remaps {@code obfuscatedJar} into {@code output} unless the cached one was made from the same inputs. {@code
-     * libraries} are the jar's libraries, for computing stack map frames.
+     * key} is {@link #key(String, String)} of the two inputs' SHA-1, which the caller already has, so they are not
+     * hashed again. {@code libraries} are the jar's libraries, for computing stack map frames.
      *
      * @throws InstallerException when the remap fails or its result does not pass the check; no jar is left at {@code
      *     output} then
      */
     static RemappedGameJar ensure(
-            Path obfuscatedJar, Path mappingsFile, List<Path> libraries, Path output, Consumer<String> progress)
+            Path obfuscatedJar,
+            Path mappingsFile,
+            String key,
+            List<Path> libraries,
+            Path output,
+            Consumer<String> progress)
             throws InstallerException, IOException {
-        String key = key(obfuscatedJar, mappingsFile);
         Path keyFile = keyFile(output);
         if (Files.isRegularFile(output) && Files.isRegularFile(keyFile)) {
             String[] recorded =
@@ -104,8 +109,15 @@ record RemappedGameJar(Path jar, String sha1, long size, MojangJarRemapper.Resul
      * a line feed.
      */
     static String key(Path obfuscatedJar, Path mappingsFile) throws IOException {
-        return "jar=" + VerifiedDownloads.sha1(obfuscatedJar) + "\nmappings=" + VerifiedDownloads.sha1(mappingsFile)
-                + "\nremapper=" + MojangJarRemapper.REVISION + "\n";
+        return key(VerifiedDownloads.sha1(obfuscatedJar), VerifiedDownloads.sha1(mappingsFile));
+    }
+
+    /**
+     * The same key from SHA-1 values already known, in lower-case hexadecimal, such as the ones {@link
+     * VerifiedDownloads#fetch} just checked the files against.
+     */
+    static String key(String jarSha1, String mappingsSha1) {
+        return "jar=" + jarSha1 + "\nmappings=" + mappingsSha1 + "\nremapper=" + MojangJarRemapper.REVISION + "\n";
     }
 
     /** Eight hex digits of the key, for a file name that changes with the inputs. */

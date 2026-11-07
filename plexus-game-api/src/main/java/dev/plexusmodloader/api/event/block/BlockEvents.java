@@ -18,6 +18,14 @@ public final class BlockEvents {
     public static final EventKey<BlockBreakListener> BREAK =
             EventKey.of("plexus:block/break", BlockBreakListener.class);
 
+    /**
+     * A {@link #BREAK} listener refused a player's break and the block stays. Fired once per refused
+     * break, after the refusal; breaks the game itself refuses (wrong held item, adventure mode) do not
+     * fire it. Fabric API: {@code PlayerBlockBreakEvents.CANCELED}.
+     */
+    public static final EventKey<BlockBreakCancelledListener> BREAK_CANCELLED =
+            EventKey.of("plexus:block/break_cancelled", BlockBreakCancelledListener.class);
+
     /** A player broke a block (survival or creative). */
     public static final EventKey<BlockBrokenListener> BROKEN =
             EventKey.of("plexus:block/broken", BlockBrokenListener.class);

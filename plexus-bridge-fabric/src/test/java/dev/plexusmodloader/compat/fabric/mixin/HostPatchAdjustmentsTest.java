@@ -125,6 +125,134 @@ class HostPatchAdjustmentsTest {
         assertFalse(annotations.contains("Lt/Target;moved()V"), annotations);
     }
 
+    private static final String REFMAP_CONFIG_TEXT =
+            "{\"package\":\"m\",\"refmap\":\"example.refmap.json\",\"mixins\":[\"InjectMixin\"]}";
+    private static final String REFMAP_TEXT = "{\"mappings\":{\"m/InjectMixin\":{"
+            + "\"yarnRun\":\"run\",\"yarnOld\":\"Lt/Target;old()V\",\"yarnMoved\":\"Lt/Target;moved()V\"}}}";
+
+    private static byte[] yarnInjectMixin() {
+        return mixin(
+                "m.InjectMixin",
+                List.of(inject("first", "yarnRun", "yarnOld"), inject("second", "yarnRun", "yarnMoved")));
+    }
+
+    private HostPatchAdjustments planYarn(String config, Map<String, Object> entries) throws Exception {
+        Path jar = jar(entries);
+        HostedLaunch host = new HostedLaunch(
+                "Host 1",
+                List.of(),
+                List.of(new InjectionPointReplacement(
+                        "t/Target", "run", "Lt/Target;moved()V", "Lt/Target;replacement()V")),
+                directory);
+        return HostPatchAdjustments.plan(
+                host,
+                GameSide.DEDICATED_SERVER,
+                Map.of(config, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", target(true)),
+                classes(target(false)));
+    }
+
+    private static String visibleAnnotations(byte[] mixin) {
+        return ClassFile.of().parse(mixin).methods().stream()
+                .flatMap(method ->
+                        method.findAttribute(java.lang.classfile.Attributes.runtimeVisibleAnnotations()).stream())
+                .flatMap(attribute -> attribute.annotations().stream())
+                .map(Annotation::toString)
+                .toList()
+                .toString();
+    }
+
+    /**
+     * A Fabric mod writes the names it was developed with in its injectors and lets its reference map turn them into the
+     * game's. The rules by call or field have to see the game's names: the injection at {@code moved()V} moves to the
+     * call the host's patch makes there, and the one at {@code old()V}, a call the patch removed, is reported.
+     */
+    @Test
+    void injectorStringsAreComparedAsTheModsReferenceMapNamesThem() throws Exception {
+        HostPatchAdjustments adjustments = planYarn(
+                CONFIG,
+                Map.of(
+                        CONFIG,
+                        REFMAP_CONFIG_TEXT,
+                        "example.refmap.json",
+                        REFMAP_TEXT,
+                        "m/InjectMixin.class",
+                        yarnInjectMixin()));
+
+        assertEquals(2, adjustments.findings().size(), adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().stream()
+                        .anyMatch(finding -> finding.incompatible()
+                                && finding.reason().contains("old()V")
+                                && finding.reason().endsWith("this injection does not run")),
+                adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().stream()
+                        .anyMatch(finding -> !finding.incompatible()
+                                && finding.code().equals("PLEXUS-COMPAT-226")
+                                && finding.reason().contains("replacement()V")),
+                adjustments.findings().toString());
+
+        String annotations = visibleAnnotations(adjustments.apply("m.InjectMixin", yarnInjectMixin()));
+        assertTrue(annotations.contains("Lt/Target;replacement()V"), annotations);
+        assertFalse(annotations.contains("yarnMoved"), annotations);
+        assertFalse(annotations.contains("yarnRun"), annotations);
+    }
+
+    /** A mod without a reference map, or whose map does not know a string, is compared as it is written. */
+    @Test
+    void injectorStringsWithoutAReferenceMapStayAsWritten() throws Exception {
+        HostPatchAdjustments withoutMap = planYarn(
+                CONFIG,
+                Map.of(
+                        CONFIG,
+                        "{\"package\":\"m\",\"mixins\":[\"InjectMixin\"]}",
+                        "m/InjectMixin.class",
+                        yarnInjectMixin()));
+        assertEquals(List.of(), withoutMap.findings());
+        assertEquals(
+                visibleAnnotations(yarnInjectMixin()),
+                visibleAnnotations(withoutMap.apply("m.InjectMixin", yarnInjectMixin())));
+
+        HostPatchAdjustments unknownStrings = planYarn(
+                CONFIG,
+                Map.of(
+                        CONFIG,
+                        REFMAP_CONFIG_TEXT,
+                        "example.refmap.json",
+                        "{\"mappings\":{\"m/OtherMixin\":{\"yarnRun\":\"run\"}}}",
+                        "m/InjectMixin.class",
+                        yarnInjectMixin()));
+        assertEquals(List.of(), unknownStrings.findings());
+    }
+
+    /** Mixin does not look up what {@code remap = false} marks, so the strings of such an injector stay as written. */
+    @Test
+    void anInjectorWithRemapFalseIsNotResolved() {
+        Annotation noRemap = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("yarnRun"))),
+                AnnotationElement.ofBoolean("remap", false));
+        byte[] mixin =
+                mixin("m.InjectMixin", List.of(new Handler("first", noRemap), inject("second", "yarnRun", "yarnOld")));
+
+        byte[] resolved = HostRefmapNames.resolve(mixin, Map.of("yarnRun", "run", "yarnOld", "Lt/Target;old()V"));
+
+        ClassModel model = ClassFile.of().parse(resolved);
+        String first = annotationsOf(model.methods().stream()
+                .filter(method -> method.methodName().equalsString("first"))
+                .findFirst()
+                .orElseThrow());
+        String second = annotationsOf(model.methods().stream()
+                .filter(method -> method.methodName().equalsString("second"))
+                .findFirst()
+                .orElseThrow());
+        assertTrue(first.contains("yarnRun"), first);
+        assertFalse(second.contains("yarnRun") || second.contains("yarnOld"), second);
+        assertTrue(second.contains("Lt/Target;old()V"), second);
+    }
+
     /**
      * The host's patch adds a parameter to the method an {@code @Inject} handler was written for (Forge adds a {@code
      * Frustum} to {@code LevelExtractor.extractVisibleBlockEntities}; Sodium injects there). Mixin would reject the
@@ -5161,11 +5289,15 @@ class HostPatchAdjustmentsTest {
     private record Handler(String name, Annotation annotation) {}
 
     private static Handler inject(String name, String target) {
+        return inject(name, "run", target);
+    }
+
+    private static Handler inject(String name, String method, String target) {
         return new Handler(
                 name,
                 Annotation.of(
                         ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
-                        AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("run"))),
+                        AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString(method))),
                         AnnotationElement.of(
                                 "at",
                                 AnnotationValue.ofArray(AnnotationValue.ofAnnotation(Annotation.of(

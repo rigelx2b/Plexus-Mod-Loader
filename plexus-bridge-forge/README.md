@@ -31,6 +31,12 @@ Forge and NeoForge were designed assuming their own classloader structures (ModL
   - Allows Fabric mods to query Forge mods via `FabricLoader.getInstance().isModLoaded(...)`, and
   - Conversely, responds with the correct `IModInfo` metadata when Forge/NeoForge mods query Fabric/Quilt mods via `ModList.get().isLoaded(...)`.
 
+### 4) Early Minecraft Versions (1.20.x and 1.21.x)
+- **Which builds:** MinecraftForge 1.20.1-47.4.28, 1.20.4-49.2.13, 1.21.1-52.1.21 and 1.21.11-61.2.5, and NeoForge 21.11.48 for 1.21.11 (see `forge-releases.properties` and `neoforge-releases.properties`; a line there enables the version). NeoForge for 1.20.4 and 1.21.1 is not supported yet; NeoForge for 1.20.1 does not exist.
+- **Renamed game jar:** Forge and NeoForge patch the jar their own installer tools renamed, so on versions before 26.1 `ForgeInstallerTools` / `NeoForgeInstallerTools` run those tools on the player's PC (from the jars the loader's profile lists) and the patches apply to their output.
+- **SRG member names (Forge 1.20.1 and 1.20.4):** these Forge builds name Minecraft's fields and methods in SRG (`m_123_`, `f_123_`). `SrgMojangNames` joins an SRG-to-Mojang table from the two mapping files the installer tools write, and `SrgTranslator` renames the SRG members in the patched game, Forge's own jars and each Forge mod before FML reads them (class files, string constants, annotations, access transformers, Mixin reference maps, coremod scripts, nested jars). The result is cached; Plexus Mod Loader's game layer and the other bridges see Mojang names only.
+- **Forge 47 launch API (1.20.1):** `src/forgeHost47` holds the launch handlers for FML 47, whose API differs from later builds.
+
 ---
 
 ## 2. Key Components

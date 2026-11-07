@@ -37,6 +37,76 @@ class NeoForgeInstallationTest {
     }
 
     @Test
+    void everySupportedNeoForgeVersionHasAWellFormedReleaseLine() {
+        // A line "1.21.11=21.11.48<sha1>" without the space once took NeoForge away from 1.21.11 unnoticed.
+        for (String minecraft : List.of("1.20.4", "1.21.1", "1.21.11", "26.1", "26.1.1", "26.1.2", "26.2", "26.3")) {
+            NeoForgeInstallation.Release release =
+                    NeoForgeInstallation.release(minecraft).orElseThrow(() -> new AssertionError(minecraft));
+            assertEquals(minecraft, release.minecraftVersion());
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    release.neoForgeVersion().matches("\\d+\\.\\d+\\.\\d+(\\.\\d+)?(-beta)?"), release.toString());
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    release.installerSha1().matches("[0-9a-f]{40}"), release.toString());
+        }
+    }
+
+    @Test
+    void aCoordinateIsComparedWithoutItsExtension() {
+        // NeoForge 20.4's install_profile.json names its libraries "...:installertools:2.1.2@jar"; the processors do
+        // not.
+        assertEquals(
+                "net.neoforged.installertools:installertools:2.1.2",
+                NeoForgeInstallation.withoutExtension("net.neoforged.installertools:installertools:2.1.2@jar"));
+        assertEquals(
+                "net.neoforged:AutoRenamingTool:1.0.13:all",
+                NeoForgeInstallation.withoutExtension("net.neoforged:AutoRenamingTool:1.0.13:all@jar"));
+        assertEquals(
+                "net.neoforged:neoforge:20.4.253:universal",
+                NeoForgeInstallation.withoutExtension("net.neoforged:neoforge:20.4.253:universal"));
+    }
+
+    @Test
+    void theCoordinatesOfTheProfileAreFilesOfTheLibrariesFolder() {
+        Path libraries = Path.of("libraries");
+
+        assertEquals(
+                libraries.resolve("net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar"),
+                NeoForgeInstallation.coordinatePath(libraries, "[net.minecraft:server:1.21.1-20240808.144430:srg]"));
+        assertEquals(
+                libraries.resolve("net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430.zip"),
+                NeoForgeInstallation.coordinatePath(libraries, "[net.neoforged:neoform:1.21.1-20240808.144430@zip]"));
+    }
+
+    @Test
+    void theGameIsLaidOutWhereFml4LooksForIt(@TempDir Path directory) throws IOException {
+        Path libraries = directory.resolve("libraries");
+        Path patched = libraries.resolve("net/neoforged/minecraft-server-patched/21.1.265/patched.jar");
+        Files.createDirectories(patched.getParent());
+        Files.writeString(patched, "patched game");
+        JsonObject profile = com.google.gson.JsonParser.parseString("""
+                {"data": {
+                  "MC_SRG": {"client": "[net.minecraft:client:1.21.1-1:srg]", "server": "[net.minecraft:server:1.21.1-1:srg]"},
+                  "MC_EXTRA": {"client": "[net.minecraft:client:1.21.1-1:extra]", "server": "[net.minecraft:server:1.21.1-1:extra]"},
+                  "PATCHED": {"client": "[net.neoforged:neoforge:21.1.265:client]", "server": "[net.neoforged:neoforge:21.1.265:server]"}
+                }}
+                """).getAsJsonObject();
+
+        NeoForgeInstallation.layOutForFml4(profile, "server", patched, libraries);
+        NeoForgeInstallation.layOutForFml4(profile, "server", patched, libraries);
+
+        assertEquals(
+                "patched game",
+                Files.readString(libraries.resolve("net/minecraft/server/1.21.1-1/server-1.21.1-1-srg.jar")));
+        for (String empty : List.of(
+                "net/minecraft/server/1.21.1-1/server-1.21.1-1-extra.jar",
+                "net/neoforged/neoforge/21.1.265/neoforge-21.1.265-server.jar")) {
+            try (JarFile jar = new JarFile(libraries.resolve(empty).toFile())) {
+                assertEquals(1, jar.stream().count(), empty);
+            }
+        }
+    }
+
+    @Test
     void anInstallerWithoutServerArgumentsAddsNothing(@TempDir Path directory) throws IOException {
         Path installer = directory.resolve("installer.jar");
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(installer))) {

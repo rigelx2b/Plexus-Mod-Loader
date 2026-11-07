@@ -61,12 +61,27 @@ forgeJarJar = "0.4.2"
 forgeRoimfs = "1.0.0"
 # Forge's distribution markers (Dist, OnlyIn), which Forge's classes carry; the Forge host modules compile against them.
 forgeMergetoolApi = "1.0"
+# Forge 47.4.28 (Minecraft 1.20.1) has an older launcher API than the 26.x builds above (ModLauncher 10.0.9, FML 47 launch
+# handlers without launch types); the one launch handler written against it compiles against these (ADR-0038).
+forge47Fml = "1.20.1-47.4.28"
+forge47Modlauncher = "10.0.9"
+forge47Securejarhandler = "2.1.10"
+forge47Spi = "7.0.1"
+forge47Mergetool = "1.1.5"
 # NeoForge's FancyModLoader and its distribution markers, compiled against (never shipped): Plexus Mod Loader's host
 # for FML 11 (ADR-0026). The versions NeoForge 26.2.0.93 uses; the jars come from NeoForge's Maven on the player's PC.
 neoforgeFml = "11.0.16"
 # FML 12, which NeoForge 26.3.0.98 uses: NeoForgeSharedMixinPatchTest checks the patch against its classes too.
 neoforgeFml12 = "12.0.12"
 neoforgeMergetool = "2.0.7"
+# FML 4, which NeoForge 21.1.265 (Minecraft 1.21.1) uses, with the ModLauncher and securejarhandler it runs on (ADR-0043):
+# Plexus Mod Loader's host for NeoForge on ModLauncher is compiled against them (never shipped).
+neoforgeFml4 = "4.0.45"
+neoforgeModlauncher11 = "11.0.5"
+neoforgeSecurejarhandler3 = "3.0.8"
+# FML 2, which NeoForge 20.4.253 (Minecraft 1.20.4) uses; it runs on ModLauncher 10.0.9 (the forge47 versions below).
+neoforgeFml2 = "2.0.17"
+neoforgeSecurejarhandler2 = "2.1.24"
 # The NeoForge release and its event bus the NeoForge test mods compile against (ADR-0026).
 neoforge = "26.2.0.93"
 # The NeoForge release Plexus Mod Loader pins for 26.3; its Fabric API host modules compile against it (ADR-0031).
@@ -122,6 +137,11 @@ forge-roimfs = { module = "net.minecraftforge:roimfs", version.ref = "forgeRoimf
 forge-mergetool-api = { module = "net.minecraftforge:mergetool-api", version.ref = "forgeMergetoolApi" }
 maven-artifact = { module = "org.apache.maven:maven-artifact", version.ref = "mavenArtifact" }
 night-config-core = { module = "com.electronwill.night-config:core", version.ref = "nightConfig" }
+forge47-fmlloader = { module = "net.minecraftforge:fmlloader", version.ref = "forge47Fml" }
+forge47-modlauncher = { module = "cpw.mods:modlauncher", version.ref = "forge47Modlauncher" }
+forge47-securejarhandler = { module = "cpw.mods:securejarhandler", version.ref = "forge47Securejarhandler" }
+forge47-forgespi = { module = "net.minecraftforge:forgespi", version.ref = "forge47Spi" }
+forge47-mergetool-api = { module = "net.minecraftforge:mergetool", version.ref = "forge47Mergetool" }
 forge-fmlloader = { module = "net.minecraftforge:fmlloader", version.ref = "forgeFml" }
 forge-forgespi = { module = "net.minecraftforge:forgespi", version.ref = "forgeSpi" }
 forge-universal = { module = "net.minecraftforge:forge", version.ref = "forgeFml" }
@@ -131,6 +151,11 @@ forge-javafmllanguage = { module = "net.minecraftforge:javafmllanguage", version
 forge-eventbus = { module = "net.minecraftforge:eventbus", version.ref = "forgeEventbus" }
 neoforge-fml-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml" }
 neoforge-fml12-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml12" }
+neoforge-fml4-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml4" }
+neoforge-securejarhandler2 = { module = "cpw.mods:securejarhandler", version.ref = "neoforgeSecurejarhandler2" }
+neoforge-fml2-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml2" }
+neoforge-modlauncher11 = { module = "cpw.mods:modlauncher", version.ref = "neoforgeModlauncher11" }
+neoforge-securejarhandler3 = { module = "cpw.mods:securejarhandler", version.ref = "neoforgeSecurejarhandler3" }
 neoforge-mergetool-api = { module = "net.neoforged:mergetool", version.ref = "neoforgeMergetool" }
 neoforge-universal = { module = "net.neoforged:neoforge", version.ref = "neoforge" }
 neoforge263-universal = { module = "net.neoforged:neoforge", version.ref = "neoforge263" }

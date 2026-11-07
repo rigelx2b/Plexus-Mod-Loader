@@ -124,7 +124,7 @@ When Forge or NeoForge patches a vanilla Minecraft class, traditional Fabric Mix
 
 ## 5. Development & Contributions
 
-Plexus Mod Loader is open source under the **Mozilla Public License 2.0 (MPL-2.0)**.
+Plexus Mod Loader is open source under the **MIT License** starting with version 2.1.0.
 - Developer instructions, building from source, and module navigation: **[DEVELOPING.md](DEVELOPING.md)**
 - Deep dive into internal transform systems and classloader topology: **[ARCHITECTURE.md](ARCHITECTURE.md)**
 - Issue tracking & feature requests: **[GitHub Issues](https://github.com/xyrz47-spec/Plexus-Mod-Loader/issues)**

@@ -2,6 +2,7 @@ package dev.plexusmodloader.compat.forge.modlauncher;
 
 import cpw.mods.jarhandling.SecureJar;
 import cpw.mods.modlauncher.Environment;
+import cpw.mods.modlauncher.LaunchPluginHandler;
 import cpw.mods.modlauncher.Launcher;
 import cpw.mods.modlauncher.api.IEnvironment;
 import cpw.mods.modlauncher.api.ILaunchHandlerService;
@@ -36,7 +37,6 @@ import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import net.minecraftforge.fml.loading.ModDirTransformerDiscoverer;
-import net.minecraftforge.securemodules.SecureModuleFinder;
 
 /**
  * Plexus Mod Loader's implementation of ModLauncher's launch (ADR-0021 G3b): finds FML's services in the boot layer and runs
@@ -50,7 +50,8 @@ import net.minecraftforge.securemodules.SecureModuleFinder;
  *       beginScanning};
  *   <li>the PLUGIN layer from the scan, then {@code completeScan}, then the GAME layer from it (transformed);
  *   <li>the services' transformers, the GAME jars offered to the launch plugins;
- *   <li>on {@link #launch()}: {@code initializeLaunch} for every plugin, then the launch handler.
+ *   <li>{@code initializeLaunch} for every plugin, at the end of the setup (before the game layer loads Minecraft classes);
+ *   <li>on {@link #launch()}: the launch handler.
  * </ol>
  *
  * Written for Plexus Mod Loader from ModLauncher's public API and its documented order; not ModLauncher's code.
@@ -64,7 +65,9 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
 
     private final Request request;
     private final Map<Layer, ModuleLayer> layers = new EnumMap<>(Layer.class);
-    private final Map<String, ILaunchPluginService> plugins = new LinkedHashMap<>();
+    /** Holds the launch plugins; a mod may replace its map through reflection ({@link LaunchPluginHandler}). */
+    private final LaunchPluginHandler launchPlugins = new LaunchPluginHandler();
+
     private final Map<String, ILaunchHandlerService> handlers = new HashMap<>();
     private final Map<String, INameMappingService> namingServices = new HashMap<>();
     private final Map<String, INameMappingService> activeNaming = new HashMap<>();
@@ -77,11 +80,15 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     private PlexusModLauncher(Request request) {
         this.request = request;
         this.environment = new Environment(
-                name -> Optional.ofNullable(plugins.get(name)),
+                name -> Optional.ofNullable(plugins().get(name)),
                 name -> Optional.ofNullable(handlers.get(name)),
                 () -> Optional.of(this),
                 this::nameMapping);
-        this.transformer = new ForgeClassTransformer(plugins.values(), request.classes());
+        this.transformer = new ForgeClassTransformer(() -> plugins().values(), request.classes());
+    }
+
+    private Map<String, ILaunchPluginService> plugins() {
+        return launchPlugins.plugins();
     }
 
     /**
@@ -96,27 +103,42 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
 
     private void run() throws Exception {
         // Before FML's ModList exists: its lookups ask ForeignModList when FML has no answer (ADR-0025).
-        ForeignModList.install(request.otherMods());
+        try {
+            ForeignModList.install(request.otherMods());
+        } catch (NoClassDefFoundError e) {
+            // NeoForge's FML 4 (ADR-0043) has no forgespi, and its ModList is not patched to ask for other mods yet.
+            if (!request.otherMods().isEmpty()) {
+                throw e;
+            }
+        }
         if (request.launchTarget().equals(GAME_TEST_TARGET)) {
             // The game test launch is not production, so that Forge runs game tests (ForgeGameTestHooks reads
             // FMLLoader.isProduction()). Forge's own "production" property makes everything else production, as on a
             // player's server (FMLEnvironment.production): RuntimeDistCleaner then checks Minecraft's classes only, not
             // the mods'.
             System.getProperties().putIfAbsent("production", "true");
+            System.setProperty(
+                    GameTestLaunchHandler.GAME_LAYER_MAIN,
+                    "dev.plexusmodloader.game.layer.v"
+                            + request.minecraftVersion().replaceAll("[.-]", "_") + ".gametest.GameTestMain");
         }
         // As ModLauncher received them: its launch target, then the game's arguments.
         List<String> launchArguments = new ArrayList<>(List.of("--launchTarget", request.launchTarget()));
         launchArguments.addAll(request.gameArguments());
-        Launcher.install(environment, launchArguments.toArray(String[]::new));
+        Launcher.install(environment, launchArguments.toArray(String[]::new), launchPlugins);
         environment.computePropertyIfAbsent(IEnvironment.Keys.MLSPEC_VERSION.get(), k -> MODLAUNCHER_VERSION);
         environment.computePropertyIfAbsent(IEnvironment.Keys.MLIMPL_VERSION.get(), k -> MODLAUNCHER_VERSION);
         environment.computePropertyIfAbsent(IEnvironment.Keys.MODLIST.get(), k -> modList);
-        environment.computePropertyIfAbsent(IEnvironment.Keys.SECURED_JARS_ENABLED.get(), k -> false);
+        try {
+            environment.computePropertyIfAbsent(IEnvironment.Keys.SECURED_JARS_ENABLED.get(), k -> false);
+        } catch (NoSuchFieldError e) {
+            // ModLauncher 11 (NeoForge's FML 4, ADR-0043) has no such key; nothing reads it there.
+        }
 
         ModuleLayer boot = request.bootLayer();
         layers.put(Layer.BOOT, boot);
         for (ILaunchPluginService plugin : load(boot, ILaunchPluginService.class)) {
-            plugins.put(plugin.name(), plugin);
+            plugins().put(plugin.name(), plugin);
             modList.add(Map.of("name", plugin.name(), "type", "PLUGINSERVICE", "file", fileOf(plugin)));
         }
         for (ILaunchHandlerService launchHandler : load(boot, ILaunchHandlerService.class)) {
@@ -126,7 +148,7 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
             namingServices.put(naming.mappingName(), naming);
         }
         request.log()
-                .accept("ModLauncher services: launch plugins " + plugins.keySet() + ", launch handlers "
+                .accept("ModLauncher services: launch plugins " + plugins().keySet() + ", launch handlers "
                         + handlers.keySet());
 
         // SERVICE layer: the Forge mods Plexus Mod Loader found that provide a transformation service, a mod locator or
@@ -144,8 +166,9 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         }
         List<SecureJar> serviceJars = new ArrayList<>();
         for (Path jar : request.modJars()) {
-            if (ModDirTransformerDiscoverer.isServiceProvider(jar)) {
+            if (isServiceProvider(jar)) {
                 serviceJars.add(SecureJar.from(jar));
+                ServiceJars.record(jar);
             }
         }
         ModuleLayer serviceLayer = define(Layer.SERVICE, serviceJars, false);
@@ -173,12 +196,17 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         for (ITransformationService service : services.values()) {
             service.initialize(environment);
         }
-        environment.computePropertyIfAbsent(IEnvironment.Keys.NAMING.get(), k -> "mojang");
-        String naming = environment.getProperty(IEnvironment.Keys.NAMING.get()).orElse("mojang");
-        for (INameMappingService service : namingServices.values()) {
-            if (naming.equals(service.understanding().getValue())) {
-                activeNaming.put(service.understanding().getKey(), service);
+        try {
+            environment.computePropertyIfAbsent(IEnvironment.Keys.NAMING.get(), k -> "mojang");
+            String naming =
+                    environment.getProperty(IEnvironment.Keys.NAMING.get()).orElse("mojang");
+            for (INameMappingService service : namingServices.values()) {
+                if (naming.equals(service.understanding().getValue())) {
+                    activeNaming.put(service.understanding().getKey(), service);
+                }
             }
+        } catch (NoSuchFieldError e) {
+            // ModLauncher 11 (NeoForge's FML 4, ADR-0043) has no naming; the game is in Mojang's names already.
         }
 
         Map<Layer, List<SecureJar>> scanned = new EnumMap<>(Layer.class);
@@ -203,13 +231,49 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         for (ITransformationService service : services.values()) {
             transformer.addTransformers(service);
         }
-        for (ILaunchPluginService plugin : plugins.values()) {
+        for (ILaunchPluginService plugin : plugins().values()) {
             plugin.addResources(gameJars);
         }
         handler = handlers.get(request.launchTarget());
         if (handler == null) {
             throw new IllegalStateException(
                     "Forge has no launch handler " + request.launchTarget() + "; it has " + handlers.keySet());
+        }
+        initializeLaunch();
+    }
+
+    private boolean launchInitialized;
+
+    /**
+     * {@code initializeLaunch} for every plugin, once. ModLauncher does it right before the launch handler, when nothing of
+     * the game has been loaded. Plexus Mod Loader starts its game layer between FML's setup and the launch, and that loads
+     * Minecraft classes; Mixin records every class a plugin is offered as loaded and refuses a configuration that targets
+     * one ("was loaded too early"), so it is done at the end of the setup, before the game layer starts (ModernFix on
+     * Forge 1.20.1 and NeoForge 21.1 failed that way).
+     */
+    @SuppressWarnings("removal")
+    private void initializeLaunch() throws Exception {
+        if (launchInitialized) {
+            return;
+        }
+        launchInitialized = true;
+        NamedPath[] paths = handler.getPaths();
+        for (ILaunchPluginService plugin : plugins().values()) {
+            plugin.initializeLaunch(
+                    className -> request.classes()
+                            .classBytes(className.replace('.', '/'))
+                            .orElseThrow(() -> new ClassNotFoundException(className)),
+                    paths);
+        }
+    }
+
+    /** Whether this is NeoForge's FML 4 (types in {@code net.neoforged.fml}) rather than MinecraftForge's FML. */
+    private static boolean fml4() {
+        try {
+            Class.forName("net.neoforged.fml.loading.FMLLoader", false, PlexusModLauncher.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
         }
     }
 
@@ -226,14 +290,7 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     @Override
     @SuppressWarnings("removal")
     public void launch() throws Throwable {
-        NamedPath[] paths = handler.getPaths();
-        for (ILaunchPluginService plugin : plugins.values()) {
-            plugin.initializeLaunch(
-                    className -> request.classes()
-                            .classBytes(className.replace('.', '/'))
-                            .orElseThrow(() -> new ClassNotFoundException(className)),
-                    paths);
-        }
+        initializeLaunch();
         String[] arguments = request.gameArguments().toArray(String[]::new);
         request.log().accept("Launching target '" + request.launchTarget() + "'");
         ServiceRunner runner = handler.launchService(arguments, gameLayer());
@@ -246,10 +303,12 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     }
 
     /** Defines one layer in the game class loader, with ModLauncher's parent layers for it. */
+    @SuppressWarnings("removal") // getParent(): the one both ModLauncher 10.0 (Forge 47) and 10.2 have
     private ModuleLayer define(Layer layer, List<SecureJar> jars, boolean transformed) {
         List<ModuleLayer> parents = new ArrayList<>();
         List<Configuration> parentConfigurations = new ArrayList<>();
-        for (Layer parent : layer.getParents()) {
+        // getParent() exists in every ModLauncher 10 (getParents() only from 10.1).
+        for (Layer parent : layer.getParent()) {
             ModuleLayer parentLayer = layers.get(parent);
             if (parentLayer == null) {
                 throw new IllegalStateException("Layer " + layer + " needs " + parent + " first");
@@ -258,14 +317,101 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
             parentConfigurations.add(parentLayer.configuration());
         }
         Configuration configuration = Configuration.resolveAndBind(
-                new PatchingFinder(SecureModuleFinder.of(jars), request.layerModules()),
+                new PatchingFinder(moduleFinder(jars), request.layerModules()),
                 parentConfigurations,
                 ModuleFinder.of(),
                 jars.stream().map(SecureJar::name).toList());
-        ModuleLayer defined =
-                request.layers().define(configuration, parents, transformed).layer();
+        ModuleLayer.Controller controller = request.layers().define(configuration, parents, transformed);
+        ModuleLayer defined = controller.layer();
+        if (layer == Layer.GAME && fml4()) {
+            // NeoForge's FML 4: a mod's module-info does not require the libraries Plexus Mod Loader's class path
+            // provides
+            // (the host drops those requires), so its module reads the class path instead (ASM, SLF4J, ...).
+            Module appClassPath = ForgeLaunch.class.getClassLoader().getUnnamedModule();
+            for (Module module : defined.modules()) {
+                controller.addReads(module, appClassPath);
+                controller.addReads(module, module.getClassLoader().getUnnamedModule());
+            }
+        }
         layers.put(layer, defined);
         return defined;
+    }
+
+    /** The services after which FML 47 (Minecraft 1.20.1) takes a jar of the mods folder as a transformer jar. */
+    private static final List<String> FML47_SERVICES = List.of(
+            "cpw.mods.modlauncher.api.ITransformationService",
+            "net.minecraftforge.forgespi.locating.IModLocator",
+            "net.minecraftforge.forgespi.locating.IDependencyLocator",
+            "net.minecraftforge.fml.loading.ImmediateWindowProvider");
+
+    /**
+     * Whether FML's scan of the mods folder would take {@code jar} as a ModLauncher service jar: FML's own check, which
+     * Forge 47 does not have as a method (its list of services is the same four names).
+     */
+    private static boolean isServiceProvider(Path jar) {
+        try {
+            return ModDirTransformerDiscoverer.isServiceProvider(jar);
+        } catch (NoClassDefFoundError e) {
+            // NeoForge's FML 4 (21.1, 20.4; ADR-0043): its package is net.neoforged, and the check is this one.
+            return neoForgeShouldLoadInServiceLayer(jar);
+        } catch (NoSuchMethodError e) {
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+                return FML47_SERVICES.stream().anyMatch(name -> zip.getEntry("META-INF/services/" + name) != null);
+            } catch (java.io.IOException io) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * {@code net.neoforged.fml.loading.TransformerDiscovererConstants.shouldLoadInServiceLayer(Path)} (FML 4.0.45); FML 2
+     * (NeoForge 20.4) has only its list of service names ({@code SERVICES}), as Forge 47 does.
+     */
+    private static boolean neoForgeShouldLoadInServiceLayer(Path jar) {
+        try {
+            Class<?> constants = Class.forName(
+                    "net.neoforged.fml.loading.TransformerDiscovererConstants",
+                    false,
+                    PlexusModLauncher.class.getClassLoader());
+            try {
+                return (boolean) constants
+                        .getMethod("shouldLoadInServiceLayer", Path.class)
+                        .invoke(null, jar);
+            } catch (NoSuchMethodException fml2) {
+                @SuppressWarnings("unchecked")
+                java.util.Set<String> services =
+                        (java.util.Set<String>) constants.getField("SERVICES").get(null);
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+                    return services.stream().anyMatch(name -> zip.getEntry("META-INF/services/" + name) != null);
+                } catch (java.io.IOException io) {
+                    return false;
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("NeoForge's FML has no check for service layer jars: " + e, e);
+        }
+    }
+
+    /**
+     * The module finder over {@code jars}: Forge's {@code securemodules} ({@code SecureModuleFinder}, Forge 49 and later) or
+     * cpw's {@code securejarhandler} ({@code JarModuleFinder}, Forge 47 for Minecraft 1.20.1). Both have {@code
+     * of(SecureJar...)}; a release has one of them.
+     */
+    private static ModuleFinder moduleFinder(List<SecureJar> jars) {
+        ClassLoader loader = PlexusModLauncher.class.getClassLoader();
+        for (String name :
+                List.of("net.minecraftforge.securemodules.SecureModuleFinder", "cpw.mods.cl.JarModuleFinder")) {
+            try {
+                Class<?> finder = Class.forName(name, false, loader);
+                return (ModuleFinder)
+                        finder.getMethod("of", SecureJar[].class).invoke(null, (Object) jars.toArray(SecureJar[]::new));
+            } catch (ClassNotFoundException e) {
+                // the other release family
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(name + " cannot make a module finder: " + e, e);
+            }
+        }
+        throw new IllegalStateException("Forge's libraries have neither securemodules nor securejarhandler");
     }
 
     /** ModLauncher's argument handling: each service's options are {@code <service>.<option>}; others pass through. */

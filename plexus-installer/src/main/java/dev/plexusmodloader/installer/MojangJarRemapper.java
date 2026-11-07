@@ -59,7 +59,7 @@ final class MojangJarRemapper {
      * Bumped whenever the output for the same input changes, so cached jars made by an older remapper are made again.
      * Equal to the build's remapper revision.
      */
-    static final int REVISION = 2;
+    static final int REVISION = 3;
 
     /** The newest class file version the bundled ASM reads without a check; newer JDK classes are read as this. */
     private static final int READABLE_MAJOR = 65;
@@ -97,6 +97,11 @@ final class MojangJarRemapper {
      * return} of a method a frame may hold no locals at all, and a hook that a transformation rule inserts there could
      * not load {@code this} or a parameter. Recomputed frames hold every local assigned on the way, like javac's.
      * Merging two types needs their superclasses: the jar's classes, then {@code libraries} and the JDK.
+     *
+     * <p>Then the locals that nothing reads after a frame are turned into {@code TOP} again, except {@code this} and
+     * the parameters ({@link DeadLocalFrames}, revision 3): Mixin counts the locals of a type in the frame, and a dead
+     * local that the obfuscated jar does not list makes an implicit local-variable injection find one candidate too
+     * many.
      */
     static Result remap(Path input, MojangMappings mappings, List<Path> libraries, Path output) {
         Map<String, byte[]> classes = new TreeMap<>(readClasses(input));
@@ -120,7 +125,7 @@ final class MojangJarRemapper {
                 ClassWriter writer = new FrameComputingWriter(hierarchy);
                 reader.accept(new ClassRemapper(writer, remapper), ClassReader.SKIP_FRAMES);
                 String name = remapper.map(entry.getKey()) + ".class";
-                if (entries.put(name, writer.toByteArray()) != null) {
+                if (entries.put(name, DeadLocalFrames.prune(writer.toByteArray())) != null) {
                     throw new IllegalStateException(
                             "Two classes of " + input + " remap to " + name + "; the mappings do not match this jar.");
                 }

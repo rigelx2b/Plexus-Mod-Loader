@@ -1,5 +1,65 @@
 # Changelog
 
+## 2.1.0 — 2026-11-07
+
+### Summary
+
+Plexus Mod Loader 2.1.0 extends Fabric, Forge, and NeoForge mod support across Minecraft 1.20 and 1.21 versions, expands Native API events, content, and data edits, adds search to the installer's version list, and relicenses under the MIT License.
+
+### What's New
+
+- Run Fabric mods on Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 by translating them to Mojang names on the player's computer as 26.x already does, verified with real mods on those versions and 26.3.
+- Run Forge mods on Minecraft 1.20.1 (Forge 47.4.28), 1.20.4 (49.2.13), 1.21.1 (52.1.21), and 1.21.11 (61.2.5), renaming SRG member names in Forge 1.20.x and its mods to Mojang names once on the player's machine.
+- Run NeoForge mods on Minecraft 1.20.4 (NeoForge 20.4.253), 1.21.1 (21.1.265), and 1.21.11 (21.11.48); 1.20.x/1.21.x Forge/NeoForge were verified headless only with real mods on dedicated and game test servers (client windows not run yet).
+- Add Native API events and hooks: `PlayerEvents.TICK`, `InteractionEvents.ATTACK_BLOCK`, `BlockEvents.BREAK_CANCELLED`, `EntityEvents.LEFT_WORLD`, `ALLOW_DEATH`, `AFTER_DAMAGE`, `DROPS`, `KILLED_OTHER`, `EQUIPMENT_CHANGED`, `ChatEvents.SYSTEM_MESSAGE`, and `LootEvents.MODIFY`.
+- Add Native API content for tool and armour materials, fuel, compostable and flammable items and blocks, `creativeTab(tab, after)`, villager and wandering trader trades, and `ConfigSpec` and `ModRegistry` for mod-owned data.
+- Edit worldgen, trades, and loot in the Native API with `WorldgenRegistrar.removeSpawn`/`removeFeature`, `TradeRegistrar.removeVillagerTrades`/`removeWanderingTrades`, `LootTableEdits` (`addPool`, `removeItem`, `replaceItem`), and `LootDrops.random()`.
+- Query craft, furnace, smoker, campfire, and stonecutter recipes via `WorldView.recipes()`, `RecipeLookup.all()`, and `ingredients()`, and access `ItemStackRef` enchantments, lore, unbreakable, and custom model data.
+- Search the installer's Minecraft version list as you type, group versions by series, highlight the default version, install from the keyboard, and complete partial CLI versions such as `--minecraft 1.21`.
+
+### Improvements & Fixes
+
+- Fix game test server runs for Fabric mods touching built-in registries by freezing registries once before start so `minecraft:always_pass` is registered when Fabric API's registry sync loads (1.20.1, 1.21.1).
+- Fix loading of Fabric mods that use Puzzles Lib's `LOAD` mixin on Minecraft 1.20.4 by dropping dead locals from recomputed stack map frames.
+- Fix `PLEXUS-COMPAT-111` exclusions for Fabric mods that fill Fabric Loader's error window (such as ModernFix) by sending the error text to the log instead of leaving those mods out.
+- Fix mod resource pack loading on NeoForge 20.4 by supporting its changed `Pack.Info` constructor.
+- Fix a possible startup deadlock between the Fabric bridge's Mixin setup and FML's background mod scan.
+- Fix Native API trade removals on 26.1-26.3 so trades added by mods are not removed, and report unknown items or professions in removals with `PLEXUS-TRADE-005`.
+- Run fewer constant-pool passes during startup link checks and check other loaders only when a game member is missing, so startup link checks do less work.
+- Reuse verified checksums for the remap cache key in the installer when reinstalling for a Minecraft version before 26.1.
+- Keep Fabric or Quilt mods separate from Forge on 1.20.1/1.20.4 and NeoForge 20.4/21.1 for now, as they do not run together on those versions yet.
+- License Plexus Mod Loader under the MIT License instead of MPL-2.0, with every jar carrying the new `LICENSE` in `META-INF`; earlier releases keep the license they were released with, and templates and examples stay MIT-0.
+
+### 주요 변경
+
+#### Fabric·Quilt
+- 26.1 이전 버전(1.20.1, 1.20.4, 1.21.1, 1.21.11)에서 Fabric 모드를 플레이어 PC에서 Mojang 이름으로 번역해 실행합니다(ADR-0037). Quilt 모드는 이 버전들에서 판정까지만 했고 실행 검증은 하지 않았습니다. 실제 모드 묶음의 Fabric 모드는 1.20.1, 1.20.4, 1.21.1, 26.3에서 통과했습니다.
+- 26.1, 26.1.1, 26.1.2에서 NeoForge가 호스트인 코퍼스 작업(창 작업 제외)이 통과합니다. 26.1.x NeoForge 호스트에서는 `fabric-recipe-api-v1`이 `PLEXUS-COMPAT-224`로 제외되어 Fabric 채널이 등록되지 않으며, `corpusFabricNeoForgeJoin`은 이를 기대값으로 반영합니다(`docs/verification/2.1.0/fabric-quilt.md` 9장).
+- 1.21.11 실제 모드 묶음 실행은 레지스트리가 너무 늦게 고정되던 문제를 수정해 통과합니다. 26.2의 `corpusQuiltForge` 기대 개수는 이분 탐색으로 원인을 찾아 중첩된 `fabric-rendering-fluids-v1` 두 사본을 한 번만 세도록 122개 로드·121개 미로드로 갱신했습니다.
+
+#### Forge·NeoForge
+- 26.1 이전 버전에서 Forge·NeoForge 모드를 실행합니다(헤드리스 검증, ADR-0038·ADR-0043): Forge는 1.20.1(47.4.28)·1.20.4(49.2.13)·1.21.1(52.1.21)·1.21.11(61.2.5), NeoForge는 1.20.4(20.4.253)·1.21.1(21.1.265)·1.21.11(21.11.48). 이 조합에서는 `PLEXUS-COMPAT-206`·`PLEXUS-COMPAT-216`을 더 내지 않습니다. 1.20.1용 NeoForge는 Forge 47의 갈래라 Forge로 실행합니다.
+- Forge 1.20.x에서는 Forge와 모드 jar의 SRG 멤버 이름을 플레이어 PC에서 한 번 Mojang 이름으로 바꿔 둡니다(이후 실행은 크기·수정 시각만 비교).
+- `mods.toml`만 있는 NeoForge 20.4 모드는 의존 목록(`neoforge`/`forge`)으로 Forge 모드와 구분합니다. NeoForge 20.4가 바꾼 `Pack.Info` 생성자는 새 진단 코드 `PLEXUS-RESOURCE-012`로 다룹니다.
+- 모든 ModLauncher 기반 FML(Forge 47 이후, NeoForge 20.4·21.1)에서 실행 플러그인을 게임 계층이 Minecraft 클래스를 읽기 전에 초기화해, ModernFix 같은 모드의 "loaded too early" Mixin 거부를 없앴습니다.
+- 제한: 1.20.x·1.21.1에서 Forge 옆 Fabric 모드, NeoForge 20.4·21.1 옆 Fabric·Quilt 모드는 아직 함께 실행하지 않습니다. 클라이언트 창·설치한 런처 프로필은 검증 전입니다.
+
+#### Native API
+- 새 이벤트: `PlayerEvents.TICK`, `InteractionEvents.ATTACK_BLOCK`, `BlockEvents.BREAK_CANCELLED`, `EntityEvents.LEFT_WORLD`·`ALLOW_DEATH`·`AFTER_DAMAGE`·`DROPS`·`KILLED_OTHER`, `LootEvents.MODIFY`(ADR-0040, ADR-0042). 도구·방어구 재질, 연료·퇴비·가연성 설정, `creativeTab(tab, after)`, 마을 주민·떠돌이 상인 거래 추가, 결과물로 찾는 `WorldView.recipes()`, `ConfigSpec`, `ModRegistry`를 더했습니다.
+- 게임 내용 제거와 데이터 조회 API를 더했습니다: `WorldgenRegistrar.removeSpawn`/`removeFeature`, `TradeRegistrar.removeVillagerTrades`/`removeWanderingTrades`, `LootTableEdits`(`addPool`, `removeItem`, `replaceItem`)와 `LootDrops.random()`, `EntityEvents.EQUIPMENT_CHANGED`, `ChatEvents.SYSTEM_MESSAGE`, `ItemStackRef` 마법 부여·설명(lore)·내구도 무한(unbreakable)·커스텀 모델 데이터, `RecipeLookup.all()`과 `ingredients()`를 지원합니다(ADR-0044, ADR-0045).
+- 대상 버전은 1.20.1, 1.20.4, 1.21.1, 1.21.11, 26.1, 26.1.1, 26.1.2, 26.2, 26.3(9개 버전 전체)이며 각각 헤드리스 게임 테스트(`native_showcase:*` 96개 테스트)로 검증했습니다. 새 항목은 `@ApiStability`·JavaDoc·테스트를 함께 둡니다(`docs/verification/2.1.0/native-api.md`).
+
+#### 설치 앱
+- 설치 창에서 Minecraft 버전을 더 빨리 찾습니다. 검색 칸이 입력하는 대로 목록을 좁히고(`1.21`, `26.x`, `1.x`), 버전을 계열(26.x, 1.21.x, 1.20.x)로 묶어 보여 주며, 계열 제목을 누르면 접힙니다. 기본 버전을 강조하고, 목록에서 Enter를 누르면 설치합니다. 맞는 버전이 없으면 그렇다고 알려 줍니다. 명령줄은 `--minecraft 1.21`처럼 일부만 적으면 맞는 전체 버전을 알려 줍니다.
+- 설치 창의 실제 화면 확인은 아직 사람이 하지 않았습니다(`docs/verification/2.1.0/installer.md` 4장).
+
+#### 성능
+- 26.1 이전 버전을 다시 설치할 때 조금 더 빨라졌습니다. 다시 매핑한 jar의 캐시 키가 이미 검증한 체크섬을 씁니다(측정: 1.20.1 재설치가 약 60 ms 줄었습니다).
+- 시작할 때 링크 검사가 하는 일을 줄였습니다. JFR 프로파일에서 여섯 게임 JVM의 검사 아래 할당이 약 절반으로 줄었습니다. 프로파일 수치는 벤치마크 결과가 아니며, 벽시계 시작 시간 개선은 측정하지 않았으므로 주장하지 않습니다(`docs/PERFORMANCE.md` 측정 13).
+
+#### 라이선스
+- Plexus Mod Loader를 MPL-2.0에서 MIT License로 전환해 각 jar META-INF에 새 LICENSE를 담고, 구버전 라이선스와 템플릿·예제(MIT-0)는 유지합니다.
+
 ## 2.0.0 — 2026-11-05
 
 ### Summary

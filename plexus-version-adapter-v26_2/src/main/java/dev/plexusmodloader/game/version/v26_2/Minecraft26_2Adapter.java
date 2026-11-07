@@ -37,6 +37,9 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
     private static final String CLIENT_HOOKS = "dev/plexusmodloader/game/layer/v26_2/client/ClientHooks";
     private static final String INTERACTION_HOOKS = "dev/plexusmodloader/game/layer/v26_2/InteractionHooks";
     private static final String LIFECYCLE_HOOKS = "dev/plexusmodloader/game/layer/v26_2/LifecycleHooks";
+    private static final String CHAT_HOOKS = "dev/plexusmodloader/game/layer/v26_2/ChatHooks";
+    private static final String EQUIPMENT_HOOKS = "dev/plexusmodloader/game/layer/v26_2/EquipmentHooks";
+    private static final String SLEEP_GLIDE_HOOKS = "dev/plexusmodloader/game/layer/v26_2/SleepAndGlideHooks";
     private static final String CREATIVE_PAGING = "dev/plexusmodloader/game/layer/v26_2/client/CreativeTabPaging";
     private static final String CREATIVE_SCREEN =
             "net/minecraft/client/gui/screens/inventory/CreativeModeInventoryScreen";
@@ -391,6 +394,15 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                         "attack",
                         "(Lnet/minecraft/world/entity/Entity;)V",
                         new InvokeHookAtHead(INTERACTION_HOOKS, "onAttack", HeadHookResult.CANCEL_IF_TRUE)),
+                // Dig start only (START_DESTROY_BLOCK); the hook lets every other action through.
+                rule(
+                        "plexus:attack_block",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerPlayerGameMode",
+                        "handleBlockBreakAction",
+                        "(Lnet/minecraft/core/BlockPos;Lnet/minecraft/network/protocol/game/ServerboundPlayerActionPacket$Action;"
+                                + "Lnet/minecraft/core/Direction;II)V",
+                        new InvokeHookAtHead(INTERACTION_HOOKS, "onBlockBreakAction", HeadHookResult.CANCEL_IF_TRUE)),
                 // BlockItem.place calls placeBlock once (javap); BedItem and DoubleHighBlockItem override
                 // placeBlock, so the hook calls it virtually. place never writes its parameter slot.
                 rule(
@@ -452,6 +464,136 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                         "hurtServer",
                         "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/damagesource/DamageSource;F)Z",
                         new InvokeHookAtHead(GAME_HOOKS, "onHurtServer", HeadHookResult.RETURN_IF_NON_NULL)),
+                // checkTotemDeathProtection is private and has the same descriptor in every supported version (javap);
+                // the
+                // game calls it only after lethal damage, before die. TRUE means the entity was saved.
+                // actuallyHurt ends with this.gameEvent(...) in both classes (javap); the hook reads the health lost
+                // since the hurt hook.
+                rule(
+                        "plexus:entity_after_damage",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "actuallyHurt",
+                        "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/damagesource/DamageSource;F)V",
+                        new InvokeHookAtCall(
+                                new MethodTarget(
+                                        "net/minecraft/world/entity/LivingEntity",
+                                        "gameEvent",
+                                        "(Lnet/minecraft/core/Holder;)V"),
+                                0,
+                                InvokeHookAtCall.Timing.AFTER,
+                                GAME_HOOKS,
+                                "onDamageApplied")),
+                rule(
+                        "plexus:player_after_damage",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/player/Player",
+                        "actuallyHurt",
+                        "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/damagesource/DamageSource;F)V",
+                        new InvokeHookAtCall(
+                                new MethodTarget(
+                                        "net/minecraft/world/entity/player/Player",
+                                        "gameEvent",
+                                        "(Lnet/minecraft/core/Holder;)V"),
+                                0,
+                                InvokeHookAtCall.Timing.AFTER,
+                                GAME_HOOKS,
+                                "onPlayerDamageApplied")),
+                // Every roll of a loot table passes this public method (block, mob, chest, fishing); the hook rolls the
+                // table itself, lets LootEvents.MODIFY edit the items, and hands them to the sink (javap).
+                rule(
+                        "plexus:loot_modify",
+                        ALL_SIDES,
+                        "net/minecraft/world/level/storage/loot/LootTable",
+                        "getRandomItems",
+                        "(Lnet/minecraft/world/level/storage/loot/LootContext;Ljava/util/function/Consumer;)V",
+                        new InvokeHookAtHead(GAME_HOOKS, "onLootRoll", HeadHookResult.CANCEL_IF_TRUE)),
+                // PlayerList.broadcastChatMessage(PlayerChatMessage, ServerPlayer, ChatType$Bound) is public and has
+                // the
+                // same descriptor in every supported version (javap); it is where typed chat is delivered.
+                rule(
+                        "plexus:chat_message",
+                        ALL_SIDES,
+                        "net/minecraft/server/players/PlayerList",
+                        "broadcastChatMessage",
+                        "(Lnet/minecraft/network/chat/PlayerChatMessage;Lnet/minecraft/server/level/ServerPlayer;"
+                                + "Lnet/minecraft/network/chat/ChatType$Bound;)V",
+                        new InvokeHookAtHead(CHAT_HOOKS, "onBroadcastChat", HeadHookResult.CANCEL_IF_TRUE)),
+                // Every system message to a player (command feedback, announcements) passes this public method (javap).
+                rule(
+                        "plexus:system_message",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerPlayer",
+                        "sendSystemMessage",
+                        "(Lnet/minecraft/network/chat/Component;Z)V",
+                        new InvokeHookAtHead(CHAT_HOOKS, "onSendSystemMessage", HeadHookResult.CANCEL_IF_TRUE)),
+                // LivingEntity.onEquipItem(EquipmentSlot, ItemStack, ItemStack) is public with one descriptor (javap).
+                rule(
+                        "plexus:entity_equipment_changed",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "onEquipItem",
+                        "(Lnet/minecraft/world/entity/EquipmentSlot;Lnet/minecraft/world/item/ItemStack;"
+                                + "Lnet/minecraft/world/item/ItemStack;)V",
+                        new InvokeHookAtHead(
+                                EQUIPMENT_HOOKS,
+                                "onEquipItem",
+                                HeadHookResult.CONTINUE)), // Sleep and gliding (javap): startSleepInBed is declared by
+                // ServerPlayer; startSleeping and
+                // stopSleeping
+                // by LivingEntity (Player and ServerPlayer override them and call super); tryToStartFallFlying by
+                // Player.
+                rule(
+                        "plexus:player_allow_sleeping",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerPlayer",
+                        "startSleepInBed",
+                        "(Lnet/minecraft/core/BlockPos;)Lcom/mojang/datafixers/util/Either;",
+                        new InvokeHookAtHead(
+                                SLEEP_GLIDE_HOOKS, "onStartSleepInBed", HeadHookResult.RETURN_IF_NON_NULL)),
+                rule(
+                        "plexus:entity_started_sleeping",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "startSleeping",
+                        "(Lnet/minecraft/core/BlockPos;)V",
+                        new InvokeHookBeforeReturn(SLEEP_GLIDE_HOOKS, "onStartSleeping")),
+                rule(
+                        "plexus:entity_stopping_sleep",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "stopSleeping",
+                        "()V",
+                        new InvokeHookAtHead(SLEEP_GLIDE_HOOKS, "onStopSleeping", HeadHookResult.CONTINUE)),
+                rule(
+                        "plexus:player_allow_fall_flying",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/player/Player",
+                        "tryToStartFallFlying",
+                        "()Z",
+                        new InvokeHookBeforeReturn(SLEEP_GLIDE_HOOKS, "onTryToStartFallFlying")),
+                rule(
+                        "plexus:entity_drops",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "dropAllDeathLoot",
+                        "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/damagesource/DamageSource;)V",
+                        new InvokeHookAtHead(GAME_HOOKS, "onDropAllDeathLoot", HeadHookResult.CANCEL_IF_TRUE)),
+                // vanillaBurnTimes(provider, flags) calls the three-argument method, which builds the values (javap).
+                rule(
+                        "plexus:furnace_fuel",
+                        ALL_SIDES,
+                        "net/minecraft/world/level/block/entity/FuelValues",
+                        "vanillaBurnTimes",
+                        "(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/world/flag/FeatureFlagSet;I)Lnet/minecraft/world/level/block/entity/FuelValues;",
+                        new InvokeHookBeforeReturn(GAME_HOOKS, "onFuelValues")),
+                rule(
+                        "plexus:entity_allow_death",
+                        ALL_SIDES,
+                        "net/minecraft/world/entity/LivingEntity",
+                        "checkTotemDeathProtection",
+                        "(Lnet/minecraft/world/damagesource/DamageSource;)Z",
+                        new InvokeHookAtHead(GAME_HOOKS, "onCheckDeathProtection", HeadHookResult.RETURN_IF_NON_NULL)),
                 rule(
                         "plexus:entity_death",
                         ALL_SIDES,
@@ -461,6 +603,14 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                         new InvokeHookAtHead(GAME_HOOKS, "onDie", HeadHookResult.CONTINUE)),
                 // ServerPlayer.die overrides LivingEntity.die without calling it (javap), so server
                 // players need their own death hook.
+                // PlayerEvents.TICK; ServerPlayer exists in the client jar but is only ticked by a server.
+                rule(
+                        "plexus:player_tick",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerPlayer",
+                        "tick",
+                        "()V",
+                        new InvokeHookAtHead(GAME_HOOKS, "onPlayerTick", HeadHookResult.CONTINUE)),
                 rule(
                         "plexus:player_death",
                         ALL_SIDES,
@@ -605,6 +755,23 @@ public final class Minecraft26_2Adapter implements GameVersionAdapter {
                                 InvokeHookAtCall.Timing.AFTER,
                                 LIFECYCLE_HOOKS,
                                 "onEntityTracked")),
+                // onTrackingEnd calls ServerChunkCache.removeEntity first (javap); the hook runs before it, while the
+                // entity is still tracked. EntityCallbacks is package-private, as for plexus:entity_joined_world.
+                rule(
+                        "plexus:entity_left_world",
+                        ALL_SIDES,
+                        "net/minecraft/server/level/ServerLevel$EntityCallbacks",
+                        "onTrackingEnd",
+                        "(Lnet/minecraft/world/entity/Entity;)V",
+                        new InvokeHookAtCall(
+                                new MethodTarget(
+                                        "net/minecraft/server/level/ServerChunkCache",
+                                        "removeEntity",
+                                        "(Lnet/minecraft/world/entity/Entity;)V"),
+                                0,
+                                InvokeHookAtCall.Timing.BEFORE,
+                                LIFECYCLE_HOOKS,
+                                "onEntityUntracked")),
                 rule(
                         "plexus:mod_dimension_stability",
                         ALL_SIDES,

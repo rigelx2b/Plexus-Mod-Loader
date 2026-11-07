@@ -5,6 +5,7 @@ import com.mojang.serialization.Lifecycle;
 import dev.plexusmodloader.api.entity.DamageInfo;
 import dev.plexusmodloader.api.entity.LivingEntityView;
 import dev.plexusmodloader.api.event.EventKey;
+import dev.plexusmodloader.api.event.EventResult;
 import dev.plexusmodloader.api.event.block.BlockEvents;
 import dev.plexusmodloader.api.event.entity.EntityEvents;
 import dev.plexusmodloader.api.event.player.PlayerEvents;
@@ -21,6 +22,7 @@ import dev.plexusmodloader.game.layer.v1_21_11.entity.EntityInstaller;
 import dev.plexusmodloader.game.layer.v1_21_11.gametest.GameTests;
 import dev.plexusmodloader.game.layer.v1_21_11.worldgen.CodeWorldgen;
 import dev.plexusmodloader.game.layer.v1_21_11.worldgen.PlexusChunkGenerator;
+import dev.plexusmodloader.game.version.GameLaunchTarget;
 import dev.plexusmodloader.game.version.layer.GameLayerContext;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations;
 import java.lang.reflect.Method;
@@ -36,6 +38,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -90,10 +93,18 @@ public final class GameHooks {
 
     private record PendingBreak(net.minecraft.core.BlockPos pos, BlockState state, Player player) {}
 
+    private static final AtomicBoolean REGISTRIES_FREEZE_HOOK_RAN = new AtomicBoolean();
+
     private GameHooks() {}
 
-    /** Head of {@code BuiltInRegistries.freeze()}: the last moment content can be registered. */
+    /**
+     * Head of {@code BuiltInRegistries.freeze()}: the last moment content can be registered. It runs once: Fabric API's
+     * registry sync takes the freeze out of {@code Bootstrap}, so the game may reach {@code freeze()} twice.
+     */
     public static void beforeRegistriesFreeze() {
+        if (!REGISTRIES_FREEZE_HOOK_RAN.compareAndSet(false, true)) {
+            return;
+        }
         LayerState.context().ifPresent(context -> {
             ItemComponents.install(context.declarations().itemComponents());
             Particles.install(context.declarations().particles());
@@ -113,7 +124,26 @@ public final class GameHooks {
 
     /** Head of {@code BuiltInPackSource.loadPacks(Consumer)}. */
     public static void onLoadPacks(BuiltInPackSource source, Consumer<Pack> output) {
+        freezeRegistriesForGameTestServer();
         ModPacks.addTo(source, output);
+    }
+
+    /**
+     * Freezes the registries before the game test server loads its data packs, if the game has not. Fabric API's
+     * registry sync takes the freeze out of {@code Bootstrap} and has {@code net.minecraft.server.Main} do it after the
+     * mods initialised; the game test start {@code net.minecraft.gametest.Main} has no such step, so the first freeze
+     * would come when {@code WorldLoader} makes the registry layers, after the game's code has looked up tags that no
+     * data pack has bound yet ({@code Unbound tags in registry ...entity_type}). The pack sources load before that, and
+     * the mods initialised before the game test server is made. {@code bootStrap} is what Fabric API's step calls; its
+     * registry sync cancels the second {@code createContents}.
+     */
+    private static void freezeRegistriesForGameTestServer() {
+        boolean gameTestServer = LayerState.context()
+                .map(context -> context.target() == GameLaunchTarget.GAME_TEST_SERVER)
+                .orElse(false);
+        if (gameTestServer && !REGISTRIES_FREEZE_HOOK_RAN.get()) {
+            BuiltInRegistries.bootStrap();
+        }
     }
 
     /** Before the return of {@code Commands(CommandSelection, CommandBuildContext)}. */
@@ -164,6 +194,26 @@ public final class GameHooks {
     public static void onPlayerLeaving(PlayerList players, ServerPlayer player) {
         events().ifPresent(context -> context.events()
                 .publish(PlayerEvents.LEAVING, listener -> listener.onPlayerLeaving(Views.player(player))));
+    }
+
+    /** Head of {@code ServerPlayer.tick()}: fires {@code PlayerEvents.TICK} for every server player. */
+    public static void onPlayerTick(ServerPlayer player) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context != null && context.events().hasListeners(PlayerEvents.TICK)) {
+            context.events().publish(PlayerEvents.TICK, listener -> listener.onPlayerTick(Views.player(player)));
+        }
+    }
+
+    /**
+     * Before the return of {@code FuelValues.vanillaBurnTimes(provider, flags, int)}: the game's fuel values with the mod
+     * items' burn times added.
+     */
+    public static net.minecraft.world.level.block.entity.FuelValues onFuelValues(
+            net.minecraft.core.HolderLookup.Provider provider,
+            net.minecraft.world.flag.FeatureFlagSet flags,
+            int baseSmeltTime,
+            net.minecraft.world.level.block.entity.FuelValues vanilla) {
+        return dev.plexusmodloader.game.layer.v1_21_11.content.FuelValuesExtension.extend(vanilla);
     }
 
     /** Head of {@code Block.playerWillDestroy}: remembers what the player is breaking. */
@@ -269,6 +319,11 @@ public final class GameHooks {
         if (context == null || REDEALING.get() == entity) {
             return null;
         }
+        if (context.events().hasListeners(EntityEvents.AFTER_DAMAGE)
+                && !entity.level().isClientSide()) {
+            DAMAGE_CONTEXT.set(new DamageContext(
+                    entity, source, amount, entity.getHealth(), entity.level().getGameTime()));
+        }
         boolean allowListeners = context.events().hasListeners(EntityEvents.ALLOW_DAMAGE);
         boolean modifyListeners = context.events().hasListeners(EntityEvents.MODIFY_DAMAGE);
         if (!allowListeners && !modifyListeners) {
@@ -315,6 +370,99 @@ public final class GameHooks {
         onDie(player, source);
     }
 
+    /**
+     * Head of {@code LivingEntity.checkTotemDeathProtection}, which the game asks after lethal damage and before
+     * the entity dies: TRUE (protected) when an {@code ALLOW_DEATH} listener refuses the death, after the health is
+     * set to 1; null lets the game go on (totem check, then death).
+     */
+    public static Boolean onCheckDeathProtection(LivingEntity entity, DamageSource source) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null
+                || entity.level().isClientSide()
+                || !context.events().hasListeners(EntityEvents.ALLOW_DEATH)) {
+            return null;
+        }
+        LivingEntityView view = (LivingEntityView) Views.entity(entity);
+        DamageInfo damage = damage(source, entity.getMaxHealth());
+        AtomicBoolean allowed = new AtomicBoolean(true);
+        context.events().publish(EntityEvents.ALLOW_DEATH, listener -> {
+            if (!listener.allowDeath(view, damage)) {
+                allowed.set(false);
+            }
+        });
+        if (allowed.get()) {
+            return null;
+        }
+        entity.setHealth(1.0F);
+        return Boolean.TRUE;
+    }
+
+    /** The damage an entity is taking on this thread, from the head of the hurt hook to the end of the damage step. */
+    private record DamageContext(
+            LivingEntity entity, DamageSource source, float amount, float healthBefore, long gameTime) {}
+
+    private static final ThreadLocal<DamageContext> DAMAGE_CONTEXT = new ThreadLocal<>();
+
+    /**
+     * After the call to {@code gameEvent} that ends {@code LivingEntity.actuallyHurt} and {@code Player.actuallyHurt}:
+     * fires {@code AFTER_DAMAGE} with the health the entity lost since the hurt hook ran.
+     */
+    public static void onDamageApplied(
+            LivingEntity entity, net.minecraft.core.Holder<net.minecraft.world.level.gameevent.GameEvent> event) {
+        DamageContext damage = DAMAGE_CONTEXT.get();
+        if (damage == null
+                || damage.entity() != entity
+                || damage.gameTime() != entity.level().getGameTime()) {
+            return;
+        }
+        DAMAGE_CONTEXT.remove();
+        float lost = damage.healthBefore() - entity.getHealth();
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null || !(lost > 0)) {
+            return;
+        }
+        LivingEntityView view = (LivingEntityView) Views.entity(entity);
+        DamageInfo info = damage(damage.source(), damage.amount());
+        context.events().publish(EntityEvents.AFTER_DAMAGE, listener -> listener.afterDamage(view, info, lost));
+    }
+
+    /** As {@link #onDamageApplied}, for the call in {@code Player.actuallyHurt}, whose receiver type is {@code Player}. */
+    public static void onPlayerDamageApplied(
+            net.minecraft.world.entity.player.Player player,
+            net.minecraft.core.Holder<net.minecraft.world.level.gameevent.GameEvent> event) {
+        onDamageApplied(player, event);
+    }
+
+    /**
+     * Head of {@code LivingEntity.dropAllDeathLoot}: {@code true} (the game drops no loot and no equipment) when a
+     * {@code DROPS} listener denies it.
+     */
+    public static boolean onDropAllDeathLoot(LivingEntity entity, ServerLevel level, DamageSource source) {
+        GameLayerContext context = LayerState.context().orElse(null);
+        if (context == null
+                || entity.level().isClientSide()
+                || !context.events().hasListeners(EntityEvents.DROPS)) {
+            return false;
+        }
+        LivingEntityView view = (LivingEntityView) Views.entity(entity);
+        DamageInfo info = damage(source, entity.getMaxHealth());
+        return context.events()
+                        .publishUntilDecided(
+                                EntityEvents.DROPS, listener -> listener.onDrops(view, info), EventResult.PASS)
+                == EventResult.DENY;
+    }
+
+    /**
+     * Head of {@code LootTable.getRandomItems(LootContext, Consumer)}: {@code true} when the roll was done here so that
+     * {@code LootEvents.MODIFY} listeners could edit the items; the game then skips its own roll.
+     */
+    public static boolean onLootRoll(
+            net.minecraft.world.level.storage.loot.LootTable table,
+            net.minecraft.world.level.storage.loot.LootContext context,
+            java.util.function.Consumer<net.minecraft.world.item.ItemStack> sink) {
+        return LootRolls.roll(table, context, sink);
+    }
+
     /** Head of {@code LivingEntity.die(DamageSource)}: fires DIED once per entity. */
     public static void onDie(LivingEntity entity, DamageSource source) {
         if (entity.level().isClientSide() || entity.isRemoved()) {
@@ -332,6 +480,17 @@ public final class GameHooks {
                                 listener -> listener.onDied(
                                         (LivingEntityView) Views.entity(entity),
                                         damage(source, entity.getMaxHealth()))));
+        Entity cause = source.getEntity();
+        if (cause != null && cause != entity) {
+            LayerState.context()
+                    .ifPresent(context -> context.events()
+                            .publish(
+                                    EntityEvents.KILLED_OTHER,
+                                    listener -> listener.onKilledOther(
+                                            Views.entity(cause),
+                                            (LivingEntityView) Views.entity(entity),
+                                            damage(source, entity.getMaxHealth()))));
+        }
     }
 
     private static DamageInfo damage(DamageSource source, float amount) {
@@ -426,10 +585,23 @@ public final class GameHooks {
      */
     public static void onCreateLevels(MinecraftServer server) {
         WorldBackups.beforeLoading(server);
+        LayerState.registries(server.registryAccess());
         LayerState.context().ifPresent(context -> {
             WorldgenModifier.apply(
-                    server.registryAccess(), context.declarations().features());
-            WorldgenModifier.applySpawns(server.registryAccess(), EntityInstaller.naturalSpawns());
+                    server.registryAccess(),
+                    context.declarations().features(),
+                    context.declarations().featureRemovals());
+            WorldgenModifier.applySpawns(
+                    server.registryAccess(),
+                    WorldgenModifier.withDeclared(
+                            EntityInstaller.naturalSpawns(),
+                            context.declarations().spawns()),
+                    context.declarations().spawnRemovals());
+            TradeInstaller.apply(
+                    context.declarations().villagerTrades(),
+                    context.declarations().wanderingTrades(),
+                    context.declarations().villagerTradeRemovals(),
+                    context.declarations().wanderingTradeRemovals());
         });
         LifecycleHooks.onServerStarting(server);
     }

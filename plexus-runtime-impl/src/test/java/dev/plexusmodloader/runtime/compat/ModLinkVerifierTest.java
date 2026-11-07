@@ -161,6 +161,26 @@ class ModLinkVerifierTest {
     }
 
     @Test
+    void oneVerifierFollowsTheJarsEachCheckIsGiven() throws IOException {
+        Path mod = mod("uses", code -> code.ldc(ClassDesc.of("com.example.lib.Helper")));
+        Path helper = jar(
+                "helper.jar",
+                Map.of(
+                        "com/example/lib/Helper",
+                        ClassFile.of()
+                                .build(
+                                        ClassDesc.of("com.example.lib.Helper"),
+                                        cb -> cb.withFlags(ClassFile.ACC_PUBLIC))));
+
+        try (ModLinkVerifier verifier =
+                new ModLinkVerifier(List.of(gameJar), getClass().getClassLoader(), GameSide.CLIENT)) {
+            // Without the helper's jar the class is missing; a second check with it must see it, not a cached answer.
+            assertTrue(!verifier.verify(mod, List.of(), FABRIC_LIKE, List.of()).isEmpty());
+            assertEquals(List.of(), verifier.verify(mod, List.of(helper), FABRIC_LIKE, List.of()));
+        }
+    }
+
+    @Test
     void membersAndClassesThisGameLacksBlock() throws IOException {
         Path mod = mod("stale", code -> {
             code.invokevirtual(CHILD, "removed", MethodTypeDesc.of(CD_void));

@@ -1,6 +1,7 @@
 package dev.plexusmodloader.compat.forge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.plexusmodloader.api.runtime.GameSide;
@@ -83,6 +84,23 @@ class ForgeModRequirementsTest {
         assertTrue(
                 userReasons.contains("requires libipn [6.9.0, 6.10), which is installed but NOT loaded (libipn.jar)"),
                 userReasons);
+    }
+
+    /** The real corpus case on 1.20.4: YetAnotherConfigLib's multi-loader jar with loaderVersion = "" (Forge 49 refuses it). */
+    @Test
+    void anEmptyLanguageRangeIsRefusedBeforeForge50AndAcceptedLater() throws Exception {
+        Path multiLoader = jar("yacl.jar", modsToml("javafml", "", "yacl", "3.6.6", ""));
+
+        ForgeModRequirements.Result old = ForgeModRequirements.check(
+                List.of(multiLoader), "1.20.4", "49.2.13", GameSide.DEDICATED_SERVER, ranges());
+        ForgeModRequirements.Result recent = ForgeModRequirements.check(
+                List.of(multiLoader), "1.21.1", "52.1.21", GameSide.DEDICATED_SERVER, ranges());
+
+        assertEquals(List.of(), old.kept());
+        assertTrue(String.join("; ", old.excluded().getFirst().reasons()).contains("loaderVersion is empty"));
+        assertEquals(List.of(multiLoader), recent.kept());
+        assertTrue(ForgeModRequirements.emptyLanguageRangeRefused("47.4.28"));
+        assertFalse(ForgeModRequirements.emptyLanguageRangeRefused("61.2.5"));
     }
 
     @Test

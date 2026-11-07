@@ -1,5 +1,6 @@
 package dev.plexusmodloader.game.layer.v1_20_1.gametest;
 
+import dev.plexusmodloader.game.layer.v1_20_1.GameHooks;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestRegistry;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.gametest.framework.GameTestServer;
@@ -56,6 +58,7 @@ public final class GameTestMain {
         Bootstrap.bootStrap();
         Bootstrap.validate();
         initialiseMods();
+        freezeRegistriesIfPending();
 
         Path universe = Path.of(arguments.universe).toAbsolutePath();
         Files.createDirectories(universe);
@@ -72,6 +75,18 @@ public final class GameTestMain {
         LOGGER.info("[Plexus Mod Loader] Running {} game test(s): {}", tests.size(), names(tests));
         MinecraftServer.spin(thread ->
                 GameTestServer.create(thread, access, packs, GameTestRunner.groupTestsIntoBatches(tests), SPAWN));
+    }
+
+    /**
+     * Freezes the registries now if the game has not: Fabric API's registry sync takes the freeze out of {@code
+     * Bootstrap} so that Fabric mods register first, and its {@code MinecraftServer.runServer} mixin does it just
+     * before the server sets up, which is after the tests are chosen here. {@code bootStrap} is what that mixin calls;
+     * the registry sync cancels its second {@code createContents}, and the game layer's freeze hook runs once.
+     */
+    private static void freezeRegistriesIfPending() {
+        if (!GameHooks.registriesFreezeHookRan()) {
+            BuiltInRegistries.bootStrap();
+        }
     }
 
     /** The pack sources of the game's own repository for this world, plus the folder of {@code --packs}. */

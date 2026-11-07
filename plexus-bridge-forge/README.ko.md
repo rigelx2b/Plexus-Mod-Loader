@@ -31,6 +31,12 @@ Forge와 NeoForge는 고유한 클래스로더 구조(ModLauncher 및 FML 모듈
   - Fabric 모드가 `FabricLoader.getInstance().isModLoaded(...)`로 Forge 모드를 조회할 수 있고,
   - 반대로 Forge/NeoForge 모드가 `ModList.get().isLoaded(...)`로 Fabric/Quilt 모드를 조회할 때 올바른 `IModInfo` 메타데이터를 응답합니다.
 
+### 4) 초기 Minecraft 버전 (1.20.x, 1.21.x)
+- **지원 빌드:** MinecraftForge 1.20.1-47.4.28, 1.20.4-49.2.13, 1.21.1-52.1.21, 1.21.11-61.2.5와 1.21.11용 NeoForge 21.11.48입니다(`forge-releases.properties`, `neoforge-releases.properties`에 줄이 있으면 그 버전이 켜집니다). 1.20.4·1.21.1의 NeoForge는 아직 지원하지 않고, 1.20.1용 NeoForge는 존재하지 않습니다.
+- **다시 이름 붙인 게임 jar:** Forge와 NeoForge의 바이너리 패치는 설치 도구가 이름을 바꾼 jar에 적용됩니다. 26.1 이전 버전에서는 `ForgeInstallerTools` / `NeoForgeInstallerTools`가 플레이어 PC에서 그 도구(로더 프로필이 적은 jar)를 실행하고, 그 출력에 패치를 적용합니다.
+- **SRG 멤버 이름(Forge 1.20.1, 1.20.4):** 이 Forge 빌드는 Minecraft의 필드·메서드를 SRG 이름(`m_123_`, `f_123_`)으로 부릅니다. `SrgMojangNames`가 설치 도구가 쓴 매핑 파일 두 개로 SRG→Mojang 표를 만들고, `SrgTranslator`가 패치된 게임, Forge 자체 jar, 각 Forge 모드의 SRG 멤버를 FML이 읽기 전에 바꿉니다(클래스 파일, 문자열 상수, 애너테이션, 접근 변환기, Mixin refmap, 코어모드 스크립트, 중첩 jar). 결과는 캐시에 두며, Plexus Mod Loader의 게임 계층과 다른 브리지는 Mojang 이름만 봅니다.
+- **Forge 47 실행 API(1.20.1):** `src/forgeHost47`에 FML 47용 실행 핸들러가 있습니다. FML 47의 API가 이후 빌드와 다릅니다.
+
 ---
 
 ## 2. 주요 구성 요소

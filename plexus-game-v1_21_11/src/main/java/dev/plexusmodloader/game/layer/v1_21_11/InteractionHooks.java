@@ -157,6 +157,44 @@ public final class InteractionHooks {
     }
 
     /**
+     * Head of {@code ServerPlayerGameMode.handleBlockBreakAction}: {@code true} (the game skips the dig)
+     * when an {@code ATTACK_BLOCK} listener denies the start of digging, after the block is sent to the
+     * client again, which predicted that digging started.
+     */
+    public static boolean onBlockBreakAction(
+            ServerPlayerGameMode gameMode,
+            net.minecraft.core.BlockPos pos,
+            net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action action,
+            net.minecraft.core.Direction direction,
+            int maxBuildHeight,
+            int sequence) {
+        if (action != net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK) {
+            return false;
+        }
+        GameLayerContext context = listening(InteractionEvents.ATTACK_BLOCK);
+        if (context == null) {
+            return false;
+        }
+        ServerPlayer player = player(gameMode);
+        ServerLevel level = level(gameMode);
+        PlayerView view = Views.player(player);
+        dev.plexusmodloader.api.world.BlockPos plexusPos = Views.pos(pos);
+        dev.plexusmodloader.api.world.Direction face = BlockStates.fromGame(direction);
+        EventResult result = context.events()
+                .publishUntilDecided(
+                        InteractionEvents.ATTACK_BLOCK,
+                        listener -> listener.onAttackBlock(view, plexusPos, face),
+                        EventResult.PASS);
+        if (result != EventResult.DENY) {
+            return false;
+        }
+        if (player.connection != null) {
+            player.connection.send(new net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket(level, pos));
+        }
+        return true;
+    }
+
+    /**
      * Head of {@code ServerPlayerGameMode.destroyBlock(BlockPos)}: FALSE (not broken) when a {@code
      * BREAK} listener denies it, after telling the client the block entity is still there (the
      * game's caller resends the block itself); null lets the game go on.
@@ -181,6 +219,10 @@ public final class InteractionHooks {
         if (result != EventResult.DENY) {
             return null;
         }
+        context.events()
+                .publish(
+                        BlockEvents.BREAK_CANCELLED,
+                        listener -> listener.onBlockBreakCancelled(world, plexusPos, block, view));
         BlockEntity blockEntity = level.getBlockEntity(pos);
         if (blockEntity != null && player.connection != null) {
             Packet<ClientGamePacketListener> update = blockEntity.getUpdatePacket();

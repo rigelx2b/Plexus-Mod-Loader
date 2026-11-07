@@ -1,9 +1,6 @@
 package dev.plexusmodloader.compat.fabric.loader;
 
-import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -15,7 +12,8 @@ import net.fabricmc.loader.api.metadata.ModOrigin;
 
 /**
  * A loaded mod as Fabric Loader's {@link ModContainer}. Its root path is the root of its jar, opened as a zip
- * file system the first time it is asked for and kept open for the rest of the game, as in Fabric.
+ * file system the first time it is asked for and kept open for the rest of the game, as in Fabric. The file system is
+ * shared with every other container of the same jar ({@link SharedJarFileSystems}).
  */
 final class FabricModContainer implements ModContainer {
 
@@ -61,12 +59,10 @@ final class FabricModContainer implements ModContainer {
         }
         if (lookupRoot == null) {
             try {
-                lookupRoot = FileSystems.newFileSystem(lookupJar)
-                        .getRootDirectories()
-                        .iterator()
-                        .next();
-            } catch (IOException e) {
-                throw new UncheckedIOException("Cannot open " + lookupJar + " for mod " + metadata.getId(), e);
+                lookupRoot = SharedJarFileSystems.root(lookupJar);
+            } catch (UncheckedIOException e) {
+                throw new UncheckedIOException(
+                        "Cannot open " + lookupJar + " for mod " + metadata.getId(), e.getCause());
             }
         }
         Path path =
@@ -95,10 +91,9 @@ final class FabricModContainer implements ModContainer {
                 roots = List.of();
             } else {
                 try {
-                    FileSystem fileSystem = FileSystems.newFileSystem(jar);
-                    roots = List.of(fileSystem.getRootDirectories().iterator().next());
-                } catch (IOException e) {
-                    throw new UncheckedIOException("Cannot open " + jar + " for mod " + metadata.getId(), e);
+                    roots = List.of(SharedJarFileSystems.root(jar));
+                } catch (UncheckedIOException e) {
+                    throw new UncheckedIOException("Cannot open " + jar + " for mod " + metadata.getId(), e.getCause());
                 }
             }
         }

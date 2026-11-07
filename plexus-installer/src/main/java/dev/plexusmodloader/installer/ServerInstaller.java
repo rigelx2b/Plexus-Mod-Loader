@@ -169,13 +169,17 @@ final class ServerInstaller {
         Path mappings = root.resolve("versions")
                 .resolve(minecraftVersion)
                 .resolve("server-mappings-" + minecraftVersion + ".txt");
-        if (new VerifiedDownloads(downloader).fetch(object(offered, "server_mappings"), mappings)) {
+        JsonObject serverMappings = object(offered, "server_mappings");
+        if (new VerifiedDownloads(downloader).fetch(serverMappings, mappings)) {
             progress.accept("Downloaded Mojang's server mappings for " + minecraftVersion);
         }
         Path remapped = root.resolve("versions")
                 .resolve(minecraftVersion)
                 .resolve("server-" + minecraftVersion + "-mojang.jar");
-        RemappedGameJar jar = RemappedGameJar.ensure(serverJar, mappings, libraries, remapped, progress);
+        // The mappings were just checked against the SHA-1 Mojang lists, so the key takes that value instead of hashing
+        // the file again.
+        String key = RemappedGameJar.key(VerifiedDownloads.sha1(serverJar), ClientGameRemap.listedSha1(serverMappings));
+        RemappedGameJar jar = RemappedGameJar.ensure(serverJar, mappings, key, libraries, remapped, progress);
         if (jar.reused()) {
             progress.accept("The remapped Minecraft " + minecraftVersion + " server is up to date");
         }

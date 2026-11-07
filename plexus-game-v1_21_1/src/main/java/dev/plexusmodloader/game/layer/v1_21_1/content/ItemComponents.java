@@ -168,6 +168,93 @@ public final class ItemComponents {
         }
 
         @Override
+        public Map<ResourceId, Integer> enchantments() {
+            Map<ResourceId, Integer> found = new java.util.LinkedHashMap<>();
+            stack.getOrDefault(DataComponents.ENCHANTMENTS, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY)
+                    .entrySet()
+                    .forEach(entry -> entry.getKey()
+                            .unwrapKey()
+                            .ifPresent(key -> found.put(Views.id(key.location()), entry.getIntValue())));
+            return found;
+        }
+
+        @Override
+        public void setEnchantment(ResourceId id, int level) {
+            if (level < 0 || level > 255) {
+                throw new IllegalArgumentException("level must be 0-255: " + level);
+            }
+            net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> enchantment =
+                    dev.plexusmodloader.game.layer.v1_21_1.LayerState.registries()
+                            .lookupOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+                            .get(net.minecraft.resources.ResourceKey.create(
+                                    net.minecraft.core.registries.Registries.ENCHANTMENT, Views.id(id)))
+                            .orElseThrow(
+                                    () -> new IllegalArgumentException("Enchantment " + id + " is not registered"));
+            requireStack();
+            net.minecraft.world.item.enchantment.EnchantmentHelper.updateEnchantments(
+                    stack, enchantments -> enchantments.set(enchantment, level));
+            changed.run();
+        }
+
+        @Override
+        public List<String> lore() {
+            net.minecraft.world.item.component.ItemLore lore = stack.get(DataComponents.LORE);
+            return lore == null
+                    ? List.of()
+                    : lore.lines().stream().map(Component::getString).toList();
+        }
+
+        @Override
+        public void setLore(List<String> lines) {
+            requireStack();
+            if (lines.isEmpty()) {
+                stack.remove(DataComponents.LORE);
+            } else {
+                stack.set(
+                        DataComponents.LORE,
+                        new net.minecraft.world.item.component.ItemLore(lines.stream()
+                                .<Component>map(Component::literal)
+                                .toList()));
+            }
+            changed.run();
+        }
+
+        @Override
+        public boolean unbreakable() {
+            return stack.has(DataComponents.UNBREAKABLE);
+        }
+
+        @Override
+        public void setUnbreakable(boolean unbreakable) {
+            requireStack();
+            if (unbreakable) {
+                stack.set(DataComponents.UNBREAKABLE, new net.minecraft.world.item.component.Unbreakable(true));
+            } else {
+                stack.remove(DataComponents.UNBREAKABLE);
+            }
+            changed.run();
+        }
+
+        @Override
+        public java.util.OptionalInt customModelData() {
+            net.minecraft.world.item.component.CustomModelData data = stack.get(DataComponents.CUSTOM_MODEL_DATA);
+            return data == null ? java.util.OptionalInt.empty() : java.util.OptionalInt.of(data.value());
+        }
+
+        @Override
+        public void setCustomModelData(Integer value) {
+            requireStack();
+            if (value == null) {
+                stack.remove(DataComponents.CUSTOM_MODEL_DATA);
+            } else {
+                stack.set(
+                        DataComponents.CUSTOM_MODEL_DATA,
+                        new net.minecraft.world.item.component.CustomModelData(value));
+            }
+            changed.run();
+        }
+
+        @Override
         public ItemStackView snapshot() {
             return ItemComponents.snapshot(stack);
         }

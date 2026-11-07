@@ -14,16 +14,19 @@ import dev.plexusmodloader.api.worldgen.BiomeSpawn;
 import dev.plexusmodloader.api.worldgen.FeaturePlacement;
 import dev.plexusmodloader.api.worldgen.GenerationStepName;
 import dev.plexusmodloader.api.worldgen.StructureDefinition;
+import dev.plexusmodloader.game.layer.v1_21_11.content.Equipment;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.BiomeDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.CodeFeatureDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.GameTestDeclaration;
+import dev.plexusmodloader.game.version.layer.NativeDeclarations.ItemDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.StructureDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.TagEntriesDeclaration;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -77,7 +80,7 @@ final class GeneratedDataPack {
         List<BiomeDeclaration> biomes = declarations.biomes();
         List<CodeFeatureDeclaration> features = declarations.codeFeatures();
         List<StructureDeclaration> structures = declarations.structures();
-        Map<TagKey, List<ResourceId>> tags = tagFiles(declarations.tagEntries());
+        Map<TagKey, List<ResourceId>> tags = tagFiles(withRepairTags(declarations));
         if (tests.isEmpty() && biomes.isEmpty() && features.isEmpty() && structures.isEmpty() && tags.isEmpty()) {
             return Optional.empty();
         }
@@ -135,6 +138,26 @@ final class GeneratedDataPack {
                             GSON.toJson(tagJson(tag.getValue())));
         }
         return Optional.of(new Written(root, Integer.toHexString(hash)));
+    }
+
+    /**
+     * The tag entries mods declared, plus one generated item tag per repair item of a tool or armour material: from 1.21.11 the
+     * game names repair items by tag ({@code Equipment.repairTagId}).
+     */
+    static List<TagEntriesDeclaration> withRepairTags(NativeDeclarations declarations) {
+        List<TagEntriesDeclaration> all = new ArrayList<>(declarations.tagEntries());
+        for (ItemDeclaration item : declarations.items()) {
+            Optional<ResourceId> repair =
+                    item.definition().tool().flatMap(tool -> tool.material().repairItem());
+            if (repair.isEmpty()) {
+                repair = item.definition()
+                        .armor()
+                        .flatMap(armor -> armor.material().repairItem());
+            }
+            repair.ifPresent(id -> all.add(
+                    new TagEntriesDeclaration(item.ownerModId(), TagKey.item(Equipment.repairTagId(id)), List.of(id))));
+        }
+        return all;
     }
 
     /** The entries every mod added to each tag from code, in declaration order, without repeats. */

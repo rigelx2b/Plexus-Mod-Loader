@@ -19,15 +19,18 @@ public final class Launcher {
     private final Environment environment;
     private final TypesafeMap blackboard = new TypesafeMap();
     private final ArgumentHandler argumentHandler;
+    /** Read through reflection by mods that add a launch plugin ({@link LaunchPluginHandler}). */
+    private final LaunchPluginHandler launchPlugins;
 
-    private Launcher(Environment environment, String[] arguments) {
+    private Launcher(Environment environment, String[] arguments, LaunchPluginHandler launchPlugins) {
         this.environment = environment;
         this.argumentHandler = new ArgumentHandler(arguments);
+        this.launchPlugins = launchPlugins;
     }
 
     /** Creates the launcher with ModLauncher's launch {@code arguments} and makes it {@link #INSTANCE}. */
-    public static Launcher install(Environment environment, String[] arguments) {
-        Launcher launcher = new Launcher(environment, arguments);
+    public static Launcher install(Environment environment, String[] arguments, LaunchPluginHandler launchPlugins) {
+        Launcher launcher = new Launcher(environment, arguments, launchPlugins);
         INSTANCE = launcher;
         return launcher;
     }

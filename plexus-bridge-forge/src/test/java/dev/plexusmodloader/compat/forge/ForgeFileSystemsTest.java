@@ -61,14 +61,26 @@ class ForgeFileSystemsTest {
     }
 
     @Test
-    void aVersionJsonWithoutOneOfThemIsAnError() {
+    void aVersionJsonWithoutARequiredOneIsAnError() {
         JsonObject version =
-                json(VERSION_JSON.replace("net.minecraftforge:roimfs:1.0.0", "net.minecraftforge:other:1"));
+                json(VERSION_JSON.replace("net.minecraftforge:unsafe:0.9.2", "net.minecraftforge:other:1"));
 
         IOException problem = assertThrows(
                 IOException.class, () -> ForgeInstallation.fileSystemJars(version, directory.resolve("libraries")));
 
-        assertTrue(problem.getMessage().contains("net.minecraftforge:roimfs"), problem.getMessage());
+        assertTrue(problem.getMessage().contains("net.minecraftforge:unsafe"), problem.getMessage());
+    }
+
+    /** ADR-0038: Forge 52 (Minecraft 1.21.1) lists securemodules, unsafe and JarJarFileSystems but no roimfs. */
+    @Test
+    void aVersionJsonWithoutRoimfsIsFine() throws IOException {
+        JsonObject version =
+                json(VERSION_JSON.replace("net.minecraftforge:roimfs:1.0.0", "net.minecraftforge:other:1"));
+
+        assertEquals(
+                3,
+                ForgeInstallation.fileSystemJars(version, directory.resolve("libraries"))
+                        .size());
     }
 
     /** Without them on the class path and without Plexus Mod Loader's agent, nothing is downloaded. */

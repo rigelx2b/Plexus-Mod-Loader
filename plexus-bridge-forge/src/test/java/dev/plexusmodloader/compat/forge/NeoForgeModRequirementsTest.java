@@ -40,6 +40,34 @@ class NeoForgeModRequirementsTest {
     }
 
     @Test
+    void neoForge20Point4ReadsModsTomlAndKnowsNoNeoForgeModsToml() throws Exception {
+        // Yet Another Config Lib 3.6.6 ships both: FML 2 reads mods.toml (loaderVersion ""), not neoforge.mods.toml.
+        Path both = jar(
+                "both.jar",
+                Map.of(
+                        "META-INF/mods.toml", modsToml("javafml", "[1,)", "forgeside", "1.0", ""),
+                        "META-INF/neoforge.mods.toml", modsToml("javafml", "[1,)", "neoside", "1.0", "")));
+        Path onlyNeo = jar("only.jar", modsToml("javafml", "[1,)", "only", "1.0", ""));
+
+        assertEquals(
+                List.of("forgeside"),
+                NeoForgeModRequirements.hostMods(List.of(both), true).stream()
+                        .map(BridgeLaunchContext.LoadedMod::modId)
+                        .toList());
+        assertEquals(
+                List.of("neoside"),
+                NeoForgeModRequirements.hostMods(List.of(both), false).stream()
+                        .map(BridgeLaunchContext.LoadedMod::modId)
+                        .toList());
+        // A jar with only neoforge.mods.toml is still read when FML 2 has nothing better.
+        assertEquals(
+                List.of("only"),
+                NeoForgeModRequirements.hostMods(List.of(onlyNeo), true).stream()
+                        .map(BridgeLaunchContext.LoadedMod::modId)
+                        .toList());
+    }
+
+    @Test
     void aModForAnotherNeoForgeOrMinecraftIsLeftOutWithTheModsThatNeedIt() throws Exception {
         Path library = jar("lib.jar", modsToml("javafml", "[1,)", "somelib", "3.0", """
                 [[dependencies.somelib]]

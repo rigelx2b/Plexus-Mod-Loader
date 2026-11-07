@@ -5,6 +5,7 @@ import dev.plexusmodloader.compat.bridge.BridgedAccessWidening;
 import dev.plexusmodloader.compat.bridge.BridgedInterfaceInjection;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
 import dev.plexusmodloader.compat.bridge.ModLoaderBridge;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -16,6 +17,7 @@ import java.lang.classfile.constantpool.MemberRefEntry;
 import java.lang.classfile.constantpool.PoolEntry;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -103,7 +105,14 @@ public final class ModLinkVerifier implements AutoCloseable {
     private final ClassLoader platform;
     private final GameSide side;
     private final Map<String, Optional<ClassShape>> shapes = new HashMap<>();
+    /** Whether the platform class loader has each class asked for by {@link #platformHas}; a lookup is costly. */
+    private final Map<String, Boolean> platformClasses = new HashMap<>();
+
     private final Map<Path, Set<String>> jarClasses = new HashMap<>();
+    /** The jars {@link #classesOfMods} last built the union of, and that union. */
+    private Set<Path> unionOfJars;
+
+    private Set<String> unionOfClasses;
     /** The jar each mod class seen so far comes from, for reading injected interfaces. */
     private final Map<String, Path> modClassJars = new HashMap<>();
     /** Classes of installed mods that do not run on this side ({@code environment}), such as client modules. */
@@ -165,10 +174,7 @@ public final class ModLinkVerifier implements AutoCloseable {
             ModLoaderBridge bridge,
             Collection<String> entrypointClasses,
             List<BridgedAccessWidening> accessWidenings) {
-        Set<String> modClasses = new HashSet<>(classesIn(modJar));
-        for (Path other : otherModJars) {
-            modClasses.addAll(classesIn(other));
-        }
+        Set<String> modClasses = classesOfMods(modJar, otherModJars);
         Map<String, Set<String>> problems = new LinkedHashMap<>();
         try (JarFile jar = new JarFile(modJar.toFile())) {
             for (JarEntry entry : jar.stream().toList()) {
@@ -180,10 +186,7 @@ public final class ModLinkVerifier implements AutoCloseable {
                     // The host's class of this name is defined instead; this copy never runs.
                     continue;
                 }
-                byte[] bytes;
-                try (InputStream input = jar.getInputStream(entry)) {
-                    bytes = input.readAllBytes();
-                }
+                byte[] bytes = readEntry(jar, entry);
                 checkClass(name.substring(0, name.length() - 6), bytes, modClasses, bridge, problems);
             }
         } catch (IOException e) {
@@ -286,8 +289,7 @@ public final class ModLinkVerifier implements AutoCloseable {
             List<BridgedInterfaceInjection> injections) {
         List<CompatibilityFinding> findings =
                 new ArrayList<>(verify(modJar, otherModJars, bridge, entrypointClasses, accessWidenings));
-        Set<String> modClasses = new HashSet<>(classesIn(modJar));
-        otherModJars.forEach(other -> modClasses.addAll(classesIn(other)));
+        Set<String> modClasses = classesOfMods(modJar, otherModJars);
         Map<String, Set<String>> problems = new LinkedHashMap<>();
         for (BridgedInterfaceInjection injection : injections) {
             if (!injection.appliedByBridge()) {
@@ -361,8 +363,10 @@ public final class ModLinkVerifier implements AutoCloseable {
             return;
         }
         Set<String> checkedClasses = new HashSet<>();
+        // Whether the class uses another loader's API that is absent. Only a missing member asks for it, so the
+        // constant pool is scanned for it then, not up front for every class (one pass over the pool, not two).
+        Boolean otherLoaderCode = null;
         try {
-            boolean otherLoaderCode = usesAbsentOtherLoaderApi(model, modClasses);
             for (PoolEntry entry : model.constantPool()) {
                 if (entry instanceof ClassEntry classEntry) {
                     String referenced = elementType(classEntry.asInternalName());
@@ -416,6 +420,9 @@ public final class ModLinkVerifier implements AutoCloseable {
                             // A member whose type names a class nothing installed has belongs to an optional
                             // integration (another loader's code path in a multi-loader jar): it fails only if run.
                             // So does any member a class of another loader's code path uses.
+                            if (otherLoaderCode == null) {
+                                otherLoaderCode = usesAbsentOtherLoaderApi(model, modClasses);
+                            }
                             boolean optional = otherLoaderCode
                                     || descriptorClasses(descriptor).stream()
                                             .anyMatch(type -> !modClasses.contains(type)
@@ -686,7 +693,62 @@ public final class ModLinkVerifier implements AutoCloseable {
     }
 
     private boolean platformHas(String className) {
-        return platform.getResource(className + ".class") != null;
+        return platformClasses.computeIfAbsent(className, name -> platform.getResource(name + ".class") != null);
+    }
+
+    /**
+     * The bytes of one jar entry, read straight into an array of the entry's directory size. {@link InputStream#readAllBytes}
+     * grows its buffers and leaves each one as garbage, and {@link InputStream#readNBytes(int)} collects 8 KiB chunks and
+     * copies them again; for every class of every mod that adds up. A size the directory does not give falls back to
+     * reading the stream in full; a stream that ends early gives the bytes it had, and one that holds more is read on.
+     */
+    private static byte[] readEntry(JarFile jar, JarEntry entry) throws IOException {
+        try (InputStream input = jar.getInputStream(entry)) {
+            long size = entry.getSize();
+            if (size < 0 || size > Integer.MAX_VALUE - 8) {
+                return input.readAllBytes();
+            }
+            byte[] bytes = new byte[(int) size];
+            int filled = 0;
+            while (filled < bytes.length) {
+                int count = input.read(bytes, filled, bytes.length - filled);
+                if (count < 0) {
+                    break;
+                }
+                filled += count;
+            }
+            if (filled < bytes.length) {
+                bytes = Arrays.copyOf(bytes, filled);
+            }
+            int next = input.read();
+            if (next < 0) {
+                return bytes;
+            }
+            ByteArrayOutputStream rest = new ByteArrayOutputStream(bytes.length + 8192);
+            rest.write(bytes);
+            rest.write(next);
+            input.transferTo(rest);
+            return rest.toByteArray();
+        }
+    }
+
+    /**
+     * The classes of {@code modJar} and of every jar in {@code otherModJars}, as one set. A launch checks every mod against
+     * the same jars (all installed mods, the one checked included), so the last union is kept instead of being built again
+     * for each mod. The set is only read after it is built.
+     */
+    private Set<String> classesOfMods(Path modJar, Collection<Path> otherModJars) {
+        Set<Path> jars = new HashSet<>(otherModJars);
+        jars.add(modJar);
+        if (!jars.equals(unionOfJars)) {
+            Set<String> names = new HashSet<>(classesIn(modJar));
+            for (Path other : otherModJars) {
+                names.addAll(classesIn(other));
+            }
+            unionOfJars = jars;
+            unionOfClasses = names;
+        }
+        return unionOfClasses;
     }
 
     private Set<String> classesIn(Path jarPath) {

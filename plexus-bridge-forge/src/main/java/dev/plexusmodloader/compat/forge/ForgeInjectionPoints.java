@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * Where MinecraftForge's patch moved vanilla calls that other loaders' Mixins inject at (ADR-0021 G8), for {@link
  * ForgeGameHost#injectionPointReplacements()}. Each was checked with {@code javap} against the vanilla and the patched
- * classes of the pinned Forge releases 26.1-62.0.9 and 26.2-65.1.5, and {@code ForgeInjectionPointsTest} checks them
+ * classes of the pinned Forge releases 26.1-62.0.9 and 26.2-65.1.5 (the furnace rules at the end: 1.21.1-52.1.21), and
+ * {@code ForgeInjectionPointsTest} checks them
  * against a patched client jar. The bridge that uses them checks the patched classes again before it moves anything.
  */
 final class ForgeInjectionPoints {
@@ -439,6 +440,175 @@ final class ForgeInjectionPoints {
                                 + "Lnet/minecraft/world/level/block/state/properties/Property;Ljava/lang/Comparable;)"
                                 + "Ljava/lang/Comparable;",
                         "Lnet/minecraft/world/level/block/state/BlockState;isFertile("
-                                + "Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Z"));
+                                + "Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Z"),
+                // AbstractFurnaceBlockEntity.serverTick (Minecraft 1.21.1, Forge 52.1.21; javap): vanilla puts the
+                // fuel's remainder back into the fuel slot with one NonNullList.set(int, Object) call (offset 255).
+                // Forge's patch has the call twice, once when the item has a crafting remainder (offset 216) and once
+                // when the stack was used up (offset 259), both with ItemStack.getCraftingRemainingItem(). Fabric API
+                // 0.116's fabric-item-api-v1 AbstractFurnaceBlockEntityMixin captures
+                // FabricItemStack.getRecipeRemainder
+                // before the fuel is used (getStackRemainder, a ThreadLocal) and puts it into that one call
+                // (setStackRemainder, @ModifyArg with allow = 1); two matches fail the check, so the module did not
+                // load. FabricItem.getRecipeRemainder(ItemStack) is by default the item's vanilla remainder, which is
+                // also what Forge's call returns for an item that does not override it; the two handlers are taken
+                // out together so that the ThreadLocal is not left set. A mod that overrides FabricItem's
+                // getRecipeRemainder for a fuel item gets Forge's remainder (getCraftingRemainingItem) there instead.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                        "serverTick",
+                        "net/fabricmc/fabric/mixin/item/AbstractFurnaceBlockEntityMixin#getStackRemainder",
+                        "ItemStack.getCraftingRemainingItem() in both of its NonNullList.set calls",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                        "serverTick",
+                        "net/fabricmc/fabric/mixin/item/AbstractFurnaceBlockEntityMixin#setStackRemainder",
+                        "ItemStack.getCraftingRemainingItem() in both of its NonNullList.set calls",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // Entity.changeDimension(ServerLevel) (Minecraft 1.20.4, Forge 49.2.13; javap): vanilla reads Level.END
+                // in changeDimension itself, after the new entity is created, to build the obsidian platform when the
+                // destination is the End. Forge 49 passes the rest of changeDimension to its teleporter as a lambda,
+                // lambda$changeDimension$16(ServerLevel, PortalInfo, Boolean), which holds that read
+                // (findDimensionEntryPoint
+                // has two more, which vanilla had too). fabric-dimensions-v1's EntityMixin redirects the read in
+                // changeDimension (stopEndSpecificBehavior, no parameters) so that an entity with a custom teleport
+                // target gets no platform; the body that took it over is the lambda.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/entity/Entity",
+                        "changeDimension",
+                        "Lnet/minecraft/world/level/Level;END:Lnet/minecraft/resources/ResourceKey;",
+                        "lambda$changeDimension$16(Lnet/minecraft/server/level/ServerLevel;"
+                                + "Lnet/minecraft/world/level/portal/PortalInfo;Ljava/lang/Boolean;)"
+                                + "Lnet/minecraft/world/entity/Entity;",
+                        InjectionPointReplacement.Placement.IN_METHOD),
+                // ServerPlayerGameMode.destroyBlock (Minecraft 1.21.1, Forge 52.1.21; javap): after the same checks
+                // (getBlockEntity, getBlock, the game master block check, ForgeHooks.onBlockBreakEvent,
+                // ItemStack.onBlockStartBreak, ServerPlayer.blockActionRestricted) vanilla calls
+                // Block.playerWillDestroy; Forge calls ServerPlayerGameMode.isCreative() there once (offset 125; its
+                // own removeBlock(BlockPos, Z) makes the playerWillDestroy call inside BlockState.onDestroyedByPlayer).
+                // The locals (blockEntity, block, state) are vanilla's. Fabric API's PlayerBlockBreakEvents.BEFORE
+                // (cancellable) runs there, as for the Forge builds above, which have preventsBlockDrops() instead.
+                new InjectionPointReplacement(
+                        GAME_MODE,
+                        "destroyBlock",
+                        "Lnet/minecraft/world/level/block/Block;playerWillDestroy(Lnet/minecraft/world/level/Level;"
+                                + "Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;"
+                                + "Lnet/minecraft/world/entity/player/Player;)"
+                                + "Lnet/minecraft/world/level/block/state/BlockState;",
+                        "L" + GAME_MODE + ";isCreative()Z"),
+                // Recipe.getRemainingItems (Minecraft 1.21.1, Forge 52.1.21; javap): vanilla asks the ingredient's
+                // Item.hasCraftingRemainingItem() and sets new ItemStack(Item.getCraftingRemainingItem()). Forge asks
+                // the stack (ItemStack.hasCraftingRemainingItem, getCraftingRemainingItem) and sets that remainder
+                // with its one NonNullList.set call. fabric-item-api-v1's RecipeMixin captures
+                // FabricItemStack.getRecipeRemainder at RecipeInput.getItem (captureStack, a ThreadLocal) and
+                // redirects the three calls (hasStackRemainder and replaceGetRecipeRemainder, 0 targets, and
+                // getStackRemainder at NonNullList.set, which still matches). All four are taken out: left in, the
+                // set redirect would put Fabric's remainder, which knows nothing of a Forge item's stack-sensitive
+                // getCraftingRemainingItem, in place of Forge's. A mod that overrides FabricItem's
+                // getRecipeRemainder gets Forge's remainder there instead.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/item/crafting/Recipe",
+                        "getRemainingItems",
+                        "net/fabricmc/fabric/mixin/item/RecipeMixin#captureStack",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the input stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/item/crafting/Recipe",
+                        "getRemainingItems",
+                        "net/fabricmc/fabric/mixin/item/RecipeMixin#hasStackRemainder",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the input stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/item/crafting/Recipe",
+                        "getRemainingItems",
+                        "net/fabricmc/fabric/mixin/item/RecipeMixin#replaceGetRecipeRemainder",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the input stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/item/crafting/Recipe",
+                        "getRemainingItems",
+                        "net/fabricmc/fabric/mixin/item/RecipeMixin#getStackRemainder",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the input stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // Ingredient.<clinit> (Minecraft 1.21.1, Forge 52.1.21; javap): vanilla builds CONTENTS_STREAM_CODEC
+                // with StreamCodec.map(...); Forge puts ForgeHooks.ingredientStreamCodec() there, which sends an
+                // ingredient by its serializer (the item list for any ingredient that is not one of Forge's types).
+                // fabric-recipe-api-v1's IngredientMixin wraps the result of that StreamCodec.map call with its
+                // CustomIngredientPacketCodec (useCustomIngredientPacketCodec, @ModifyExpressionValue, 0 targets),
+                // which
+                // sends a custom ingredient as its serializer id and data. Taken out: next to Forge a Fabric custom
+                // ingredient reaches the client as the stacks it matches (as a client without Fabric API reads it), and
+                // the client's recipe display is less exact; the server matches with the custom ingredient itself. The
+                // module's codec change (injectCodec, reading and writing JSON) still applies.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/item/crafting/Ingredient",
+                        "<clinit>",
+                        "net/fabricmc/fabric/mixin/recipe/ingredient/IngredientMixin#useCustomIngredientPacketCodec",
+                        "ForgeHooks.ingredientStreamCodec(), which sends an ingredient as its serializer or stacks",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // LevelChunk.getBlockEntity(BlockPos, EntityCreationType) (Minecraft 1.21.1, Forge 52.1.21; javap):
+                // vanilla drops a block entity that was marked removed with a Map.remove call after the
+                // createBlockEntity branch (offset 96). Forge asks isRemoved() first and removes it before that
+                // branch (offset 30); the second Map.remove (offset 47) takes the pending block entity.
+                // fabric-lifecycle-events-v1's server WorldChunkMixin redirects the Map.remove call that follows
+                // createBlockEntity (a slice, 0 targets) to fire BLOCK_ENTITY_UNLOAD for that block entity. The
+                // redirect is taken out. Differs: no unload event for a block entity that was marked removed but was
+                // still in the map when asked for; the event for the normal removal (removeBlockEntity, the
+                // @Inject of the same mixin at markRemoved) still runs.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/chunk/LevelChunk",
+                        "getBlockEntity",
+                        "net/fabricmc/fabric/mixin/event/lifecycle/server/WorldChunkMixin"
+                                + "#onRemoveBlockEntity(Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
+                        "its own Map.remove of a block entity that isRemoved(), before the createBlockEntity branch",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // BrewingStandBlockEntity.doBrew (Minecraft 1.21.1, Forge 52.1.21; javap): vanilla asks
+                // Item.hasCraftingRemainingItem() of the ingredient and makes the remainder with new
+                // ItemStack(Item.getCraftingRemainingItem()) after ItemStack.shrink(1). Forge asks the stack
+                // (hasCraftingRemainingItem, getCraftingRemainingItem) before shrinking and drops or keeps that
+                // remainder itself. fabric-item-api-v1's BrewingStandBlockEntityMixin captures
+                // FabricItemStack.getRecipeRemainder at shrink (captureItemStack, a ThreadLocal), redirects the
+                // Item.hasCraftingRemainingItem() call (hasStackRecipeRemainder, scanned 0 targets) and wraps the
+                // new ItemStack(ItemLike) call (createStackRecipeRemainder); all three are taken out together so that
+                // the ThreadLocal is not left set. The remainder is Forge's, as for the furnace above.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/BrewingStandBlockEntity",
+                        "doBrew",
+                        "net/fabricmc/fabric/mixin/item/BrewingStandBlockEntityMixin#captureItemStack",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the ingredient stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/BrewingStandBlockEntity",
+                        "doBrew",
+                        "net/fabricmc/fabric/mixin/item/BrewingStandBlockEntityMixin#hasStackRecipeRemainder",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the ingredient stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/BrewingStandBlockEntity",
+                        "doBrew",
+                        "net/fabricmc/fabric/mixin/item/BrewingStandBlockEntityMixin#createStackRecipeRemainder",
+                        "ItemStack.hasCraftingRemainingItem() and getCraftingRemainingItem() on the ingredient stack",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                // AbstractFurnaceBlockEntity.isFuel and getBurnDuration (Minecraft 1.21.1, Forge 52.1.21; javap):
+                // vanilla reads the fuel table with getFuel() in both; Forge asks ForgeHooks.getBurnTime(stack, null)
+                // instead, which reads a table its ForgeHooks.updateBurns() filled from getFuel() (VANILLA_BURNS) after
+                // the item's own getBurnTime and before the FurnaceFuelBurnTimeEvent. fabric-content-registries-v0
+                // redirects the two getFuel() calls to FuelRegistryImpl.getFuelTimes() (canUseAsFuelRedirect,
+                // getFuelTimeRedirect; scanned 0 targets) and also adds its entries to every result of getFuel()
+                // (fuelTimeMapHook, @Inject at RETURN, which applies), so the fuel registry reaches Forge's table
+                // through updateBurns(). Differs: a fuel added to Fabric's FuelRegistry after Forge last filled its
+                // table is seen at the next updateBurns() (data pack reload), not at once.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                        "isFuel",
+                        "net/fabricmc/fabric/mixin/content/registry/AbstractFurnaceBlockEntityMixin#canUseAsFuelRedirect",
+                        "ForgeHooks.getBurnTime(ItemStack, RecipeType), which reads the table built from getFuel()",
+                        InjectionPointReplacement.Placement.HOST_COVERS),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                        "getBurnDuration",
+                        "net/fabricmc/fabric/mixin/content/registry/AbstractFurnaceBlockEntityMixin#getFuelTimeRedirect",
+                        "ForgeHooks.getBurnTime(ItemStack, RecipeType), which reads the table built from getFuel()",
+                        InjectionPointReplacement.Placement.HOST_COVERS));
     }
 }

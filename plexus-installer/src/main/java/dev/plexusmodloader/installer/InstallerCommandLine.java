@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * {@code java -jar PlexusModLoader-<version>.jar install|install-server|uninstall [--dir <folder>] [--minecraft <version>]
@@ -141,10 +142,29 @@ final class InstallerCommandLine {
             return 0;
         } catch (InstallerException e) {
             err.println("Error: " + e.getMessage());
+            partialMatchHint(minecraft).ifPresent(err::println);
             return 1;
         } catch (IOException e) {
             err.println("Error: could not write a file: " + e);
             return 1;
         }
+    }
+
+    /**
+     * For a version this installer does not support, the supported versions it is part of ({@code 1.21} gives
+     * {@code 1.21.11, 1.21.1}, newest first), so the player can pass a full one. Empty when the version is supported or nothing
+     * contains it. The command's behaviour does not change: the error is still reported and the exit code is still 1.
+     */
+    private Optional<String> partialMatchHint(String minecraft) {
+        if (minecraft.isBlank() || payload.minecraftVersions().contains(minecraft)) {
+            return Optional.empty();
+        }
+        List<String> matches = new VersionFilter(payload.minecraftVersions(), payload.newestMinecraftVersion())
+                .matchingVersions(minecraft);
+        if (matches.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of("Did you mean " + String.join(", ", matches)
+                + "? Give the full version, for example --minecraft " + matches.get(0) + ".");
     }
 }

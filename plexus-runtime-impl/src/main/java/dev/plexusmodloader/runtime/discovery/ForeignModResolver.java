@@ -84,10 +84,17 @@ public final class ForeignModResolver {
         for (ModLoaderBridge bridge : bridges) {
             if (!file.kind().metadataPath().isEmpty()
                     && bridge.metadataPath().equals(file.kind().metadataPath())) {
+                ModLoaderBridge.PreparedJar prepared = bridge.prepareJar(file.path());
+                Path jarPath = prepared.jar();
                 BridgeAssessment assessment;
-                try (JarFile jar = new JarFile(file.path().toFile())) {
+                try (JarFile jar = new JarFile(jarPath.toFile())) {
                     String metadata = new String(
                             readEntry(jar, bridge.metadataPath())
+                                    // A NeoForge mod of FML 2 (NeoForge 20.4) has META-INF/mods.toml only
+                                    // (ModFileScanner)
+                                    .or(() -> file.kind() == ModFileKind.NEOFORGE
+                                            ? readEntry(jar, ModFileKind.FORGE.metadataPath())
+                                            : Optional.empty())
                                     .orElseThrow(() -> new UncheckedIOException(new IOException(
                                             bridge.metadataPath() + " is missing from " + file.path()))),
                             StandardCharsets.UTF_8);
@@ -109,6 +116,9 @@ public final class ForeignModResolver {
                             List.of(),
                             CompatibilityStatus.BLOCKED);
                 }
+                if (!prepared.findings().isEmpty()) {
+                    assessment = assessment.withFindings(prepared.findings());
+                }
                 if (file.kind() == ModFileKind.FABRIC && file.isFor(ModFileKind.QUILT)) {
                     assessment = assessment.withFindings(List.of(new CompatibilityFinding(
                             "PLEXUS-COMPAT-310",
@@ -118,7 +128,7 @@ public final class ForeignModResolver {
                                     + " fabric.mod.json, as it does under Fabric Loader (Quilt Loader would read"
                                     + " quilt.mod.json instead)")));
                 }
-                return Optional.of(new ForeignMod(file.path(), bridge, assessment));
+                return Optional.of(new ForeignMod(jarPath, bridge, assessment));
             }
         }
         return Optional.empty();

@@ -131,6 +131,19 @@ public final class LifecycleHooks {
         }
     }
 
+    /**
+     * Before the call to {@code ServerChunkCache.removeEntity} in {@code EntityCallbacks.onTrackingEnd}:
+     * {@code LEFT_WORLD} fires while the entity is still in its world.
+     */
+    public static void onEntityUntracked(ServerChunkCache chunks, Entity entity) {
+        GameLayerContext context = listening(EntityEvents.LEFT_WORLD);
+        if (context != null) {
+            dev.plexusmodloader.api.entity.EntityView view = Views.entity(entity);
+            WorldView world = Views.world(entity.level());
+            context.events().publish(EntityEvents.LEFT_WORLD, listener -> listener.onEntityLeftWorld(view, world));
+        }
+    }
+
     private static void publishWorld(GameLayerContext context, EventKey<WorldListener> event, ServerLevel level) {
         WorldView world = Views.world(level);
         context.events().publish(event, listener -> listener.onWorld(world));

@@ -2,6 +2,9 @@ package dev.plexusmodloader.game.layer.v1_20_4;
 
 import dev.plexusmodloader.game.version.layer.ModResourcePack;
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.List;
@@ -32,6 +35,7 @@ final class ModPacks {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Plexus Mod Loader");
     private static volatile Field packTypeField;
+    private static volatile MethodHandle infoConstructor;
 
     private ModPacks() {}
 
@@ -90,11 +94,54 @@ final class ModPacks {
                 Component.literal(title),
                 true,
                 resources,
-                new Pack.Info(
-                        Component.literal(description), PackCompatibility.COMPATIBLE, FeatureFlagSet.of(), overlays),
+                info(Component.literal(description), overlays),
                 Pack.Position.TOP,
                 false,
                 PackSource.BUILT_IN);
+    }
+
+    /** A compatible pack's information with no required features and the given overlays. */
+    private static Pack.Info info(Component description, List<String> overlays) {
+        MethodHandle constructor = infoConstructor;
+        if (constructor == null) {
+            constructor = infoConstructor(MethodHandles.publicLookup(), Pack.Info.class);
+            infoConstructor = constructor;
+        }
+        try {
+            return (Pack.Info)
+                    constructor.invoke(description, PackCompatibility.COMPATIBLE, FeatureFlagSet.of(), overlays);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new IllegalStateException("PLEXUS-RESOURCE-012 cannot create the pack information of a mod pack", e);
+        }
+    }
+
+    /**
+     * {@code type}'s constructor taking (description, compatibility, required features, overlays), as a handle of
+     * that type. Vanilla 1.20.4 has only that constructor; NeoForge 20.4 replaces it with one that also takes
+     * {@code boolean isHidden}, which is passed {@code false} (the vanilla value). Throws {@code
+     * PLEXUS-RESOURCE-012} when the class has neither.
+     */
+    static MethodHandle infoConstructor(MethodHandles.Lookup lookup, Class<?> type) {
+        MethodType vanilla = MethodType.methodType(
+                void.class, Component.class, PackCompatibility.class, FeatureFlagSet.class, List.class);
+        try {
+            return lookup.findConstructor(type, vanilla);
+        } catch (NoSuchMethodException vanillaMissing) {
+            try {
+                MethodHandle hidden = lookup.findConstructor(type, vanilla.appendParameterTypes(boolean.class));
+                return MethodHandles.insertArguments(hidden, 4, false);
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                e.addSuppressed(vanillaMissing);
+                throw new IllegalStateException(
+                        "PLEXUS-RESOURCE-012 " + type.getName() + " has neither the vanilla constructor " + vanilla
+                                + " nor NeoForge's with a trailing boolean isHidden",
+                        e);
+            }
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("PLEXUS-RESOURCE-012 cannot use the constructor of " + type.getName(), e);
+        }
     }
 
     /**

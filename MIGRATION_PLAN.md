@@ -1,5 +1,7 @@
 # Poly ➔ Plexus (`plexusmc`) 리브랜딩 및 Cloudflare 인프라 마이그레이션 계획서
 
+> 이 문서는 리브랜딩 과정의 기록입니다. 현재 이름은 **Plexus 모드 로더**이고, 옛 `poly` 이름의 호환 계층은 2.0.0에서 제거됐습니다(ADR-0036). 아래 "Poly"는 옛 이름을 가리킵니다.
+
 - **문서 번호:** PML-PLAN-2026-10-30
 - **작성일:** 2026-10-30
 - **프로젝트:** Poly Mod Loader ➔ **Plexus Mod Loader (PlexusMC)**
@@ -102,16 +104,16 @@ flowchart LR
    - `site/static/img/logo.svg`
    - `site/static/img/favicon.svg`, `favicon-48x48.png`, `apple-touch-icon.png`, `favicon.ico`
    - `site/static/img/social-card.png` (OG 공유 이미지)
-2. **사이트 기본 설정 갱신 ([`site/docusaurus.config.js`](file:///C:/Users/HOYA/dev/Poly-Mod-Loader/site/docusaurus.config.js))**
+2. **사이트 기본 설정 갱신 (`site/docusaurus.config.js`)**
    - `title: 'Plexus'`
    - `tagline`: 'Run Forge, Fabric, NeoForge and Quilt mods together...'
    - `url: 'https://www.plexusmc.net'`
    - 네비게이션 로고 텍스트, 푸터 카피라이트 텍스트 갱신
 3. **웹 페이지 텍스트 일괄 개편**
-   - 메인 홈페이지 ([`site/src/pages/index.js`](file:///C:/Users/HOYA/dev/Poly-Mod-Loader/site/src/pages/index.js)): "Poly" ➔ "Plexus"
-   - 다운로드 페이지 ([`site/src/pages/download.js`](file:///C:/Users/HOYA/dev/Poly-Mod-Loader/site/src/pages/download.js))
-   - 개발자 페이지 ([`site/src/pages/developers.js`](file:///C:/Users/HOYA/dev/Poly-Mod-Loader/site/src/pages/developers.js))
-   - 버그 리포트 페이지 ([`site/src/pages/report.js`](file:///C:/Users/HOYA/dev/Poly-Mod-Loader/site/src/pages/report.js))
+   - 메인 홈페이지 (`site/src/pages/index.js`): "Poly" ➔ "Plexus"
+   - 다운로드 페이지 (`site/src/pages/download.js`)
+   - 개발자 페이지 (`site/src/pages/developers.js`)
+   - 버그 리포트 페이지 (`site/src/pages/report.js`)
 4. **문서(Docs) 및 다국어 번역 일괄 갱신**
    - `site/docs/` (영어) 및 `site/i18n/ko/` (한국어)
    - "Poly Mod Loader" ➔ "Plexus Mod Loader"

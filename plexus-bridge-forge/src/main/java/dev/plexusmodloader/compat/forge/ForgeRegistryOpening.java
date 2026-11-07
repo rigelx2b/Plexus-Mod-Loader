@@ -87,7 +87,11 @@ final class ForgeRegistryOpening {
      */
     static void run(ClassLoader game, Runnable initialization) throws ReflectiveOperationException {
         Members members = Members.of(game);
-        Map<?, ?> registries = (Map<?, ?>) members.getRegistries.invoke(members.active.get(null));
+        Object manager = members.active.get(null);
+        Map<?, ?> registries = (Map<?, ?>)
+                (members.getRegistries != null
+                        ? members.getRegistries.invoke(manager)
+                        : members.registriesField.get(manager));
         Iterable<?> root = (Iterable<?>) members.root.get(null);
         Opened opened = new Opened();
         Throwable failure = null;
@@ -210,6 +214,7 @@ final class ForgeRegistryOpening {
     private record Members(
             Field active,
             Method getRegistries,
+            Field registriesField,
             Class<?> registryType,
             Method isLocked,
             Method unfreeze,
@@ -235,7 +240,18 @@ final class ForgeRegistryOpening {
             Class<?> mappedType = gameClass(game, MAPPED_REGISTRY);
             List<String> missing = new ArrayList<>();
             Field active = field(manager, "ACTIVE", missing);
-            Method getRegistries = method(manager, "getRegistries", missing);
+            // Forge 47 (Minecraft 1.20.1) has no getRegistries(); its map of registries is a package-private field.
+            Method getRegistries = null;
+            Field registriesField = null;
+            try {
+                getRegistries = manager.getDeclaredMethod("getRegistries");
+                getRegistries.setAccessible(true);
+            } catch (NoSuchMethodException e) {
+                registriesField = field(manager, "registries", missing);
+                if (registriesField != null && !Map.class.isAssignableFrom(registriesField.getType())) {
+                    missing.add(simpleName(REGISTRY_MANAGER) + ".registries as a Map");
+                }
+            }
             Method isLocked = method(registryType, "isLocked", missing);
             Method unfreeze = method(registryType, "unfreeze", missing);
             Method freeze = method(registryType, "freeze", missing);
@@ -266,6 +282,7 @@ final class ForgeRegistryOpening {
             return new Members(
                     active,
                     getRegistries,
+                    registriesField,
                     registryType,
                     isLocked,
                     unfreeze,

@@ -105,7 +105,7 @@ public final class SdkRepositoryCheck {
             for (String notice : LICENSE_ENTRIES) {
                 if (!hasEntry(jar, notice)) {
                     problems.add(coordinates + ": " + base + ".jar has no " + notice
-                            + ", which every jar carries (MPL 2.0 section 3.2)");
+                            + ", which every jar carries (MIT License requires the notice in every copy)");
                 }
             }
         }

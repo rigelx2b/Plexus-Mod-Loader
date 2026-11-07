@@ -31,6 +31,25 @@
    - SpongePowered Mixin 0.8.7 (FabricMC 포크) 및 MixinExtras 0.5.5를 단일 서비스로 가동합니다.
    - Quilt 모드의 mixin 구성도 함께 바인딩하여 단일 패스(Single-pass)로 클래스를 변환합니다.
 
+### 3-1) intermediary 이름 번역 (Minecraft 26.1 이전, ADR-0037)
+1.20.1, 1.20.4, 1.21.1, 1.21.11용 Fabric 모드는 FabricMC의 *intermediary* 이름으로 만들어져 있고, 이 게임은 Mojang 이름으로 실행됩니다(ADR-0019). `IntermediaryTranslations.prepare(jar)`는 그런 모드 jar의 사본을 플레이어 PC에서 한 번 만들어, 게임을 Mojang 이름으로 부르게 합니다:
+- **클래스 파일**(ASM `ClassRemapper`): 선언과 참조의 클래스·필드·메서드·레코드 컴포넌트 이름(게임 메서드를 재정의하는 모드 클래스, Mixin `@Shadow` 멤버)과, intermediary 이름이 든 모든 문자열(`@Inject(method=...)`, `@At(target=...)`, `@Invoker`, `@Mixin(targets=...)`, 상수).
+- 모드의 Mixin 구성이 가리키는 **Mixin 참조 맵**과, `intermediary` 네임스페이스의 **class tweaker 파일**(`official`로 다시 씀).
+- 입력: 다시 매핑한 게임 jar 옆의 Mojang 매핑(설치 프로그램 또는 빌드가 보관)과 FabricMC의 `intermediary-<minecraft>-v2.jar`(CC0-1.0)입니다. 후자는 없으면 같은 폴더에 한 번 받습니다. 사본은 `<reportDir>/translated-mods/<minecraft>/`에 둡니다. 어느 것도 올리거나 재배포하지 않습니다.
+- 진단: `PLEXUS-COMPAT-142`(번역함), `143`(매핑 없음, 필요한 모드만 막음), `144`(실패), `145`(이름을 그대로 둠).
+- 이 버전에서는 `FabricLoader.getMappingResolver()`와 `QuiltLoader.getMappingResolver()`가 `intermediary` 네임스페이스에 답합니다.
+- 런타임은 `ModLoaderBridge.prepareJar(Path)`로 이 기능을 부릅니다.
+- 이름 표(힙 33~48 MB)는 사본을 만들어야 할 때 읽고, 시작 준비가 끝나면(`releaseTables()`) 또는 30초 안 쓰면 놓아 줍니다. 사본이 이미 있는 시작은 매핑을 읽지 않습니다.
+
+### 3-2) Fabric Loader 오류 창 대체 클래스
+일부 모드는 Fabric Loader의 오류 창에 상태 트리를 넘깁니다(ModernFix는 다른 모드와 맞지 않는 옵션을 경고). 브리지는 `net.fabricmc.loader.impl.gui.FabricGuiEntry`를 직접 제공하고(창 없음: 트리를 로그에 쓰고, 모드가 `exitAfter`로 요청했을 때만 게임을 끕니다), `FabricStatusTree`, `FormattedException`, `Localization`은 Fabric Loader에서 그대로 담아 `PLEXUS-COMPAT-111`로 막히지 않게 합니다. `FabricBridge.providedPackages()`가 이를 알리고, `ProvidedClassesTest`가 목록의 모든 클래스가 jar에 있는지 검사합니다.
+
+### 3-3) 모드 jar의 파일 시스템
+`FabricModContainer`와 `QuiltModContainer`는 모드에 jar 안의 경로를 줍니다(`getRootPaths()`, `rootPath()`, Quilt의 `getSourcePaths()`). 모드가 경로를 계속 쥐고 있으므로 그 뒤의 zip 파일 시스템은 게임이 끝날 때까지 열어 둡니다. `SharedJarFileSystems`가 jar마다 한 번만 열어 모든 컨테이너에 같은 것을 줍니다. 이전에는 중첩 모드의 Quilt 컨테이너마다 바깥 jar를 다시 열었습니다.
+
+### 3-4) 호스트 검사에서의 refmap 이름
+Fabric 모드는 믹스인을 개발할 때 쓴 이름(`method = "tryBreakBlock"`, yarn 메서드를 가리키는 `@At`의 `target`)으로 쓰고, Mixin 설정의 `"refmap"`이 가리키는 참조 맵이 그것을 게임의 이름으로 바꿔 줍니다. 그 조회는 Mixin이 믹스인을 적용할 때 합니다. MinecraftForge·NeoForge와 함께 실행하면 `HostPatchAdjustments`가 이 문자열을 패치 전후의 게임 클래스와 비교하므로 게임의 이름이 필요합니다. yarn 이름 그대로는 메서드를 찾지 못해, 호출이나 필드를 기준으로 하는 규칙(`SAME_PLACE`, `IN_METHOD`)이 적용되지 않았고 핸들러 이름을 기준으로 하는 규칙(`HOST_COVERS`)만 작동했습니다. 이제 `HostRefmapNames`가 참조 맵을 읽고(Mixin처럼 `mappings`, 그다음 `data`의 `named:intermediary`, 믹스인 클래스와 문자열 기준) 인젝터의 `method`·`target` 문자열(중첩 `@At`·`@Slice`, MixinExtras `@Definition` 포함)을 게임의 이름으로 바꿔 믹스인 클래스에 씁니다. 믹스인을 검사할 때와 로드할 때 둘 다 같습니다. 참조 맵이 없는 모드, 맵에 없는 문자열, `remap = false`(믹스인·인젝터·`@At`)인 것은 쓰인 그대로 둡니다. 바뀐 문자열은 맵에 없으므로 Mixin은 그대로 씁니다. 26.1 이전 버전에서는 번역이 이미 Mojang 이름으로 고친 맵을 읽습니다(3-1).
+
 ### 4) 진입점 생명주기 관리 및 언어 어댑터
 - **언어 어댑터(Language Adapters):** Fabric의 `languageAdapters` 및 Quilt의 `quilt_loader.language_adapters`에 선언된 사용자 정의 언어 어댑터(`org.quiltmc.loader.api.LanguageAdapter` 또는 `net.fabricmc.loader.api.LanguageAdapter` 구현체)를 지원합니다. 양쪽 로더의 어댑터를 단일 런타임 저장소에서 통합 관리하여 상호 로더 간 진입점 생성을 지원하며, 어댑터를 찾을 수 없는 경우 Quilt 모드는 `PLEXUS-COMPAT-312`, Fabric 모드는 `PLEXUS-COMPAT-114`로 안전하게 차단합니다.
 - **`pre_launch` / `preLaunch`:** Mixin 준비 직후 및 게임 초기화 직전에 호출.
@@ -43,8 +62,10 @@
 | 패키지 | 주요 클래스 | 역할 |
 | :--- | :--- | :--- |
 | `dev.plexusmodloader.compat.fabric` | `FabricBridge`, `ClassTweakerFile`, `FabricClassTransformer` | Fabric 모드 검색 및 변환 파이프라인 관리 |
-| `dev.plexusmodloader.compat.fabric.mixin` | `FabricMixinBootstrap`, `PlexusMixinService`, `HostPatchAdjustments`, `HostStaticCalls`, `HostTargetCalls`, `ReplacedReceiver`, `HostNeutralArguments` | 통합 Mixin 구동 및 호스트 패치 자동 적응. 호스트가 바꾼 호출에 `@WrapOperation`/`@Redirect`를 이어 주는 다리(정적 도우미, 대상 클래스의 자기 메서드 호출, 인자가 늘어난 오버로드의 중립 값) |
-| `dev.plexusmodloader.compat.fabric.loader` | `FabricLoaderRuntime`, `OfficialMappingResolver` | Fabric Loader 공개 API 런타임 구현 |
+| `dev.plexusmodloader.compat.fabric.mixin` | `FabricMixinBootstrap`, `PlexusMixinService`, `HostPatchAdjustments`, `HostRefmapNames`, `HostStaticCalls`, `HostTargetCalls`, `ReplacedReceiver`, `HostNeutralArguments` | 통합 Mixin 구동 및 호스트 패치 자동 적응. 호스트가 바꾼 호출에 `@WrapOperation`/`@Redirect`를 이어 주는 다리(정적 도우미, 대상 클래스의 자기 메서드 호출, 인자가 늘어난 오버로드의 중립 값) |
+| `dev.plexusmodloader.compat.fabric.intermediary` | `IntermediaryTranslations`, `IntermediaryTranslation`, `ModJarTranslator`, `IntermediaryRemapper`, `ClassTweakerTranslator` | 26.1 이전 Minecraft에서 intermediary 이름 모드 jar를 Mojang 이름으로 번역(ADR-0037) |
+| `dev.plexusmodloader.compat.fabric.loader` | `FabricLoaderRuntime`, `OfficialMappingResolver`, `SharedJarFileSystems` | Fabric Loader 공개 API 런타임 구현, 모드 jar마다 하나의 공유 zip 파일 시스템 |
+| `net.fabricmc.loader.impl.*` | `FabricLoaderImpl`, `FabricLauncherBase`, `GameProvider`, `FabricGuiEntry` | 모드가 쓰는 Fabric Loader 내부 클래스의 대체 구현 |
 | `dev.plexusmodloader.compat.quilt` | `QuiltBridge`, `QuiltModJsonReader`, `QuiltLoaderRuntime` | Quilt 메타데이터 파서 및 Quilt Loader API 구현 |
 
 ---
@@ -69,4 +90,5 @@
 ## 4. 제약 사항
 - 호스트 패치가 처리기의 일을 이미 하는 주입은 `HOST_COVERS` 규칙으로만 덜어냅니다(자동 아님, ADR-0032). 덜어낸 처리기의 기능은 Fabric 단독 실행과 다를 수 있습니다(MinecraftForge 옆: 위치별 파티클·벽 안 스프라이트, 자동 블록 아이템 모델).
 - Quilt Standard Libraries (QSL)는 마인크래프트 26.x 대응 릴리즈가 없으므로, QSL 모듈이 필요한 모드는 시작 전 명확한 사유(`PLEXUS-COMPAT-114`와 `308`)와 함께 제외되고, QSL 진입점은 실행하지 않습니다(`303`). 예외로, 클래스가 Fabric 초기화 인터페이스를 구현한 QSL 진입점은 Fabric 진입점으로 실행하며, 그 모드의 `quilt_base` 의존은 충족된 것으로 봅니다(`PLEXUS-COMPAT-311`).
-- 모드가 Fabric Loader나 Quilt Loader의 비공개 내부 패키지(`net.fabricmc.loader.impl.*` 등)에 직접 접근하는 경우 링크 검증 단계(`PLEXUS-COMPAT-111`)에서 거부될 수 있습니다.
+- 모드가 Fabric Loader나 Quilt Loader의 비공개 내부 패키지(`net.fabricmc.loader.impl.*` 등)에 직접 접근하는 경우 링크 검증 단계(`PLEXUS-COMPAT-111`)에서 거부될 수 있습니다. 모드가 실제로 쓰는 몇 가지 내부 클래스는 제공합니다(`FabricLauncher`, `FabricLoaderImpl`, `GameProvider`, `FabricGuiEntry`, `FabricStatusTree`, `FormattedException`). `MappingConfiguration`은 Fabric Loader 자신의 매핑 트리를 내주므로 제공하지 않습니다.
+- Mixin 라이브러리는 이후 클래스 로드에 필요한 것(`ClassInfo` 캐시, 모든 Mixin 클래스의 클래스 노드)을 스스로 쥐고 있습니다. 브리지는 두 번째 사본을 들고 있지 않으며, 라이브러리를 고치지 않고는 그것을 놓을 수 없습니다. Fabric Loader도 같은 것을 쥡니다.

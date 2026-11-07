@@ -72,6 +72,9 @@ public interface ModContext {
     /** Attaches this mod's placed features to biomes. */
     WorldgenRegistrar worldgen();
 
+    /** Adds trades to villagers and the wandering trader (since 2.1.0). */
+    dev.plexusmodloader.api.trade.TradeRegistrar trades();
+
     /** Registers this mod's in-game tests. */
     GameTestRegistrar gameTests();
 

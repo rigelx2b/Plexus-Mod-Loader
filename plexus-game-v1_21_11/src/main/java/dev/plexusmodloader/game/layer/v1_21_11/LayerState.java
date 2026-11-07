@@ -20,7 +20,27 @@ public final class LayerState {
     private static volatile Map<ResourceId, ConfigurationEndpoint> configurationExchanges = Map.of();
     private static volatile Optional<GeneratedDataPack.Written> generatedDataPack = Optional.empty();
 
+    private static volatile net.minecraft.core.RegistryAccess registries;
+
     private LayerState() {}
+
+    /** Remembers the registries of the server that is starting; called from the create-levels hook. */
+    static void registries(net.minecraft.core.RegistryAccess access) {
+        registries = access;
+    }
+
+    /**
+     * The registries of the last server that started, for stack data that names a data-driven entry (enchantments).
+     *
+     * @throws IllegalStateException when no server has started yet
+     */
+    public static net.minecraft.core.RegistryAccess registries() {
+        net.minecraft.core.RegistryAccess access = registries;
+        if (access == null) {
+            throw new IllegalStateException("No server has started yet, so data-driven entries are not available");
+        }
+        return access;
+    }
 
     static void install(GameLayerContext layerContext) {
         context = layerContext;

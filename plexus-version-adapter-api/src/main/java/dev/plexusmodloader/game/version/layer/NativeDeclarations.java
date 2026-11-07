@@ -95,6 +95,27 @@ public interface NativeDeclarations {
     /** Features to attach to biomes. */
     List<FeatureDeclaration> features();
 
+    /** Natural spawns of any entity type to add to biomes. */
+    List<SpawnDeclaration> spawns();
+
+    /** Placed features to take out of biomes. */
+    List<FeatureRemovalDeclaration> featureRemovals();
+
+    /** Entity types whose natural spawn to take out of biomes. */
+    List<SpawnRemovalDeclaration> spawnRemovals();
+
+    /** Game trades to take out of villager professions. */
+    List<VillagerTradeRemovalDeclaration> villagerTradeRemovals();
+
+    /** Game trades to take out of the wandering trader. */
+    List<WanderingTradeRemovalDeclaration> wanderingTradeRemovals();
+
+    /** Trades to add to villager professions, in declaration order. */
+    List<VillagerTradeDeclaration> villagerTrades();
+
+    /** Trades to add to the wandering trader, in declaration order. */
+    List<WanderingTradeDeclaration> wanderingTrades();
+
     /** Registered top-level commands. */
     List<CommandDeclaration> commands();
 
@@ -371,6 +392,80 @@ public interface NativeDeclarations {
             dev.plexusmodloader.api.worldgen.BiomeSelector biomes,
             dev.plexusmodloader.api.worldgen.GenerationStepName step,
             ResourceId placedFeature) {}
+
+    /**
+     * A natural spawn of any entity type to add to biomes.
+     *
+     * @param ownerModId declaring mod
+     * @param biomes which biomes
+     * @param spawn the entity type, group, weight, and group size
+     */
+    record SpawnDeclaration(
+            String ownerModId,
+            dev.plexusmodloader.api.worldgen.BiomeSelector biomes,
+            dev.plexusmodloader.api.worldgen.BiomeSpawn spawn) {}
+
+    /**
+     * A placed feature to take out of biomes.
+     *
+     * @param ownerModId declaring mod
+     * @param biomes which biomes
+     * @param step the generation step the feature sits in
+     * @param placedFeature the placed feature's ID
+     */
+    record FeatureRemovalDeclaration(
+            String ownerModId,
+            dev.plexusmodloader.api.worldgen.BiomeSelector biomes,
+            dev.plexusmodloader.api.worldgen.GenerationStepName step,
+            ResourceId placedFeature) {}
+
+    /**
+     * An entity type whose natural spawn to take out of biomes, in every spawn category.
+     *
+     * @param ownerModId declaring mod
+     * @param biomes which biomes
+     * @param entityType the entity type's ID
+     */
+    record SpawnRemovalDeclaration(
+            String ownerModId, dev.plexusmodloader.api.worldgen.BiomeSelector biomes, ResourceId entityType) {}
+
+    /**
+     * Game trades that give an item, to take out of a villager profession's pool.
+     *
+     * @param ownerModId declaring mod
+     * @param profession profession ID
+     * @param level villager level 1 to 5, or 0 for every level
+     * @param result the item the trade gives
+     */
+    record VillagerTradeRemovalDeclaration(String ownerModId, ResourceId profession, int level, ResourceId result) {}
+
+    /**
+     * Game trades that give an item, to take out of the wandering trader's pools.
+     *
+     * @param ownerModId declaring mod
+     * @param result the item the trade gives
+     */
+    record WanderingTradeRemovalDeclaration(String ownerModId, ResourceId result) {}
+
+    /**
+     * A trade to add to a villager profession's pool at a level.
+     *
+     * @param ownerModId declaring mod
+     * @param profession profession ID, for example {@code minecraft:farmer}
+     * @param level villager level, 1 to 5
+     * @param offer the trade
+     */
+    record VillagerTradeDeclaration(
+            String ownerModId, ResourceId profession, int level, dev.plexusmodloader.api.trade.TradeOffer offer) {}
+
+    /**
+     * A trade to add to the wandering trader's pool.
+     *
+     * @param ownerModId declaring mod
+     * @param rare {@code true} for the rare pool, {@code false} for the common pool
+     * @param offer the trade
+     */
+    record WanderingTradeDeclaration(String ownerModId, boolean rare, dev.plexusmodloader.api.trade.TradeOffer offer) {}
 
     /**
      * A registered command tree.

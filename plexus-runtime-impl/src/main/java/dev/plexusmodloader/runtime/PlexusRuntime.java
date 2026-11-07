@@ -1209,8 +1209,11 @@ public final class PlexusRuntime {
      * stops Fabric Loader (JourneyMap's for Forge). With only Fabric mods besides it, Fabric runs it.
      */
     static List<Path> forgeJars(List<DiscoveredModFile> files) {
+        // A jar for Forge and NeoForge both (its mods.toml depends on both, ADR-0043) does not make Forge the
+        // runtime when there are NeoForge mods: they then run it, as neoForgeJars says.
+        boolean neoForgeMods = files.stream().anyMatch(file -> file.kind() == ModFileKind.NEOFORGE);
         List<Path> onlyForge = files.stream()
-                .filter(file -> file.kind() == ModFileKind.FORGE)
+                .filter(file -> file.kind() == ModFileKind.FORGE && !(neoForgeMods && file.isFor(ModFileKind.NEOFORGE)))
                 .map(DiscoveredModFile::path)
                 .toList();
         if (onlyForge.isEmpty()) {
@@ -1405,8 +1408,9 @@ public final class PlexusRuntime {
      * NeoForge ({@code 200..205}), so that mods that need them hear that they are installed but not loaded.
      */
     private static void reportNeoForgeBesideForge(List<DiscoveredModFile> files) {
+        // Jars that have Forge's metadata too run on Forge (forgeJars) and are not among those left out.
         List<String> neoForgeFiles = files.stream()
-                .filter(file -> file.kind() == ModFileKind.NEOFORGE)
+                .filter(file -> file.kind() == ModFileKind.NEOFORGE && !file.isFor(ModFileKind.FORGE))
                 .map(file -> file.path().getFileName().toString())
                 .toList();
         if (neoForgeFiles.isEmpty()) {
