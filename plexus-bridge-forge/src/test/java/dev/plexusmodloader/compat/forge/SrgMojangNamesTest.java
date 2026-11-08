@@ -117,6 +117,52 @@ class SrgMojangNamesTest {
         assertEquals("getAsInt", read.translate("m_263179_"));
     }
 
+    /** Two methods of one Mojang name in a class: their SRG names keep the Mojang descriptor apart, also when read back. */
+    @Test
+    void keepsTheDescriptorsOfOverloadedMethods(@TempDir Path directory) throws IOException {
+        List<String> merged = List.of(
+                "tsrg2 left right",
+                "fee net/minecraft/client/model/geom/ModelPart",
+                "\ta (Leij;Leio;II)V m_104301_",
+                "\ta (Leij;Leio;IIFFFF)V m_104306_",
+                "\tb ()V m_1_",
+                "\tc (Leij;)V m_6973_",
+                "\tc (Leio;)V m_6974_",
+                "fef net/minecraft/client/model/ParrotModel",
+                "\tc (Leio;)V m_6973_",
+                "eij com/mojang/blaze3d/vertex/PoseStack",
+                "eio com/mojang/blaze3d/vertex/VertexConsumer");
+        List<String> mojang = List.of(
+                "net/minecraft/client/model/geom/ModelPart fee",
+                "\trender (Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;II)V a",
+                "\trender (Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;IIFFFF)V a",
+                "\ttick ()V b",
+                "\tsetupAnim (Lcom/mojang/blaze3d/vertex/PoseStack;)V c",
+                "\tsetupAnim (Lcom/mojang/blaze3d/vertex/VertexConsumer;)V c",
+                "net/minecraft/client/model/ParrotModel fef",
+                "\tsetupAnim (Lcom/mojang/blaze3d/vertex/VertexConsumer;)V c");
+
+        SrgMojangNames names = join(directory, merged, mojang);
+        Path file = directory.resolve("table.txt");
+        names.write(file);
+        SrgMojangNames read = SrgMojangNames.read(file);
+
+        for (SrgMojangNames table : List.of(names, read)) {
+            assertEquals("render", table.translate("m_104306_"));
+            assertEquals(
+                    "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;IIFFFF)V",
+                    table.methodSelector("m_104306_"));
+            assertEquals(
+                    "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;II)V",
+                    table.methodSelector("m_104301_"));
+            // Not overloaded: the name alone, as before.
+            assertEquals("tick", table.methodSelector("m_1_"));
+            // Overridden with another descriptor in another class: the id does not say which, the name alone.
+            assertEquals("setupAnim", table.methodSelector("m_6973_"));
+            assertEquals("m_9_", table.methodSelector("m_9_"));
+        }
+    }
+
     @Test
     void refusesAFileThatIsNotTsrg2(@TempDir Path directory) throws IOException {
         Path merged = Files.write(directory.resolve("merged"), List.of("tsrg obf srg"));

@@ -5,6 +5,7 @@ import dev.plexusmodloader.api.stability.StabilityLevel;
 import dev.plexusmodloader.compat.bridge.BridgeClassTransformer;
 import dev.plexusmodloader.compat.bridge.GameClassBytes;
 import dev.plexusmodloader.compat.bridge.GameModuleLayers;
+import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
 import java.lang.module.ModuleReference;
 import java.nio.file.Path;
 import java.util.List;
@@ -66,6 +67,15 @@ public interface ForgeLaunch {
 
     /** ModLauncher's class transformation: launch plugins (access transformers, …) and transformation services. */
     BridgeClassTransformer classTransformer();
+
+    /**
+     * With {@link Request#sharedMixin()} on NeoForge's FML 4 or FML 2 (ADR-0043 point 10), the Mixin configurations FML
+     * found for its mods, for the Mixin Fabric mods share; known once the GAME layer is defined. Empty otherwise
+     * (MinecraftForge's host reads its mods' configurations itself, {@link ForgeMixinConfigs}).
+     */
+    default List<SharedMixinConfig> sharedMixinConfigs() {
+        return List.of();
+    }
 
     /** Runs Forge's launch handler, which starts Minecraft from the GAME layer. */
     void launch() throws Throwable;

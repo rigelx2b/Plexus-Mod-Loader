@@ -44,8 +44,8 @@ import org.slf4j.LoggerFactory;
  * mods as they are and says so ({@code 007}).
  *
  * <p>Runs before {@link FabricApiProvision}: Quilted Fabric API provides {@code fabric-api}, so Fabric API is then not
- * added as well. Not added: unless {@code -Dplexus.qsl=on} (off by default while QSL cannot run, ADR-0048 decision 6),
- * without a pinned release for the version (1.21.11 and 26.x), next to a host loader (QSL was not run next to Forge or
+ * added as well. Not added: with {@code -Dplexus.qsl=off}, in a development launch unless {@code -Dplexus.qsl=on} (as
+ * Fabric API), without a pinned release for the version (1.21.11 and 26.x), next to a host loader (QSL was not run next to Forge or
  * NeoForge), and when a jar is or provides {@code fabric-api} (both would provide it, {@code PLEXUS-COMPAT-117}).
  *
  * <p>Thread: the launch thread, once per launch.
@@ -102,7 +102,7 @@ public final class QuiltedFabricApiProvision {
             String gameVersion,
             FabricApiProvision.Host host,
             boolean developmentLaunch) {
-        if (!FabricApiProvision.enabled(System.getProperty("plexus.qsl", "off"), developmentLaunch)) {
+        if (!FabricApiProvision.enabled(System.getProperty("plexus.qsl", "auto"), developmentLaunch)) {
             return files;
         }
         Set<String> present = new HashSet<>();

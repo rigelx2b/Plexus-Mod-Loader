@@ -52,6 +52,27 @@ final class SharedMixinExtras {
         return List.copyOf(kept);
     }
 
+    /** The virtual jar of NeoForge's FML 2 ({@code MixinSyntheticPackageProvider}) for Mixin's synthetic classes. */
+    static final String MIXIN_SYNTHETIC = "mixinsynthetic";
+
+    /**
+     * {@code gameJars} without FML 2's empty module for Mixin's synthetic packages ({@code org.spongepowered.asm.synthetic},
+     * NeoForge 20.4): it would hold them in the game class loader for FML's own Mixin, which does not start when Fabric's
+     * Mixin is shared; the shared Mixin's synthetic classes come from Plexus Mod Loader's bridge stage (ADR-0043).
+     */
+    static List<SecureJar> withoutMixinSyntheticPackage(List<SecureJar> gameJars, Consumer<String> log) {
+        List<SecureJar> kept = new ArrayList<>();
+        for (SecureJar jar : gameJars) {
+            if (jar.name().equals(MIXIN_SYNTHETIC)) {
+                log.accept("FML's virtual module " + MIXIN_SYNTHETIC + " is left out of the game layer: FML's own"
+                        + " Mixin does not start (ADR-0043)");
+            } else {
+                kept.add(jar);
+            }
+        }
+        return kept.size() == gameJars.size() ? gameJars : List.copyOf(kept);
+    }
+
     /**
      * The jar's file name. A jar FML's JarJar selection opened inside another jar is the root of its own file system;
      * its name is the last part of its URI ({@code jar:roimfs:jar-jar-8/MixinExtras-0.5.5.jar!/}).

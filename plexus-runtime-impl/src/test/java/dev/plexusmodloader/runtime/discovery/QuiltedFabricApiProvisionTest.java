@@ -143,7 +143,7 @@ class QuiltedFabricApiProvisionTest {
     }
 
     @Test
-    void skipsFabricApiHostsVersionsWithoutQslAndTheDefaultSetting() throws Exception {
+    void skipsFabricApiHostsVersionsWithoutQslAndTheSettingOff() throws Exception {
         AtomicInteger downloads = new AtomicInteger();
         QuiltedFabricApiProvision provision = provision(new byte[] {7}, downloads, new ArrayList<>());
         List<DiscoveredModFile> needs = List.of(quiltMod("a", "\"quilted_fabric_api\"", Map.of()));
@@ -152,8 +152,11 @@ class QuiltedFabricApiProvisionTest {
         assertSame(needs, provision.provide(needs, "1.21.11", FabricApiProvision.Host.NONE, false));
         assertSame(needs, provision.provide(needs, "1.20.1", FabricApiProvision.Host.FORGE, false));
         assertSame(withFabricApi, provision.provide(withFabricApi, "1.20.1", FabricApiProvision.Host.NONE, false));
-        System.clearProperty("plexus.qsl");
+        System.setProperty("plexus.qsl", "off");
         assertSame(needs, provision.provide(needs, "1.20.1", FabricApiProvision.Host.NONE, false));
+        // By default, as Fabric API: not in a development launch.
+        System.clearProperty("plexus.qsl");
+        assertSame(needs, provision.provide(needs, "1.20.1", FabricApiProvision.Host.NONE, true));
         assertEquals(0, downloads.get());
     }
 

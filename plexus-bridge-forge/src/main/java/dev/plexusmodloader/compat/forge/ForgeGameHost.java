@@ -405,14 +405,17 @@ final class ForgeGameHost implements GameHost {
     /**
      * The title screen's mod counts above Forge's branding ({@link ForgeTitleBranding}), where Forge's patch replaced
      * the vanilla version text, and the client's first frame after Forge's configs ({@link
-     * ForgeConfigsBeforeFirstFrame}).
+     * ForgeConfigsBeforeFirstFrame}), and Forge's game event bus started before a quick-play world's integrated server
+     * ({@link ForgeEventBusBeforeIntegratedServer}).
      */
     @Override
     public List<TransformRuleDefinition> transformRules() {
         ForgeConfigsBeforeFirstFrame.install(request.log());
+        ForgeEventBusBeforeIntegratedServer.install(request.log());
         return List.of(
                 ForgeTitleBranding.rule(request.gameVersion()),
-                ForgeConfigsBeforeFirstFrame.rule(request.gameVersion()));
+                ForgeConfigsBeforeFirstFrame.rule(request.gameVersion()),
+                ForgeEventBusBeforeIntegratedServer.rule(request.gameVersion()));
     }
 
     @Override

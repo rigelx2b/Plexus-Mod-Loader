@@ -168,6 +168,74 @@ class SrgTranslatorTest {
         assertTrue(seen.strings().contains("@Lother/Level;tick()V"));
     }
 
+    /** Entity Model Features on Forge 1.20.4: {@code @Inject(method = "m_104306_")}, one of two {@code render}s. */
+    @Test
+    void givesABareSelectorOfAnOverloadedMethodItsDescriptor() {
+        String eight = "(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;IIFFFF)V";
+        SrgMojangNames names = SrgMojangNames.of(
+                Map.of("m_104306_", "render", "m_104301_", "render", "m_1_", "tick"),
+                Map.of("m_104306_", eight, "m_104301_", "(Lcom/mojang/blaze3d/vertex/PoseStack;)V"));
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/MixinModelPart", null, "java/lang/Object", null);
+        var single = writer.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/Inject;", false);
+        single.visit("method", "m_104306_");
+        single.visitEnd();
+        var array = writer.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/Redirect;", false);
+        var methods = array.visitArray("method");
+        methods.visit(null, "m_104306_");
+        methods.visit(null, "m_1_");
+        // Owner-qualified, as Entity Texture Features writes for ParrotOnShoulderLayer.
+        methods.visit(null, "Lnet/minecraft/client/model/geom/ModelPart;m_104306_");
+        methods.visitEnd();
+        // Not a selector: an @At target names the member with its descriptor already, an @Invoker a name.
+        var at = array.visitAnnotation("at", "Lorg/spongepowered/asm/mixin/injection/At;");
+        at.visit("value", "m_104306_");
+        at.visitEnd();
+        array.visitEnd();
+        writer.visitEnd();
+
+        List<String> seen = new java.util.ArrayList<>();
+        new ClassReader(new SrgTranslator(names).translateClass(writer.toByteArray()))
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public org.objectweb.asm.AnnotationVisitor visitAnnotation(
+                                    String descriptor, boolean visible) {
+                                return collect();
+                            }
+
+                            private org.objectweb.asm.AnnotationVisitor collect() {
+                                return new org.objectweb.asm.AnnotationVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visit(String name, Object value) {
+                                        seen.add(value.toString());
+                                    }
+
+                                    @Override
+                                    public org.objectweb.asm.AnnotationVisitor visitArray(String name) {
+                                        return collect();
+                                    }
+
+                                    @Override
+                                    public org.objectweb.asm.AnnotationVisitor visitAnnotation(
+                                            String name, String descriptor) {
+                                        return collect();
+                                    }
+                                };
+                            }
+                        },
+                        0);
+
+        assertEquals(
+                List.of(
+                        "render" + eight,
+                        "render" + eight,
+                        "tick",
+                        "Lnet/minecraft/client/model/geom/ModelPart;render" + eight,
+                        "render"),
+                seen);
+    }
+
     @Test
     void leavesAClassWithoutSrgNamesAsItIs() {
         ClassWriter writer = new ClassWriter(0);

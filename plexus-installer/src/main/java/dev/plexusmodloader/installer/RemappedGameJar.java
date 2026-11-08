@@ -45,18 +45,13 @@ record RemappedGameJar(Path jar, String sha1, long size, MojangJarRemapper.Resul
     /**
      * Remaps {@code obfuscatedJar} into {@code output} unless the cached one was made from the same inputs. {@code
      * key} is {@link #key(String, String)} of the two inputs' SHA-1, which the caller already has, so they are not
-     * hashed again. {@code libraries} are the jar's libraries, for computing stack map frames.
+     * hashed again.
      *
      * @throws InstallerException when the remap fails or its result does not pass the check; no jar is left at {@code
      *     output} then
      */
     static RemappedGameJar ensure(
-            Path obfuscatedJar,
-            Path mappingsFile,
-            String key,
-            List<Path> libraries,
-            Path output,
-            Consumer<String> progress)
+            Path obfuscatedJar, Path mappingsFile, String key, Path output, Consumer<String> progress)
             throws InstallerException, IOException {
         Path keyFile = keyFile(output);
         if (Files.isRegularFile(output) && Files.isRegularFile(keyFile)) {
@@ -78,7 +73,7 @@ record RemappedGameJar(Path jar, String sha1, long size, MojangJarRemapper.Resul
             mappings = MojangMappings.read(mappingsFile);
             progress.accept("Remapping " + obfuscatedJar.getFileName() + " to Mojang names (" + mappings.classCount()
                     + " classes in the mappings); this takes a few seconds and stays on this computer.");
-            result = MojangJarRemapper.remap(obfuscatedJar, mappings, libraries, output);
+            result = MojangJarRemapper.remap(obfuscatedJar, mappings, output);
         } catch (OutOfMemoryError e) {
             Files.deleteIfExists(output);
             throw new InstallerException("The installer ran out of memory remapping " + obfuscatedJar.getFileName()

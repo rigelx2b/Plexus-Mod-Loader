@@ -70,6 +70,8 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
             "dev.plexusmodloader.internal.",
             "dev.plexusmodloader.runtime.");
 
+    private static final String PLEXUS_PACKAGE = "dev.plexusmodloader.";
+
     /** Package prefix of version game layers, which this loader defines itself. */
     public static final String GAME_LAYER_PREFIX = "dev.plexusmodloader.game.layer.";
 
@@ -610,9 +612,23 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
         return defineClass(name, bytes, 0, bytes.length);
     }
 
-    /** The bytes a bridge's transformer generates for {@code name}, or {@code null}. */
+    /**
+     * The bytes a bridge's transformer generates for {@code name}, or {@code null}. A library class the parent holds is
+     * not generated: it is the parent's and never transformed, as under ModLauncher, whose loader makes classes only in
+     * the game layer's packages. Mixin would otherwise make an empty class with the Mixins applied: FancyMenu's Mixin
+     * into {@code org.lwjgl.glfw.GLFW} defined an empty {@code GLFW} in this loader's unnamed module, which the {@code
+     * minecraft} module cannot read ({@code IllegalAccessError} on Forge 1.20.1 and NeoForge 21.1). Plexus Mod Loader's
+     * own classes that a bridge copies into this loader (such as the Fabric bridge's {@code AttributeBuilderBridge}) are
+     * still generated.
+     */
     private byte[] generatedBytes(String name) {
         if (bridgeTransformers.isEmpty() || isPlatformOrPlexusModLoader(name)) {
+            return null;
+        }
+        String path = classFilePath(name);
+        if (!name.startsWith(PLEXUS_PACKAGE)
+                && !hiddenInParent(path)
+                && getParent().getResource(path) != null) {
             return null;
         }
         for (BridgeClassTransformer bridgeTransformer : bridgeTransformers) {

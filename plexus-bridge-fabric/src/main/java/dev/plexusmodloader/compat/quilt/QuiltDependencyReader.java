@@ -183,9 +183,8 @@ public final class QuiltDependencyReader {
                     "PLEXUS-COMPAT-308",
                     false,
                     "dependencies",
-                    "depends on the QSL module '" + id + "'; the Quilt Standard Libraries have no release for"
-                            + " Minecraft 26.x, so Quilt Loader cannot meet this dependency either (PLEXUS-COMPAT-114"
-                            + " leaves the mod out unless another installed mod provides '" + id + "')"));
+                    "depends on the QSL module '%s'; only QSL or Quilted Fabric API provide it (released only for 1.20.1, 1.20.4, and 1.21.1, downloaded on first launch; none for 1.21.11 or 26.x); without a provider Quilt Loader could not meet the dependency either, and PLEXUS-COMPAT-114 leaves the mod out unless another installed mod provides '%s'"
+                            .formatted(id, id)));
         }
     }
 

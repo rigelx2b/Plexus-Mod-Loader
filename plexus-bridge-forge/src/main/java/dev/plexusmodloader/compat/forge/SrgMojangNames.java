@@ -35,14 +35,25 @@ final class SrgMojangNames {
     private static final Pattern EXACT = Pattern.compile("[mf]_\\d+_");
 
     private final Map<String, String> names;
+    // SRG method -> Mojang descriptor, only for methods whose Mojang name a class declares more than once.
+    private final Map<String, String> overloads;
 
-    private SrgMojangNames(Map<String, String> names) {
+    private SrgMojangNames(Map<String, String> names, Map<String, String> overloads) {
         this.names = Map.copyOf(names);
+        this.overloads = Map.copyOf(overloads);
     }
 
     /** A table of the given SRG name to Mojang name pairs. */
     static SrgMojangNames of(Map<String, String> names) {
-        return new SrgMojangNames(names);
+        return new SrgMojangNames(names, Map.of());
+    }
+
+    /**
+     * A table of the given pairs, and the Mojang descriptors of the SRG methods whose Mojang name is overloaded in the
+     * class that declares them.
+     */
+    static SrgMojangNames of(Map<String, String> names, Map<String, String> overloads) {
+        return new SrgMojangNames(names, overloads);
     }
 
     /** How many SRG names the table translates. */
@@ -53,6 +64,18 @@ final class SrgMojangNames {
     /** The Mojang name for an SRG name, or {@code name} itself when it is not an SRG name or has no Mojang name. */
     String translate(String name) {
         return names.getOrDefault(name, name);
+    }
+
+    /**
+     * A Mixin target selector for an SRG method name: the Mojang name, followed by the Mojang descriptor when the
+     * declaring class has more than one method of that Mojang name. An SRG id names one overload, the Mojang name does
+     * not: Entity Model Features' {@code @Inject(method = "m_104306_")} on {@code ModelPart} is one of two {@code
+     * render} methods, and the bare {@code render} makes Mixin take the other one.
+     */
+    String methodSelector(String srgName) {
+        String name = translate(srgName);
+        String descriptor = overloads.get(srgName);
+        return descriptor == null || name.equals(srgName) ? name : name + descriptor;
     }
 
     /** Whether {@code text} is exactly one SRG name (not just contains one). */
@@ -104,6 +127,8 @@ final class SrgMojangNames {
         Map<String, String> byObfuscated = isProguard(mojang) ? readProguard(mojang) : readTsrg(mojang);
 
         Map<String, String> result = new TreeMap<>();
+        // "Mojang class + Mojang name" -> (SRG method -> Mojang descriptor) of the methods the class declares.
+        Map<String, Map<String, String>> methodsByName = new HashMap<>();
         String currentClass = null;
         for (String line : merged) {
             if (line.isEmpty() || line.startsWith("tsrg2 ")) {
@@ -127,10 +152,33 @@ final class SrgMojangNames {
                 String name = byObfuscated.get(key);
                 if (name != null && isSrgName(srg) && !name.equals(srg)) {
                     result.putIfAbsent(srg, name);
+                    if (parts.length == 3) {
+                        methodsByName
+                                .computeIfAbsent(currentClass + " " + name, unused -> new HashMap<>())
+                                .putIfAbsent(srg, describe(parts[1], classes));
+                    }
                 }
             }
         }
-        return new SrgMojangNames(result);
+        // An SRG id is shared by a method and its overrides, whose descriptors may differ (setupAnim of each entity
+        // model): only an id with one descriptor in every class can say which overload a selector means.
+        Map<String, java.util.Set<String>> descriptorsBySrg = new HashMap<>();
+        for (Map<String, String> methods : methodsByName.values()) {
+            methods.forEach((srg, descriptor) -> descriptorsBySrg
+                    .computeIfAbsent(srg, unused -> new java.util.HashSet<>())
+                    .add(descriptor));
+        }
+        Map<String, String> overloads = new TreeMap<>();
+        for (Map<String, String> methods : methodsByName.values()) {
+            if (methods.size() > 1) {
+                methods.forEach((srg, descriptor) -> {
+                    if (descriptorsBySrg.get(srg).size() == 1) {
+                        overloads.putIfAbsent(srg, descriptor);
+                    }
+                });
+            }
+        }
+        return new SrgMojangNames(result, overloads);
     }
 
     /** Mojang's own file as Forge 1.20.1's {@code DOWNLOAD_MOJMAPS} leaves it (no {@code --sanitize}): ProGuard form. */
@@ -263,19 +311,26 @@ final class SrgMojangNames {
     /** Reads a table written by {@link #write(Path)}. */
     static SrgMojangNames read(Path file) throws IOException {
         Map<String, String> names = new HashMap<>();
+        Map<String, String> overloads = new HashMap<>();
         for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-            int space = line.indexOf(' ');
-            if (space > 0) {
-                names.put(line.substring(0, space), line.substring(space + 1));
+            String[] parts = line.split(" ");
+            if (parts.length >= 2) {
+                names.put(parts[0], parts[1]);
+            }
+            if (parts.length == 3) {
+                overloads.put(parts[0], parts[2]);
             }
         }
-        return new SrgMojangNames(names);
+        return new SrgMojangNames(names, overloads);
     }
 
-    /** Writes one {@code srg mojang} pair per line, sorted. */
+    /** Writes one {@code srg mojang [Mojang descriptor of an overloaded method]} line per name, sorted. */
     void write(Path file) throws IOException {
         List<String> lines = new ArrayList<>(names.size());
-        new TreeMap<>(names).forEach((srg, mojang) -> lines.add(srg + " " + mojang));
+        new TreeMap<>(names).forEach((srg, mojang) -> {
+            String descriptor = overloads.get(srg);
+            lines.add(descriptor == null ? srg + " " + mojang : srg + " " + mojang + " " + descriptor);
+        });
         Path partial = file.resolveSibling(file.getFileName() + ".partial");
         Files.write(partial, lines, StandardCharsets.UTF_8);
         Files.move(partial, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);

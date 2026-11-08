@@ -15,7 +15,8 @@ import java.lang.reflect.Method;
  *
  * <p>NeoForge's and Minecraft's classes are reached through reflection, from the game class loader (checked with {@code
  * javap} on NeoForge 26.2.0.93 and 26.1.0.19-beta: {@code GameData.unfreezeData}/{@code freezeData}, {@code
- * MappedRegistry.frozen}/{@code unfreeze(boolean)}/{@code freeze}, {@code BuiltInRegistries.REGISTRY}/{@code ITEM}).
+ * MappedRegistry.frozen}/{@code unfreeze(boolean)}/{@code freeze}, {@code BuiltInRegistries.REGISTRY}/{@code ITEM}; on
+ * 21.1.265 and 20.4.253 the same, with {@code unfreeze()} for {@code unfreeze(boolean)}).
  * Thread: the game's main thread, at Minecraft's mod initialization point.
  */
 final class NeoForgeRegistryOpening {
@@ -29,7 +30,7 @@ final class NeoForgeRegistryOpening {
         Class<?> mapped = Class.forName("net.minecraft.core.MappedRegistry", true, game);
         Field frozen = mapped.getDeclaredField("frozen");
         frozen.setAccessible(true);
-        Method unfreeze = mapped.getMethod("unfreeze", boolean.class);
+        Method unfreeze = unfreeze(mapped);
         Method freeze = mapped.getMethod("freeze");
         Object root = builtIn.getField("REGISTRY").get(null);
         Object items = builtIn.getField("ITEM").get(null);
@@ -39,8 +40,12 @@ final class NeoForgeRegistryOpening {
         }
         boolean rootFrozen = mapped.isInstance(root) && frozen.getBoolean(root);
         if (rootFrozen) {
-            // false: the root keeps its tags, which freezeData does not bind again for it.
-            unfreeze.invoke(root, false);
+            if (unfreeze.getParameterCount() == 1) {
+                // false: the root keeps its tags, which freezeData does not bind again for it.
+                unfreeze.invoke(root, false);
+            } else {
+                unfreeze.invoke(root);
+            }
         }
         gameData.getMethod("unfreezeData").invoke(null);
         try {
@@ -50,6 +55,18 @@ final class NeoForgeRegistryOpening {
             if (rootFrozen && !frozen.getBoolean(root)) {
                 freeze.invoke(root);
             }
+        }
+    }
+
+    /**
+     * {@code MappedRegistry.unfreeze(boolean)} (NeoForge 26.x), or {@code unfreeze()} (NeoForge 21.1 and 20.4, which only
+     * clears {@code frozen}; checked with {@code javap} on their patched games).
+     */
+    private static Method unfreeze(Class<?> mapped) throws NoSuchMethodException {
+        try {
+            return mapped.getMethod("unfreeze", boolean.class);
+        } catch (NoSuchMethodException older) {
+            return mapped.getMethod("unfreeze");
         }
     }
 }

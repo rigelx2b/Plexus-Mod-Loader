@@ -1,14 +1,10 @@
 package dev.plexusmodloader.installer;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
@@ -20,7 +16,6 @@ import java.util.function.Consumer;
  *   <li>the vanilla version JSON (kept if the launcher already has it) and the client jar, checked by the SHA-1 Mojang
  *       lists, in {@code versions/<minecraft>/} where the launcher keeps them
  *   <li>Mojang's client mappings ({@code downloads.client_mappings}), checked by SHA-1
- *   <li>the client libraries of this OS, which the launcher downloads anyway, to compute the remapped jar's frames
  *   <li>the remapped jar ({@link RemappedGameJar}), cached by jar SHA-1, mappings SHA-1 and remapper revision
  * </ol>
  *
@@ -92,14 +87,12 @@ final class ClientGameRemap {
             progress.accept(
                     "Downloaded Mojang's client mappings for " + minecraftVersion + " (kept in " + folder + ")");
         }
-        List<Path> libraries = libraries(downloads, version, minecraftDirectory.resolve("libraries"), progress);
 
         // Both files were just checked against the SHA-1 Mojang lists, so those values are their SHA-1: the key needs
         // no further pass over the jar and the mappings.
         String key = RemappedGameJar.key(listedSha1(client), listedSha1(clientMappings));
         String stem = "minecraft-mojang-" + minecraftVersion + "-" + RemappedGameJar.shortKey(key);
-        RemappedGameJar jar =
-                RemappedGameJar.ensure(clientJar, mappings, key, libraries, folder.resolve(stem + ".jar"), progress);
+        RemappedGameJar jar = RemappedGameJar.ensure(clientJar, mappings, key, folder.resolve(stem + ".jar"), progress);
         if (jar.reused()) {
             progress.accept("The remapped Minecraft " + minecraftVersion + " client is up to date");
         }
@@ -138,94 +131,6 @@ final class ClientGameRemap {
             }
             Files.delete(parent);
         }
-    }
-
-    /**
-     * The client libraries this OS uses, downloaded where the launcher keeps them. Native libraries are left out: they
-     * hold no classes the remap needs, and the launcher gets them itself.
-     */
-    private static List<Path> libraries(
-            VerifiedDownloads downloads, JsonObject version, Path librariesDirectory, Consumer<String> progress)
-            throws InstallerException, IOException {
-        List<Path> paths = new ArrayList<>();
-        JsonElement listed = version.get("libraries");
-        if (listed == null || !listed.isJsonArray()) {
-            return paths;
-        }
-        int downloaded = 0;
-        for (JsonElement element : listed.getAsJsonArray()) {
-            JsonObject library = element.getAsJsonObject();
-            if (!allows(library.has("rules") ? library.getAsJsonArray("rules") : null) || isNative(library)) {
-                continue;
-            }
-            JsonObject libraryDownloads = library.has("downloads") ? library.getAsJsonObject("downloads") : null;
-            JsonObject artifact = libraryDownloads != null && libraryDownloads.has("artifact")
-                    ? libraryDownloads.getAsJsonObject("artifact")
-                    : null;
-            if (artifact == null) {
-                continue;
-            }
-            Path target = librariesDirectory
-                    .resolve(VerifiedDownloads.string(artifact, "path"))
-                    .toAbsolutePath()
-                    .normalize();
-            if (!target.startsWith(librariesDirectory.toAbsolutePath().normalize())) {
-                throw new InstallerException("Mojang's version data names a library path that leaves the libraries"
-                        + " folder: " + artifact.get("path"));
-            }
-            if (downloads.fetch(artifact, target)) {
-                downloaded++;
-            }
-            paths.add(target);
-        }
-        if (downloaded > 0) {
-            progress.accept("Downloaded " + downloaded + " Minecraft libraries");
-        }
-        return paths;
-    }
-
-    private static boolean isNative(JsonObject library) {
-        String[] name = library.has("name") ? library.get("name").getAsString().split(":") : new String[0];
-        return name.length > 3 && name[3].startsWith("natives");
-    }
-
-    /** The {@code rules} of Mojang's version data as the launcher reads them: the last matching rule decides. */
-    static boolean allows(JsonArray rules) {
-        if (rules == null || rules.isEmpty()) {
-            return true;
-        }
-        boolean allowed = false;
-        for (JsonElement element : rules) {
-            JsonObject rule = element.getAsJsonObject();
-            if (matches(rule)) {
-                allowed = "allow".equals(rule.get("action").getAsString());
-            }
-        }
-        return allowed;
-    }
-
-    private static boolean matches(JsonObject rule) {
-        if (rule.has("features")) {
-            return false;
-        }
-        if (rule.has("os")) {
-            JsonObject os = rule.getAsJsonObject("os");
-            if (os.has("name") && !os.get("name").getAsString().equals(osName())) {
-                return false;
-            }
-            if (os.has("arch") && os.get("arch").getAsString().equals("x86")) {
-                return System.getProperty("os.arch").equals("x86");
-            }
-        }
-        return true;
-    }
-
-    private static String osName() {
-        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            return "windows";
-        }
-        return os.contains("mac") ? "osx" : "linux";
     }
 
     /** Deletes remapped jars and keys of {@code minecraftVersion} made from other inputs than {@code currentStem}. */

@@ -92,7 +92,6 @@ final class MinecraftDistributionInstaller {
                 .map(mappings -> RemappedGameJar.ensure(
                                 files.clientJar(),
                                 mappings,
-                                libraryPaths,
                                 versionDir.resolve("client-" + gameVersion + "-mojang.jar"),
                                 logger)
                         .jar())
@@ -184,7 +183,6 @@ final class MinecraftDistributionInstaller {
                 .map(mappings -> RemappedGameJar.ensure(
                                 files.serverJar(),
                                 mappings,
-                                files.libraries(),
                                 versionDir.resolve("server-" + gameVersion + "-mojang.jar"),
                                 logger)
                         .jar())

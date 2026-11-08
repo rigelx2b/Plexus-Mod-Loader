@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.gradle.api.logging.Logger;
 
@@ -22,12 +21,8 @@ import org.gradle.api.logging.Logger;
  */
 record RemappedGameJar(Path jar, MojangJarRemapper.Result result, long remapMillis) {
 
-    /**
-     * Remaps {@code obfuscatedJar} into {@code output} unless the cached one has the same inputs. {@code
-     * libraries} are the jar's libraries, for computing stack map frames ({@link MojangJarRemapper}).
-     */
-    static RemappedGameJar ensure(
-            Path obfuscatedJar, Path mappingsFile, List<Path> libraries, Path output, Logger logger) {
+    /** Remaps {@code obfuscatedJar} into {@code output} unless the cached one has the same inputs. */
+    static RemappedGameJar ensure(Path obfuscatedJar, Path mappingsFile, Path output, Logger logger) {
         String key = key(obfuscatedJar, mappingsFile);
         Path keyFile = keyFile(output);
         if (Files.isRegularFile(output) && key.equals(read(keyFile))) {
@@ -40,7 +35,7 @@ record RemappedGameJar(Path jar, MojangJarRemapper.Result result, long remapMill
                 obfuscatedJar.getFileName(),
                 mappings.classCount());
         long start = System.nanoTime();
-        MojangJarRemapper.Result result = MojangJarRemapper.remap(obfuscatedJar, mappings, libraries, output);
+        MojangJarRemapper.Result result = MojangJarRemapper.remap(obfuscatedJar, mappings, output);
         long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
         write(keyFile, key);
         return new RemappedGameJar(output, result, millis);

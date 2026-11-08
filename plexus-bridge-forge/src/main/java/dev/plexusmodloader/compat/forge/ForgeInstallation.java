@@ -310,7 +310,8 @@ final class ForgeInstallation {
     }
 
     private static String namesFileName(String sideName) {
-        return "srg-mojang-" + sideName + ".txt";
+        // v3: overloaded methods carry their Mojang descriptor when their SRG id has one (SrgTranslator.FORMAT 4).
+        return "srg-mojang-" + sideName + "-v3.txt";
     }
 
     /**

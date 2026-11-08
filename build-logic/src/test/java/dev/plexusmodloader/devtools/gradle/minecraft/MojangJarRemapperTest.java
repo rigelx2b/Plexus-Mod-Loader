@@ -161,7 +161,7 @@ class MojangJarRemapperTest {
     }
 
     @Test
-    void framesAreComputedAgainSoAReturnFrameKeepsThisAndTheParameters() throws IOException {
+    void aReturnFrameKeepsThisAndTheParameters() throws IOException {
         // Like the obfuscator's output: the frame at the last return keeps no locals, as none is read after it.
         org.objectweb.asm.ClassWriter writer = new org.objectweb.asm.ClassWriter(0);
         writer.visit(org.objectweb.asm.Opcodes.V1_8, org.objectweb.asm.Opcodes.ACC_PUBLIC, "f", null,
@@ -184,7 +184,6 @@ class MojangJarRemapperTest {
 
         MojangJarRemapper.Result result = MojangJarRemapper.remap(input, mappings, output);
 
-        assertEquals(0, result.unknownTypeMerges());
         org.objectweb.asm.tree.ClassNode remapped = new org.objectweb.asm.tree.ClassNode();
         new org.objectweb.asm.ClassReader(MinecraftVersionDiff.readClasses(output).get("net/minecraft/Frames"))
                 .accept(remapped, 0);
@@ -200,11 +199,9 @@ class MojangJarRemapperTest {
         });
         assertEquals(1, frames.size());
         org.objectweb.asm.tree.FrameNode frame = frames.getFirst();
-        // ASM writes it compressed as "same as the method start": this and the int parameter.
-        assertTrue(
-                frame.type == org.objectweb.asm.Opcodes.F_SAME
-                        || (frame.local != null && frame.local.size() == 2),
-                "frame type " + frame.type + " locals " + frame.local);
+        // The obfuscator's full frame stays full, now with this and the int parameter (ParameterFrames).
+        assertEquals(org.objectweb.asm.Opcodes.F_FULL, frame.type);
+        assertEquals(List.of("net/minecraft/Frames", org.objectweb.asm.Opcodes.INTEGER), frame.local);
         RemappedJarLoadCheck.Result load = RemappedJarLoadCheck.check(output, List.of());
         assertEquals(List.of(), load.failures());
     }

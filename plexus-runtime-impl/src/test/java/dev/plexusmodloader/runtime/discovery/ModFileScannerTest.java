@@ -166,6 +166,54 @@ class ModFileScannerTest {
         assertEquals(ModFileKind.FORGE, scanned("plain.jar").kind());
     }
 
+    /**
+     * NeoForge 20.4 mods whose mods.toml names no loader (Entity Texture Features, ImmediatelyFast) or only forge (YACL)
+     * are told apart by the packages their classes name; a class naming net/minecraftforge/ keeps a jar Forge's.
+     */
+    @Test
+    void aModsTomlWithoutNeoForgeDependencyIsNeoForgesWhenItsClassesNameOnlyNeoForge() throws IOException {
+        String neoClass = "Êþº¾ net/neoforged/fml/common/Mod";
+        String forgeClass = "Êþº¾ net/minecraftforge/fml/common/Mod";
+        jarWith(
+                "etf.jar",
+                java.util.Map.of(
+                        "META-INF/mods.toml",
+                        modsToml("etf", "minecraft"),
+                        "etf/Etf.class",
+                        neoClass,
+                        "etf/Plain.class",
+                        "no loader"));
+        jarWith(
+                "yacl.jar",
+                java.util.Map.of("META-INF/mods.toml", modsToml("yacl", "forge", "minecraft"), "y/Y.class", neoClass));
+        jarWith(
+                "port.jar",
+                java.util.Map.of(
+                        "META-INF/mods.toml",
+                        modsToml("port", "minecraft"),
+                        "p/Neo.class",
+                        neoClass,
+                        "p/Forge.class",
+                        forgeClass));
+        jarWith(
+                "multi.jar",
+                java.util.Map.of(
+                        "fabric.mod.json",
+                        "{}",
+                        "META-INF/mods.toml",
+                        modsToml("multi", "minecraft"),
+                        "m/M.class",
+                        neoClass));
+        jarWith("noclasses.jar", java.util.Map.of("META-INF/mods.toml", modsToml("plain", "minecraft")));
+
+        assertEquals(ModFileKind.NEOFORGE, scanned("etf.jar").kind());
+        assertEquals(ModFileKind.NEOFORGE, scanned("yacl.jar").kind());
+        assertEquals(ModFileKind.FORGE, scanned("port.jar").kind());
+        assertEquals(ModFileKind.FABRIC, scanned("multi.jar").kind());
+        assertEquals(Set.of(ModFileKind.NEOFORGE), scanned("multi.jar").alsoFor());
+        assertEquals(ModFileKind.FORGE, scanned("noclasses.jar").kind());
+    }
+
     /** tr7zw's 1.20.4 NeoForge jars (Entity Culling): a mods.toml for NeoForge 20.4 beside a neoforge.mods.toml. */
     @Test
     void aJarWithBothFilesWhoseModsTomlDependsOnNeoForgeIsNotForForge() throws IOException {
