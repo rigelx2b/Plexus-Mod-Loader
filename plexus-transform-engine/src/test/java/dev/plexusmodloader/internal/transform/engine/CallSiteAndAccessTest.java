@@ -441,6 +441,41 @@ class CallSiteAndAccessTest {
         assertEquals(calls(executor.transform(TARGET, original)), calls(taken));
     }
 
+    /**
+     * Hooks before returns and head hooks that can end the call come in the late pass too, so another transformer in
+     * between reads the method's own frames and counts its own returns (Mixin's local capture at a return, Apoli on
+     * 1.20.1); a head hook that only observes stays early.
+     */
+    @Test
+    void hooksBeforeReturnsAndEndingHeadHooksComeLate() throws Exception {
+        TransformPlan plan = plan(
+                rule(
+                        "test:intercept",
+                        VISIT,
+                        new InvokeHookAtHead(HOOKS, "visitIntercept", HeadHookResult.RETURN_IF_NON_NULL)),
+                rule(
+                        "test:return_first",
+                        VISIT,
+                        new InvokeHookBeforeReturn(HOOKS, "visitReturnFirst"),
+                        "test:intercept"));
+        ClassTransformExecutor executor = new ClassTransformExecutor(plan, Optional.empty(), entry -> {});
+        byte[] original = bytes(TARGET);
+        List<String> skipped = new ArrayList<>();
+
+        byte[] early = executor.transformEarly(TARGET, original);
+        assertEquals(calls(original), calls(early), "the early pass leaves the method as the game has it");
+
+        byte[] late = executor.transformLate(TARGET, early, skipped::add);
+        assertEquals(List.of(), skipped);
+        assertEquals(
+                calls(executor.transform(TARGET, original)), calls(late), "two passes make the calls one pass makes");
+
+        // A head hook that only observes adds no return: it stays early.
+        ClassTransformExecutor observing = new ClassTransformExecutor(
+                plan(rule("test:head", VISIT, head("visitHeadFirst"))), Optional.empty(), entry -> {});
+        assertTrue(calls(observing.transformEarly(TARGET, original)).contains("visit: " + HOOKS + ".visitHeadFirst"));
+    }
+
     @Test
     void observersThatCannotApplyAreRejected() {
         TransformPlan plan = plan(

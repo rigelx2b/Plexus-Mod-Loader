@@ -39,6 +39,11 @@ import java.util.function.Predicate;
  *       26.1-62.0.9 (identical {@code ModList}): every method is static; {@code getModFileById(String)} is {@code
  *       return (IModFileInfo) FILE_BY_ID.get(id);} and {@code isLoaded(String)} is {@code return
  *       indexedMods.containsKey(id);}. A method left unchanged is reported as {@code PLEXUS-COMPAT-211}.
+ *   <li>MinecraftForge's before 26.1 ({@link Shape#FORGE_1}), checked with {@code javap} against {@code fmlcore}
+ *       1.20.1-47.4.28, 1.20.4-49.2.13, 1.21.1-52.1.21 and 1.21.11-61.2.5: the methods are instance methods of the
+ *       one {@code ModList}, as in NeoForge's; {@code getModFileById(String)} is {@code return (IModFileInfo)
+ *       this.fileById.get(id);} and {@code isLoaded(String)} is {@code return this.indexedMods.containsKey(id);}.
+ *       The answers are the same {@code ForeignModList} as for {@link Shape#FORGE}; {@code PLEXUS-COMPAT-211} too.
  *   <li>NeoForge's FML 11 ({@link Shape#NEOFORGE}, ADR-0026), checked with {@code javap} against {@code loader}
  *       11.0.16 (NeoForge 26.2.0.93): the methods are instance methods of the one {@code ModList}; {@code
  *       getModFileById(String)} is {@code return (IModFileInfo) this.fileById.get(id);} and {@code isLoaded(String)}
@@ -77,6 +82,14 @@ final class ForgeModListPatch {
                 "FILE_BY_ID",
                 ClassDesc.of(ForgeBootModules.HOST_PACKAGE + ".ForeignModList"));
 
+        /** MinecraftForge's FML before 26.1 (47 to 61, on ModLauncher); the answers are where {@link #FORGE}'s are. */
+        static final Shape FORGE_1 = new Shape(
+                "net.minecraftforge.fml.ModList",
+                ClassDesc.of("net.minecraftforge.forgespi.language.IModFileInfo"),
+                true,
+                "fileById",
+                ClassDesc.of(ForgeBootModules.HOST_PACKAGE + ".ForeignModList"));
+
         /** NeoForge's FML 11 ({@code loader}); the answers are in {@code neoforge-host.jar}'s module (ADR-0026). */
         static final Shape NEOFORGE = new Shape(
                 "net.neoforged.fml.ModList",
@@ -84,6 +97,18 @@ final class ForgeModListPatch {
                 true,
                 "fileById",
                 ClassDesc.of("dev.plexusmodloader.compat.forge.fml.ForeignModList"));
+
+        /**
+         * NeoForge's FML 2 and 4 (NeoForge 20.4 and 21.1, on ModLauncher, ADR-0043), checked with {@code javap}
+         * against {@code loader} 2.0.17 and 4.0.45: the same instance lookups as {@link #NEOFORGE}; the answers are in
+         * the host jar's part of {@code cpw.mods.modlauncher}, compiled against that FML.
+         */
+        static final Shape NEOFORGE_MODLAUNCHER = new Shape(
+                "net.neoforged.fml.ModList",
+                ClassDesc.of("net.neoforged.neoforgespi.language.IModFileInfo"),
+                true,
+                "fileById",
+                ClassDesc.of(ForgeBootModules.HOST_PACKAGE + ".NeoForgeForeignModList"));
 
         String packageName() {
             return className.substring(0, className.lastIndexOf('.'));
@@ -142,7 +167,14 @@ final class ForgeModListPatch {
      * @param report gets each result, for the log
      */
     static ModuleReference patching(ModuleReference reference, ClassDesc foreignModList, Consumer<Result> report) {
-        return patching(reference, Shape.FORGE, foreignModList, report);
+        if (!reference.descriptor().packages().contains(Shape.FORGE.packageName())) {
+            return reference;
+        }
+        return PatchedClassReference.of(reference, Shape.FORGE.classFile(), bytes -> {
+            Result result = apply(bytes, foreignModList);
+            report.accept(result);
+            return result.bytes();
+        });
     }
 
     /**
@@ -165,12 +197,20 @@ final class ForgeModListPatch {
 
     /**
      * MinecraftForge's {@code ModList} class file with its lookups falling back to {@code foreignModList}'s static
-     * {@code getModFileById(String)IModFileInfo} and {@code isLoaded(String)Z}.
+     * {@code getModFileById(String)IModFileInfo} and {@code isLoaded(String)Z}: the static lookups of 26.x ({@link
+     * Shape#FORGE}), or else the instance ones of the FMLs before ({@link Shape#FORGE_1}).
      *
      * @param original the class file of {@link #CLASS_NAME}; any other class is returned unchanged
      */
     static Result apply(byte[] original, ClassDesc foreignModList) {
-        return apply(original, Shape.FORGE, foreignModList);
+        Result result = apply(original, Shape.FORGE, foreignModList);
+        if (result.changed().isEmpty()) {
+            Result before26 = apply(original, Shape.FORGE_1, foreignModList);
+            if (!before26.changed().isEmpty()) {
+                return before26;
+            }
+        }
+        return result;
     }
 
     /**

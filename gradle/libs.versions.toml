@@ -154,6 +154,7 @@ neoforge-fml12-loader = { module = "net.neoforged.fancymodloader:loader", versio
 neoforge-fml4-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml4" }
 neoforge-securejarhandler2 = { module = "cpw.mods:securejarhandler", version.ref = "neoforgeSecurejarhandler2" }
 neoforge-fml2-loader = { module = "net.neoforged.fancymodloader:loader", version.ref = "neoforgeFml2" }
+neoforge-fml2-spi = { module = "net.neoforged.fancymodloader:spi", version.ref = "neoforgeFml2" }
 neoforge-modlauncher11 = { module = "cpw.mods:modlauncher", version.ref = "neoforgeModlauncher11" }
 neoforge-securejarhandler3 = { module = "cpw.mods:securejarhandler", version.ref = "neoforgeSecurejarhandler3" }
 neoforge-mergetool-api = { module = "net.neoforged:mergetool", version.ref = "neoforgeMergetool" }

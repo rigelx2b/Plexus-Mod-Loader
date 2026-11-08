@@ -410,6 +410,7 @@ final class HostPatchAdjustments {
             List.of(),
             HostAddedMembers.NONE,
             HostRenamedLocals.NONE,
+            HostCapturedLocals.NONE,
             HostRenumberedClasses.NONE,
             HostRefmapNames.NONE);
 
@@ -441,6 +442,9 @@ final class HostPatchAdjustments {
     /** {@code @Local} captures of locals the patch renamed ({@link HostRenamedLocals}). */
     private final HostRenamedLocals locals;
 
+    /** Captures by position of locals the patch moved to other slots ({@link HostCapturedLocals}). */
+    private final HostCapturedLocals capturedLocals;
+
     /** Mixin targets the patch renumbered ({@link HostRenumberedClasses}). */
     private final HostRenumberedClasses renumbered;
 
@@ -468,6 +472,7 @@ final class HostPatchAdjustments {
             List<Finding> findings,
             HostAddedMembers members,
             HostRenamedLocals locals,
+            HostCapturedLocals capturedLocals,
             HostRenumberedClasses renumbered,
             HostRefmapNames referenceMapped) {
         this.mixins = mixins;
@@ -490,6 +495,7 @@ final class HostPatchAdjustments {
         this.findings = findings;
         this.members = members;
         this.locals = locals;
+        this.capturedLocals = capturedLocals;
         this.renumbered = renumbered;
         this.referenceMapped = referenceMapped;
     }
@@ -538,6 +544,7 @@ final class HostPatchAdjustments {
         List<Finding> findings = new ArrayList<>();
         HostAddedMembers.Planner members = new HostAddedMembers.Planner(host, classes);
         HostRenamedLocals.Planner locals = new HostRenamedLocals.Planner(host, classes);
+        HostCapturedLocals.Planner capturedLocals = new HostCapturedLocals.Planner(host, classes);
         HostRenumberedClasses.Planner renumbering = new HostRenumberedClasses.Planner(classes);
         HostRefmapNames.Planner referenceMapped = new HostRefmapNames.Planner();
         // Types that left-out mixins would have given the game (their interfaces; accessor mixins themselves), and the
@@ -595,6 +602,7 @@ final class HostPatchAdjustments {
                     }
                     findings.addAll(memberFindings);
                     List<Finding> localFindings = locals.check(modId, config, model);
+                    findings.addAll(capturedLocals.check(modId, config, model));
                     Set<String> notRunning = new HashSet<>();
                     Set<String> adjusted = new HashSet<>();
                     List<Injection> injections = injections(model, host, classes, notRunning, adjusted);
@@ -788,6 +796,7 @@ final class HostPatchAdjustments {
                 List.copyOf(findings),
                 members.build(),
                 locals.build(),
+                capturedLocals.build(),
                 renumbering.build(),
                 referenceMapped.build());
     }
@@ -1126,7 +1135,8 @@ final class HostPatchAdjustments {
                 }
             }));
         }
-        return locals.apply(internalName, classFile.transformClass(model, transform));
+        return capturedLocals.apply(
+                internalName, locals.apply(internalName, classFile.transformClass(model, transform)));
     }
 
     /** {@code conflict}'s method: public, it calls {@code hostInterface}'s default with the same arguments. */
@@ -3019,6 +3029,12 @@ final class HostPatchAdjustments {
                 if (delegated.isPresent()) {
                     return delegated;
                 }
+            } else {
+                Optional<Injection> delegated =
+                        delegatedMethod(handler, type, where, selector, points, before, patched, host);
+                if (delegated.isPresent()) {
+                    return delegated;
+                }
             }
             // A slice whose boundary the patch removed selects nothing, so the injection finds nothing in it.
             for (String[] boundary : boundaries) {
@@ -4058,6 +4074,139 @@ final class HostPatchAdjustments {
         }
         return changedParameters(handler, where + " at " + point, vanilla.getFirst(), moved.getFirst(), host)
                 .map(Injection::bridge);
+    }
+
+    /**
+     * An {@code @Inject} at the end ({@code RETURN} or {@code TAIL}) of a method that the host's patch turned into a
+     * call of an overload it added, which takes the vanilla method's parameters, in order, and more, and holds the
+     * vanilla body: NeoForge 20.4.253's {@code RenderRegionCache.createRegion(Level, BlockPos, BlockPos, int)} only
+     * returns {@code createRegion(level, from, to, padding, true)} (javap). Fabric API's {@code
+     * ChunkRendererRegionBuilderMixin} (fabric-block-view-api-v2) captures the vanilla body's locals at its return
+     * ({@code CAPTURE_FAILHARD}); in the delegating method there are none, and Mixin stopped the client building chunk
+     * meshes ("Invalid descriptor"). The injection moves to the overload and a bridge passes the handler the parameters
+     * it was written for ({@link #movedBodyBridge}); the captured locals follow the parameters in both. Empty for another
+     * injector or point, or when the patched method does more than pass its own parameters on, first and in order, with
+     * constants after them, to an overload of its own name and return type.
+     */
+    private static Optional<Injection> delegatedMethod(
+            MethodModel handler,
+            String type,
+            String where,
+            String selector,
+            List<String[]> points,
+            List<MethodModel> before,
+            ClassModel patched,
+            HostedLaunch host) {
+        if (!type.equals(INJECT)
+                || before.size() != 1
+                || points.isEmpty()
+                || points.stream().anyMatch(point -> !point[0].equals("RETURN") && !point[0].equals("TAIL"))) {
+            return Optional.empty();
+        }
+        MethodModel vanilla = before.getFirst();
+        // Only a handler that captures the vanilla body's locals (more parameters than the target's and its callback
+        // info) breaks in the delegating method; any other one keeps running there, for the vanilla method's calls
+        // only.
+        if (handler.methodTypeSymbol().parameterCount()
+                <= vanilla.methodTypeSymbol().parameterCount() + 1) {
+            return Optional.empty();
+        }
+        String name = vanilla.methodName().stringValue();
+        String owner = patched.thisClass().asInternalName();
+        Optional<MethodModel> patchedVanilla = methods(
+                        patched, name, vanilla.methodType().stringValue())
+                .stream()
+                .findFirst();
+        Optional<String> longer = patchedVanilla.flatMap(method -> overloadCalled(method, owner));
+        if (longer.isEmpty()) {
+            return Optional.empty();
+        }
+        List<MethodModel> moved = methods(patched, name, longer.get());
+        String movedSpec = name + longer.get();
+        return movedBodyBridge(handler, type, where, "the method's end", before, moved, host)
+                .map(bridge -> new Injection(
+                        where + ": " + host.hostName() + " made that method return " + movedSpec
+                                + ", which takes its parameters and more and holds the vanilla body;"
+                                + " the injection runs at the end of that one and passes the handler the parameters"
+                                + " it was written for",
+                        null,
+                        new MethodRetarget(
+                                handler.methodName().stringValue(),
+                                handler.methodType().stringValue(),
+                                selector,
+                                movedSpec),
+                        null,
+                        null,
+                        bridge,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+    }
+
+    /**
+     * The descriptor of the overload {@code method} only delegates to: its code loads {@code this} (unless static) and
+     * each of its parameters in order, then only constants ({@code ICONST_1}, {@code LDC}, static fields), calls a
+     * method of {@code owner} with its own name, static-ness and return type whose parameters start with its own and
+     * are more, and returns that call's result.
+     */
+    private static Optional<String> overloadCalled(MethodModel method, String owner) {
+        boolean isStatic = method.flags().has(AccessFlag.STATIC);
+        MethodTypeDesc type = method.methodTypeSymbol();
+        List<Integer> expected = new ArrayList<>();
+        int slot = 0;
+        if (!isStatic) {
+            expected.add(slot++);
+        }
+        for (ClassDesc parameter : type.parameterList()) {
+            expected.add(slot);
+            slot += TypeKind.from(parameter).slotSize();
+        }
+        List<Instruction> instructions = new ArrayList<>();
+        for (CodeElement element : method.code().map(code -> code.elementList()).orElse(List.of())) {
+            if (element instanceof Instruction instruction) {
+                instructions.add(instruction);
+            }
+        }
+        int index = 0;
+        for (int expectedSlot : expected) {
+            if (index >= instructions.size()
+                    || !(instructions.get(index) instanceof LoadInstruction load)
+                    || load.slot() != expectedSlot) {
+                return Optional.empty();
+            }
+            index++;
+        }
+        while (index < instructions.size()
+                && (instructions.get(index) instanceof ConstantInstruction
+                        || (instructions.get(index) instanceof FieldInstruction field
+                                && field.opcode() == Opcode.GETSTATIC))) {
+            index++;
+        }
+        if (index + 2 != instructions.size()
+                || !(instructions.get(index) instanceof InvokeInstruction invoke)
+                || !(instructions.get(index + 1) instanceof java.lang.classfile.instruction.ReturnInstruction)) {
+            return Optional.empty();
+        }
+        MethodTypeDesc called = invoke.typeSymbol();
+        boolean sameKind = isStatic
+                ? invoke.opcode() == Opcode.INVOKESTATIC
+                : invoke.opcode() == Opcode.INVOKEVIRTUAL || invoke.opcode() == Opcode.INVOKESPECIAL;
+        if (!sameKind
+                || !invoke.owner().asInternalName().equals(owner)
+                || !invoke.name().equalsString(method.methodName().stringValue())
+                || !called.returnType().equals(type.returnType())
+                || called.parameterCount() <= type.parameterCount()
+                || !called.parameterList().subList(0, type.parameterCount()).equals(type.parameterList())) {
+            return Optional.empty();
+        }
+        return Optional.of(called.descriptorString());
     }
 
     /**

@@ -188,6 +188,30 @@ class CrossLoaderModResolverTest {
     }
 
     @Test
+    void theOnlyCopyOfAModWinsOverANewerCopyOfAnIdItProvides() {
+        // Quilted Fabric API 7.7.0 requires its nested quilted_fabric_api_base, which provides fabric-api-base 0.4.31;
+        // a Fabric mod nests fabric-api-base 0.4.32 (2026-11-09, 1.20.1 Quilt corpus).
+        ForeignMod qfapi = mod("qfapi", "7.7.0", List.of(), requires("qfapi_base", "*"));
+        ForeignMod fabricMod = mod("fabric_mod", "1.0.0", List.of());
+        CrossLoaderModResolver.Result result = resolve(
+                List.of(
+                        qfapi,
+                        nestedIn(qfapi, mod("qfapi_base", "0.4.31", List.of("api_base"))),
+                        fabricMod,
+                        nested(fabricMod, "api_base", "0.4.32")),
+                Map.of());
+
+        assertEquals(
+                List.of(
+                        "qfapi@7.7.0=EXPERIMENTAL[]",
+                        "qfapi_base@0.4.31=EXPERIMENTAL[]",
+                        "fabric_mod@1.0.0=EXPERIMENTAL[]",
+                        "api_base@0.4.32=BLOCKED[PLEXUS-COMPAT-122]"),
+                statuses(result));
+        assertEquals("0.4.31", result.loadableVersions().get("api_base"));
+    }
+
+    @Test
     void theNewestNestedCopyIsUsedAndANextOneIfItCannotLoad() {
         ForeignMod first = mod("first", "1.0.0", List.of());
         ForeignMod second = mod("second", "1.0.0", List.of());

@@ -141,6 +141,9 @@ dependencies {
     "neoForgeFml4HostCompileOnly"(variantOf(libs.neoforge.mergetool.api) { classifier("api") }) { isTransitive = false }
     "neoForgeFml4HostCompileOnly"(libs.slf4j.api)
     "neoForgeFml4HostCompileOnly"(libs.asm)
+    "neoForgeFml4HostCompileOnly"(libs.maven.artifact)
+    "neoForgeFml4HostCompileOnly"(sourceSets.main.get().output)
+    "neoForgeFml4HostCompileOnly"(project(":plexus-bridge-api"))
     // FmlArguments and ModPathList, which have no FML types, are in the ModLauncher implementation (forgeHost).
     "neoForgeFml4HostCompileOnly"(forgeHost.output)
     // ModPathListTest: the one class of the host that has no FML types.
@@ -158,11 +161,15 @@ val neoForgeFml4HostJar = tasks.register<Jar>("neoForgeFml4HostJar") {
 val neoForgeFml2Host = sourceSets.create("neoForgeFml2Host")
 dependencies {
     "neoForgeFml2HostCompileOnly"(libs.neoforge.fml2.loader) { isTransitive = false }
+    "neoForgeFml2HostCompileOnly"(libs.neoforge.fml2.spi) { isTransitive = false }
     "neoForgeFml2HostCompileOnly"(libs.forge47.modlauncher) { isTransitive = false }
     "neoForgeFml2HostCompileOnly"(libs.neoforge.securejarhandler2) { isTransitive = false }
     "neoForgeFml2HostCompileOnly"(variantOf(libs.neoforge.mergetool.api) { classifier("api") }) { isTransitive = false }
     "neoForgeFml2HostCompileOnly"(libs.slf4j.api)
     "neoForgeFml2HostCompileOnly"(libs.asm)
+    "neoForgeFml2HostCompileOnly"(libs.maven.artifact)
+    "neoForgeFml2HostCompileOnly"(sourceSets.main.get().output)
+    "neoForgeFml2HostCompileOnly"(project(":plexus-bridge-api"))
     "neoForgeFml2HostCompileOnly"(forgeHost.output)
 }
 val neoForgeFml2HostJar = tasks.register<Jar>("neoForgeFml2HostJar") {

@@ -1,6 +1,9 @@
 package dev.plexusmodloader.internal.transform.engine;
 
 import dev.plexusmodloader.internal.transform.AccessWidening;
+import dev.plexusmodloader.internal.transform.HeadHookResult;
+import dev.plexusmodloader.internal.transform.InvokeHookAtHead;
+import dev.plexusmodloader.internal.transform.InvokeHookBeforeReturn;
 import dev.plexusmodloader.internal.transform.MethodTransformAction;
 import dev.plexusmodloader.internal.transform.RedirectCall;
 import dev.plexusmodloader.internal.transform.TransformProblem;
@@ -118,9 +121,11 @@ public final class ClassTransformExecutor {
 
     /**
      * The first of two passes for a class that another transformer (a loader bridge's Mixin) changes in between: every
-     * rule and access widening except call redirects ({@link RedirectCall}), which {@link #transformLate} applies
-     * afterwards (ADR-0020). The other transformer then sees each call Plexus Mod Loader redirects as the game has it, so its
-     * own injections at that call still find it.
+     * rule and access widening except call redirects ({@link RedirectCall}), head hooks that can end the call and hooks
+     * before returns ({@link InvokeHookBeforeReturn}), which {@link #transformLate} applies afterwards (ADR-0020). The other transformer then
+     * sees each call Plexus Mod Loader redirects as the game has it, so its own injections at that call still find it,
+     * and the frames of a method with a hook before its returns as the game has them, so the locals it captures there
+     * are the game's.
      */
     public byte[] transformEarly(String internalName, byte[] original) {
         List<TransformRuleDefinition> rules = earlyRules(internalName);
@@ -141,7 +146,8 @@ public final class ClassTransformExecutor {
     }
 
     /**
-     * The second pass: call redirects, on the class as the other transformer left it. A redirect whose call is no
+     * The second pass: call redirects, head hooks that can end the call and hooks before returns, on the class as the
+     * other transformer left it. A redirect whose call is no
      * longer there (the other transformer replaced or moved it, as Mixin's {@code @Redirect} and {@code @WrapOperation}
      * do) is left out and reported to {@code skipped}; the class still loads, and only that rule does not apply to it.
      *
@@ -196,14 +202,34 @@ public final class ClassTransformExecutor {
 
     private List<TransformRuleDefinition> earlyRules(String internalName) {
         return plan.rulesByClass().getOrDefault(internalName, List.of()).stream()
-                .filter(rule -> !(rule.action() instanceof RedirectCall))
+                .filter(rule -> !late(rule))
                 .toList();
     }
 
     private List<TransformRuleDefinition> lateRules(String internalName) {
         return plan.rulesByClass().getOrDefault(internalName, List.of()).stream()
-                .filter(rule -> rule.action() instanceof RedirectCall)
+                .filter(ClassTransformExecutor::late)
                 .toList();
+    }
+
+    /**
+     * Call redirects, head hooks that can end the call, and hooks before each return: such a hook loads {@code this} and the parameters at every return,
+     * so the method's frames must hold them there ({@link ParameterFrames}), and the other transformer reads locals
+     * from those frames (Mixin 0.8.7's {@code Locals}): Apoli's {@code ServerPlayerInteractionManagerMixin} captures
+     * {@code ServerPlayerGameMode.destroyBlock}'s locals at its last return on 1.20.1, where the obfuscator's full frame
+     * holds no locals and Mixin keeps the ones stored before it; with {@code this} and the parameter in that frame,
+     * Mixin dropped them ("LVT ... has incompatible changes").
+     */
+    private static boolean late(TransformRuleDefinition rule) {
+        return switch (rule.action()) {
+            case RedirectCall redirect -> true;
+            case InvokeHookBeforeReturn hook -> true;
+            // A head hook that can end the call adds a return the game does not have, and the other transformer counts
+            // returns (Mixin's @At("RETURN", ordinal = 4) in Apoli's ServerPlayerInteractionManagerMixin found
+            // destroyBlock's fourth return instead of its last one on 1.20.1).
+            case InvokeHookAtHead hook -> hook.result() != HeadHookResult.CONTINUE;
+            default -> false;
+        };
     }
 
     /**
@@ -268,8 +294,11 @@ public final class ClassTransformExecutor {
             byMethod.computeIfAbsent(method, ignored -> new ArrayList<>()).add(rule.action());
         }
         byMethod.forEach((method, actions) -> {
-            // The obfuscated game's frames drop dead parameters; an inserted hook loads them (ParameterFrames).
-            ParameterFrames.keepParameters(internalName, method);
+            // The obfuscated game's frames drop dead parameters; a hook before a return loads them (ParameterFrames).
+            // The other actions load them only where the method starts or take their values from the stack.
+            if (actions.stream().anyMatch(InvokeHookBeforeReturn.class::isInstance)) {
+                ParameterFrames.keepParameters(internalName, method);
+            }
             MethodActionApplier.applyInOrder(actions, internalName, method);
         });
         if (!widenings.isEmpty()) {

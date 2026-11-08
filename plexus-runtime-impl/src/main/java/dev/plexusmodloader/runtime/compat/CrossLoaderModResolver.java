@@ -374,7 +374,15 @@ public final class CrossLoaderModResolver {
                         .filter(index -> !mods.get(index).nested())
                         .findFirst()
                         .orElse(null);
-                int winner = direct != null ? direct : newest(id, nested);
+                // A nested copy that only provides the ID and is the only copy of its own mod ID wins over copies that
+                // are not (Quilted Fabric API's quilted_fabric_api_base, which provides fabric-api-base, over a newer
+                // fabric-api-base nested in a Fabric mod): Quilt Loader must load the only copy of a mod a loaded mod
+                // requires, and leaves out the other copies of what it provides.
+                List<Integer> soleCopies = nested.stream()
+                        .filter(index -> !replaced.containsKey(index))
+                        .filter(index -> soleCopyOfItsOwnId(index, id, copies))
+                        .toList();
+                int winner = direct != null ? direct : newest(id, soleCopies.isEmpty() ? nested : soleCopies);
                 ForeignMod chosen = mods.get(winner);
                 for (int index : nested) {
                     if (index != winner) {
@@ -387,6 +395,12 @@ public final class CrossLoaderModResolver {
                 }
             }
             return replaced;
+        }
+
+        /** Whether the mod at {@code index} carries {@code id} only as a provided ID and is the only copy of its own. */
+        private boolean soleCopyOfItsOwnId(int index, String id, Map<String, List<Integer>> copies) {
+            String ownId = mods.get(index).assessment().modId();
+            return !ownId.equals(id) && copies.getOrDefault(ownId, List.of()).equals(List.of(index));
         }
 
         private int newest(String id, List<Integer> indexes) {

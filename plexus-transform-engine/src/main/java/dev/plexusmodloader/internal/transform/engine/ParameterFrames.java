@@ -10,7 +10,7 @@ import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.MethodNode;
 
 /**
- * Makes {@code this} and the parameters live in every stack map frame of a method a transformation rule changes.
+ * Makes {@code this} and the parameters live in every stack map frame of a method a rule gives a hook before its returns.
  *
  * <p>The obfuscator keeps only live locals in a frame: a parameter nothing reads any more is {@code TOP}, and at the
  * last {@code return} of a method a frame may hold no locals at all, so a hook that a rule inserts there could not load
@@ -18,7 +18,8 @@ import org.objectweb.asm.tree.MethodNode;
  * revision 5): Mixin 0.8.7 reads the locals at an injection point from the frames' kinds ({@code Locals.getLocalsAt}),
  * and the mods were made against those frames (QSL's implicit {@code @ModifyVariable} in {@code EnchantmentMenu},
  * ADR-0048; Cardinal Components' in {@code BlockInput.place} found no {@code BlockEntity} when every frame was full).
- * Only the methods a rule changes get live parameters, when the rule applies.
+ * Only the methods a rule gives a hook before their returns get live parameters, when the rule applies, and that rule
+ * applies after the other loaders' Mixin (ClassTransformExecutor#transformLate).
  *
  * <p>Every other local stays as the obfuscator wrote it, and so does the kind of each frame where it still fits. A frame
  * whose kind no longer fits because a parameter became live (a {@code chop} into the parameters, or a frame after a full

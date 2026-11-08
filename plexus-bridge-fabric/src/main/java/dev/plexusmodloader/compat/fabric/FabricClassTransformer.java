@@ -30,13 +30,15 @@ final class FabricClassTransformer implements BridgeClassTransformer {
     private final Optional<BridgeClassTransformer> mixin;
     /** Under a host loader: interfaces given conflicting defaults by the host's patch and a mod (ADR-0026 42). */
     private final Optional<HostInterfaceDefaults> hostDefaults;
+    /** Under a host loader: enum constructors its patch made private ({@link HostEnumConstructors}), or null. */
+    private final HostEnumConstructors hostEnums;
 
     FabricClassTransformer(
             EnvironmentStripper stripper,
             InterfaceInjector injector,
             EnumExtender extender,
             Optional<BridgeClassTransformer> mixin) {
-        this(null, stripper, injector, extender, mixin, Optional.empty());
+        this(null, stripper, injector, extender, mixin, Optional.empty(), null);
     }
 
     FabricClassTransformer(
@@ -45,13 +47,15 @@ final class FabricClassTransformer implements BridgeClassTransformer {
             InterfaceInjector injector,
             EnumExtender extender,
             Optional<BridgeClassTransformer> mixin,
-            Optional<HostInterfaceDefaults> hostDefaults) {
+            Optional<HostInterfaceDefaults> hostDefaults,
+            HostEnumConstructors hostEnums) {
         this.classes = classes;
         this.stripper = stripper;
         this.injector = injector;
         this.extender = extender;
         this.mixin = mixin;
         this.hostDefaults = hostDefaults;
+        this.hostEnums = hostEnums;
     }
 
     @Override
@@ -69,7 +73,7 @@ final class FabricClassTransformer implements BridgeClassTransformer {
 
     @Override
     public byte[] transform(String className, byte[] bytes) {
-        byte[] prepared = preMixin(classes, stripper, injector, extender, className, bytes);
+        byte[] prepared = preMixin(classes, stripper, injector, extender, hostEnums, className, bytes);
         byte[] transformed = mixin.isPresent() ? mixin.get().transform(className, prepared) : prepared;
         return hostDefaults.isPresent() ? hostDefaults.get().apply(className, bytes, transformed) : transformed;
     }
@@ -92,9 +96,11 @@ final class FabricClassTransformer implements BridgeClassTransformer {
             EnvironmentStripper stripper,
             InterfaceInjector injector,
             EnumExtender extender,
+            HostEnumConstructors hostEnums,
             String className,
             byte[] bytes) {
-        byte[] prepared = extender.apply(className, injector.apply(className, stripper.apply(className, bytes)));
+        byte[] opened = hostEnums == null ? bytes : hostEnums.apply(className, bytes);
+        byte[] prepared = extender.apply(className, injector.apply(className, stripper.apply(className, opened)));
         return adaptHostTargetClass(classes, className, prepared);
     }
 
@@ -156,12 +162,16 @@ final class FabricClassTransformer implements BridgeClassTransformer {
      * Fabric Loader hands Mixin classes after its own transformer.
      */
     static GameClassBytes preMixinView(
-            GameClassBytes classes, EnvironmentStripper stripper, InterfaceInjector injector, EnumExtender extender) {
+            GameClassBytes classes,
+            EnvironmentStripper stripper,
+            InterfaceInjector injector,
+            EnumExtender extender,
+            HostEnumConstructors hostEnums) {
         return new GameClassBytes() {
             @Override
             public Optional<byte[]> classBytes(String className) {
                 return classes.classBytes(className)
-                        .map(bytes -> preMixin(classes, stripper, injector, extender, className, bytes));
+                        .map(bytes -> preMixin(classes, stripper, injector, extender, hostEnums, className, bytes));
             }
 
             @Override

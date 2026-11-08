@@ -7,6 +7,7 @@ import dev.plexusmodloader.compat.bridge.GameHost;
 import dev.plexusmodloader.compat.bridge.GameModuleLayers;
 import dev.plexusmodloader.compat.bridge.InjectionPointReplacement;
 import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
+import dev.plexusmodloader.internal.transform.TransformRuleDefinition;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -304,7 +305,7 @@ final class NeoForgeFml4GameHost implements GameHost {
 
     private void start(GameModuleLayers layers, GameClassBytes classes, ClassHierarchyResolver hierarchy)
             throws Exception {
-        UnaryOperator<ModuleReference> library = request.sharedMixin()
+        UnaryOperator<ModuleReference> sharedMixin = request.sharedMixin()
                 ? reference -> Fml4SharedMixinPatch.patching(reference, hierarchy, result -> {
                     if (!result.missing().isEmpty()) {
                         throw new IllegalStateException("PLEXUS-COMPAT-215 FML's Mixin hand-over is not the code Plexus"
@@ -315,6 +316,8 @@ final class NeoForgeFml4GameHost implements GameHost {
                     }
                 })
                 : UnaryOperator.identity();
+        UnaryOperator<ModuleReference> modList = modListPatch();
+        UnaryOperator<ModuleReference> library = reference -> modList.apply(sharedMixin.apply(reference));
         ModuleLayer boot = ForgeBootModules.define(
                 libraries,
                 hostJar,
@@ -379,6 +382,65 @@ final class NeoForgeFml4GameHost implements GameHost {
             }
             throw e;
         }
+        if (foreignPayloadRules()) {
+            // Other loaders' custom payloads next to NeoForge 20.4's (ADR-0026 40).
+            NeoForgeFml2ForeignPayloads.install(
+                    launch.gameLayer().modules().iterator().next().getClassLoader());
+        }
+    }
+
+    /**
+     * With other mods in this launch, FML's {@code ModList} (in FML's {@code fml_loader}, a BOOT module whose classes are
+     * defined as they are) is read through {@link ForgeModListPatch} so that it answers for them too (ADR-0025); {@code
+     * PLEXUS-COMPAT-218} when its code is not the one checked.
+     */
+    private UnaryOperator<ModuleReference> modListPatch() {
+        if (otherMods.isEmpty()) {
+            return UnaryOperator.identity();
+        }
+        int count = otherMods.mods().size();
+        return reference -> ForgeModListPatch.patching(
+                reference,
+                ForgeModListPatch.Shape.NEOFORGE_MODLAUNCHER,
+                ForgeModListPatch.Shape.NEOFORGE_MODLAUNCHER.foreignModList(),
+                result -> {
+                    if (!result.changed().isEmpty()) {
+                        request.log()
+                                .accept("FML's ModList " + result.changed() + " also answers for " + count
+                                        + " Plexus Mod(s) and other loaders' mod(s) (ADR-0025)");
+                    }
+                    if (!result.unchanged().isEmpty()) {
+                        request.log()
+                                .accept("PLEXUS-COMPAT-218 NeoForge's FML ModList " + result.unchanged()
+                                        + " is not the code Plexus Mod Loader checked (" + name() + "); through it,"
+                                        + " NeoForge mods do not see the " + count
+                                        + " Plexus Mod(s) and other loaders' mod(s)");
+                    }
+                });
+    }
+
+    /** NeoForge 20.4 with other loaders' mods: its channel checks would refuse their payloads. */
+    private boolean foreignPayloadRules() {
+        return request.sharedMixin() && fml2();
+    }
+
+    /**
+     * With other loaders' mods next to NeoForge 20.4, the rules that leave their custom payloads to their own networking
+     * ({@link NeoForgeFml2ForeignPayloads}, ADR-0026 40). NeoForge 21.1's channel checks did not refuse them in the
+     * client window check ({@code corpusFabricNeoForgeClient}), so it has none.
+     */
+    @Override
+    public List<TransformRuleDefinition> transformRules(String gameLayerPackage) {
+        if (!foreignPayloadRules() || gameLayerPackage.isEmpty()) {
+            return transformRules();
+        }
+        return NeoForgeFml2ForeignPayloads.rules(request.gameVersion(), gameLayerPackage);
+    }
+
+    /** NeoForge's universal jar, which has the class {@link NeoForgeFml2ForeignPayloads}' rules target. */
+    @Override
+    public List<Path> transformTargetJars() {
+        return foreignPayloadRules() ? List.of(files.universal()) : List.of();
     }
 
     /**

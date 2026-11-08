@@ -4506,6 +4506,213 @@ class HostPatchAdjustmentsTest {
     }
 
     /**
+     * NeoForge 20.4's {@code RenderRegionCache.createRegion(Level, BlockPos, BlockPos, int)} only returns its added
+     * overload with {@code true}, which holds the vanilla body: Fabric API's injection at the vanilla method's return,
+     * capturing the body's locals, moves to the overload through a bridge.
+     */
+    @Test
+    void anInjectCapturingLocalsAtTheEndOfAMethodFollowsItIntoTheOverloadItReturns() throws Exception {
+        assertMethodEndInjection(true, true);
+    }
+
+    /** A handler that captures no locals keeps running in the delegating method, for the vanilla method's calls. */
+    @Test
+    void anInjectWithoutLocalsAtTheEndOfAMethodStays() throws Exception {
+        assertMethodEndInjection(false, false);
+    }
+
+    private void assertMethodEndInjection(boolean capturesLocals, boolean moves) throws Exception {
+        ClassDesc callbackInfo = ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo");
+        MethodTypeDesc handlerType = capturesLocals
+                ? MethodTypeDesc.of(CD_void, CD_int, callbackInfo, CD_int)
+                : MethodTypeDesc.of(CD_void, CD_int, callbackInfo);
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("build"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", "RETURN")))));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.RegionMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("createDataMap", handlerType, ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar =
+                jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"RegionMixin\"]}", "m/RegionMixin.class", mixin));
+        MethodTypeDesc one = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc two = MethodTypeDesc.of(CD_void, CD_int, CD_boolean);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "build",
+                                one,
+                                0,
+                                code -> code.iconst_0().istore(2).return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                        "build",
+                                        one,
+                                        0,
+                                        code -> code.aload(0)
+                                                .iload(1)
+                                                .iconst_1()
+                                                .invokevirtual(TARGET, "build", two)
+                                                .return_())
+                                .withMethodBody(
+                                        "build",
+                                        two,
+                                        0,
+                                        code -> code.iconst_0().istore(3).return_()));
+
+        HostPatchAdjustments adjustments = HostPatchAdjustments.plan(
+                new HostedLaunch("Host 1", List.of(), List.of(), directory),
+                GameSide.CLIENT,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        ClassModel rewritten = ClassFile.of().parse(adjustments.apply("m.RegionMixin", mixin));
+        Optional<MethodModel> bridge = rewritten.methods().stream()
+                .filter(method -> method.methodName().equalsString("plexus$hostParameters$createDataMap"))
+                .findFirst();
+        if (!moves) {
+            assertTrue(bridge.isEmpty(), adjustments.findings().toString());
+            return;
+        }
+        assertEquals(1, adjustments.findings().size(), adjustments.findings().toString());
+        assertFalse(
+                adjustments.findings().getFirst().incompatible(),
+                adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().toString().contains("holds the vanilla body"),
+                adjustments.findings().toString());
+        assertEquals(
+                MethodTypeDesc.of(CD_void, CD_int, CD_boolean, callbackInfo, CD_int),
+                bridge.orElseThrow().methodTypeSymbol());
+        assertTrue(annotationsOf(bridge.get()).contains("build(IZ)V"), annotationsOf(bridge.get()));
+    }
+
+    /**
+     * Cardinal Components API 5.2.3's block module captures {@code FallingBlockEntity.tick}'s locals by position, and
+     * Forge 1.20.1's recompiled method keeps more locals in scope there: the handler captures each of them by type.
+     */
+    @Test
+    void anInjectCapturingLocalsOfARecompiledMethodCapturesThemByType() throws Exception {
+        byte[] applied = assertCapturedLocals(List.of(CD_String), "captures each of its 1 locals by type");
+        MethodModel handler = method(ClassFile.of().parse(applied), "afterOld", capturedHandler());
+        assertFalse(annotationsOf(handler).contains("locals"), annotationsOf(handler));
+        List<List<Annotation>> parameters = handler.findAttribute(
+                        java.lang.classfile.Attributes.runtimeInvisibleParameterAnnotations())
+                .orElseThrow()
+                .parameterAnnotations();
+        assertEquals(List.of(), parameters.get(0));
+        assertEquals(List.of(), parameters.get(1));
+        assertEquals(1, parameters.get(2).size());
+        assertTrue(parameters.get(2).getFirst().className().equalsString("Lcom/llamalad7/mixinextras/sugar/Local;"));
+    }
+
+    /** Two locals of the captured type: capture by type could take the wrong one, so the injection stays as it is. */
+    @Test
+    void anInjectCapturingALocalWhoseTypeTwoLocalsHaveStays() throws Exception {
+        byte[] applied = assertCapturedLocals(List.of(CD_String, CD_String), null);
+        MethodModel handler = method(ClassFile.of().parse(applied), "afterOld", capturedHandler());
+        assertTrue(annotationsOf(handler).contains("locals"), annotationsOf(handler));
+    }
+
+    private static MethodTypeDesc capturedHandler() {
+        return MethodTypeDesc.of(
+                CD_void,
+                CD_int,
+                ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo"),
+                CD_String);
+    }
+
+    /** Plans an {@code @Inject} capturing a {@code String} into a patched method with locals {@code patchedLocals}. */
+    private byte[] assertCapturedLocals(List<ClassDesc> patchedLocals, String finding) throws Exception {
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("tick(I)V"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", "INVOKE"),
+                                AnnotationElement.ofString("target", "Lt/Target;old()V")))),
+                AnnotationElement.of(
+                        "locals",
+                        AnnotationValue.ofEnum(
+                                ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.LocalCapture"),
+                                "CAPTURE_FAILHARD")));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.TickMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("afterOld", capturedHandler(), ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"TickMixin\"]}", "m/TickMixin.class", mixin));
+        MethodTypeDesc tick = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc old = MethodTypeDesc.of(CD_void);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "tick",
+                                tick,
+                                0,
+                                code -> code.ldc("a")
+                                        .astore(2)
+                                        .invokestatic(TARGET, "old", old)
+                                        .return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody("tick", tick, 0, code -> {
+                            java.lang.classfile.Label start = code.newLabel();
+                            java.lang.classfile.Label end = code.newLabel();
+                            // The recompiled code differs from vanilla's.
+                            code.nop();
+                            int slot = 2;
+                            for (int index = 0; index < patchedLocals.size(); index++) {
+                                code.ldc("b").astore(slot++);
+                            }
+                            code.labelBinding(start)
+                                    .invokestatic(TARGET, "old", old)
+                                    .labelBinding(end)
+                                    .return_();
+                            slot = 2;
+                            for (ClassDesc type : patchedLocals) {
+                                code.localVariable(slot, "local" + slot, type, start, end);
+                                slot++;
+                            }
+                        }));
+
+        HostPatchAdjustments adjustments = plan(
+                GameSide.DEDICATED_SERVER,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        String findings = adjustments.findings().toString();
+        if (finding == null) {
+            assertFalse(findings.contains("by type"), findings);
+        } else {
+            assertTrue(findings.contains(finding) && findings.contains("PLEXUS-COMPAT-212"), findings);
+            assertFalse(adjustments.findings().stream().anyMatch(HostPatchAdjustments.Finding::incompatible), findings);
+        }
+        return adjustments.apply("m.TickMixin", mixin);
+    }
+
+    /**
      * NeoForge's {@code SpriteSourceList.list(ResourceManager)} calls {@code list(ResourceManager, Set)}, which holds the
      * vanilla body; Continuity injects there taking the target's parameter and a captured local. The injection moves
      * to the longer overload through a bridge that takes its parameters and passes the handler the ones it was written
