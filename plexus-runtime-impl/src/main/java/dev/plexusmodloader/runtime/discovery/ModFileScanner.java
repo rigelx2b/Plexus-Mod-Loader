@@ -47,9 +47,15 @@ public final class ModFileScanner {
 
     /** Which of Forge and NeoForge a {@code META-INF/mods.toml} that has no {@code neoforge.mods.toml} beside it is for. */
     enum ModsTomlFamily {
-        /** No dependency on the {@code neoforge} mod (or the file cannot be read): a MinecraftForge mod, as before. */
+        /**
+         * No dependency on the {@code neoforge} mod (or the file cannot be read), and classes that are not NeoForge's
+         * alone: a MinecraftForge mod, as before.
+         */
         FORGE_ONLY,
-        /** Depends on the {@code neoforge} mod and not on {@code forge}: a NeoForge mod of FML 2 (NeoForge 20.4 and before). */
+        /**
+         * Depends on the {@code neoforge} mod and not on {@code forge}, or its classes name only NeoForge's packages: a
+         * NeoForge mod of FML 2 (NeoForge 20.4 and before).
+         */
         NEOFORGE_ONLY,
         /** Depends on both: built for both loaders; it runs on whichever of the two the launch runs. */
         BOTH
@@ -57,11 +63,61 @@ public final class ModFileScanner {
 
     private static ModsTomlFamily modsTomlFamily(JarFile jarFile) {
         ZipEntry entry = jarFile.getEntry(ModFileKind.FORGE.metadataPath());
+        ModsTomlFamily family;
         try (InputStream input = jarFile.getInputStream(entry)) {
-            return modsTomlFamily(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            family = modsTomlFamily(new String(input.readAllBytes(), StandardCharsets.UTF_8));
         } catch (IOException e) {
             return ModsTomlFamily.FORGE_ONLY;
         }
+        // Many NeoForge 20.4 mods depend on neither neoforge nor forge (Entity Texture Features, BadOptimizations,
+        // ImmediatelyFast, Mouse Tweaks, Dynamic FPS): their classes say which loader they are for.
+        if (family == ModsTomlFamily.FORGE_ONLY && namesOnlyNeoForge(jarFile)) {
+            return ModsTomlFamily.NEOFORGE_ONLY;
+        }
+        return family;
+    }
+
+    private static final byte[] NEOFORGE_PACKAGE = "net/neoforged/".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] FORGE_PACKAGE = "net/minecraftforge/".getBytes(StandardCharsets.US_ASCII);
+
+    /**
+     * Whether the jar's classes name NeoForge's packages ({@code net/neoforged/}) and never MinecraftForge's ({@code
+     * net/minecraftforge/}): such a mod cannot run on MinecraftForge. Stops at the first class that names Forge's, so a
+     * Forge mod's jar is seldom read to the end. Nested jars are not read.
+     */
+    static boolean namesOnlyNeoForge(JarFile jarFile) {
+        boolean neoForge = false;
+        var entries = jarFile.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (entry.isDirectory() || !entry.getName().endsWith(".class")) {
+                continue;
+            }
+            byte[] bytes;
+            try (InputStream input = jarFile.getInputStream(entry)) {
+                bytes = input.readAllBytes();
+            } catch (IOException e) {
+                return false;
+            }
+            if (contains(bytes, FORGE_PACKAGE)) {
+                return false;
+            }
+            neoForge |= contains(bytes, NEOFORGE_PACKAGE);
+        }
+        return neoForge;
+    }
+
+    private static boolean contains(byte[] bytes, byte[] part) {
+        outer:
+        for (int i = 0; i + part.length <= bytes.length; i++) {
+            for (int j = 0; j < part.length; j++) {
+                if (bytes[i + j] != part[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     /**

@@ -15,6 +15,7 @@ import cpw.mods.modlauncher.api.ServiceRunner;
 import cpw.mods.modlauncher.serviceapi.ILaunchPluginService;
 import cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService;
 import dev.plexusmodloader.compat.bridge.BridgeClassTransformer;
+import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
 import dev.plexusmodloader.compat.forge.ForgeLaunch;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
@@ -76,6 +77,7 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     private final Environment environment;
     private final ForgeClassTransformer transformer;
     private ILaunchHandlerService handler;
+    private List<SharedMixinConfig> sharedMixinConfigs = List.of();
 
     private PlexusModLauncher(Request request) {
         this.request = request;
@@ -223,9 +225,21 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
                     gameJars,
                     ForgeLaunch.class.getClassLoader().getResource(SharedMixinExtras.MIXIN_EXTRAS) != null,
                     request.log());
+            if (fml4()) {
+                gameJars = SharedMixinExtras.withoutMixinSyntheticPackage(gameJars, request.log());
+            }
         }
         define(Layer.GAME, gameJars, true);
         request.log().accept("FML's game layer: " + gameJars.size() + " module(s)");
+        if (request.sharedMixin() && fml4()) {
+            // NeoForge's FML 4 and FML 2 (ADR-0043 point 10): FML's own Mixin is not in the BOOT layer, and FML gave
+            // its
+            // mods' configurations to NeoForgeMixinConfigs (Fml4SharedMixinPatch) during its discovery.
+            sharedMixinConfigs = NeoForgeMixinConfigs.configurations(gameJars);
+            request.log()
+                    .accept("FML found " + sharedMixinConfigs.size() + " Mixin configuration(s) of NeoForge's mods and"
+                            + " libraries for the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0043)");
+        }
 
         for (ITransformationService service : services.values()) {
             transformer.addTransformers(service);
@@ -257,16 +271,23 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         }
         launchInitialized = true;
         NamedPath[] paths = handler.getPaths();
-        for (ILaunchPluginService plugin : plugins().values()) {
-            plugin.initializeLaunch(
-                    className -> request.classes()
-                            .classBytes(className.replace('.', '/'))
-                            .orElseThrow(() -> new ClassNotFoundException(className)),
-                    paths);
+        for (Map.Entry<String, ILaunchPluginService> plugin : plugins().entrySet()) {
+            // As ModLauncher: the class with the other plugins and transformers applied, under the plugin's name.
+            plugin.getValue()
+                    .initializeLaunch(
+                            className -> transformer.transformFor(
+                                    plugin.getKey(),
+                                    className,
+                                    request.classes()
+                                            .classBytes(className.replace('.', '/'))
+                                            .orElseThrow(() -> new ClassNotFoundException(className))),
+                            paths);
         }
     }
 
-    /** Whether this is NeoForge's FML 4 (types in {@code net.neoforged.fml}) rather than MinecraftForge's FML. */
+    /**
+     * Whether this is NeoForge's FML 4 or FML 2 (types in {@code net.neoforged.fml}) rather than MinecraftForge's FML.
+     */
     private static boolean fml4() {
         try {
             Class.forName("net.neoforged.fml.loading.FMLLoader", false, PlexusModLauncher.class.getClassLoader());
@@ -279,6 +300,11 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     @Override
     public ModuleLayer gameLayer() {
         return layers.get(Layer.GAME);
+    }
+
+    @Override
+    public List<SharedMixinConfig> sharedMixinConfigs() {
+        return sharedMixinConfigs;
     }
 
     @Override

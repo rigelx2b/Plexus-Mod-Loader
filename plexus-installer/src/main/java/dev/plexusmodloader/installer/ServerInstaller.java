@@ -109,11 +109,9 @@ final class ServerInstaller {
         }
         progress.accept(payload.libraries().size() + " Plexus Mod Loader libraries are in " + libraries);
         String serverJar;
-        List<Path> serverLibraries = new ArrayList<>();
         try (JarFile jar = new JarFile(bundler.toFile())) {
             for (String library : unbundle(jar, "META-INF/libraries.list", root.resolve("libraries"))) {
                 classPath.add("libraries/" + library);
-                serverLibraries.add(root.resolve("libraries").resolve(library));
             }
             List<String> servers = unbundle(jar, "META-INF/versions.list", root.resolve("versions"));
             if (servers.size() != 1) {
@@ -125,8 +123,7 @@ final class ServerInstaller {
         if (ClientGameRemap.isObfuscated(minecraftVersion)) {
             // A version before 26.1 is obfuscated: the server runs on its jar remapped to Mojang names, made here
             // from Mojang's server mappings (ADR-0019). The obfuscated jar is not on the class path.
-            serverJar =
-                    remapServer(root, version, minecraftVersion, root.resolve(serverJar), serverLibraries, progress);
+            serverJar = remapServer(root, version, minecraftVersion, root.resolve(serverJar), progress);
         }
         classPath.add(serverJar);
         progress.accept("Minecraft " + minecraftVersion + " server is in " + root.resolve(serverJar));
@@ -154,12 +151,7 @@ final class ServerInstaller {
      * @return the remapped jar, relative to {@code root} with forward slashes, for the launch jar's class path
      */
     private String remapServer(
-            Path root,
-            JsonObject version,
-            String minecraftVersion,
-            Path serverJar,
-            List<Path> libraries,
-            Consumer<String> progress)
+            Path root, JsonObject version, String minecraftVersion, Path serverJar, Consumer<String> progress)
             throws InstallerException, IOException {
         JsonObject offered = object(version, "downloads");
         if (!offered.has("server_mappings")) {
@@ -179,7 +171,7 @@ final class ServerInstaller {
         // The mappings were just checked against the SHA-1 Mojang lists, so the key takes that value instead of hashing
         // the file again.
         String key = RemappedGameJar.key(VerifiedDownloads.sha1(serverJar), ClientGameRemap.listedSha1(serverMappings));
-        RemappedGameJar jar = RemappedGameJar.ensure(serverJar, mappings, key, libraries, remapped, progress);
+        RemappedGameJar jar = RemappedGameJar.ensure(serverJar, mappings, key, remapped, progress);
         if (jar.reused()) {
             progress.accept("The remapped Minecraft " + minecraftVersion + " server is up to date");
         }

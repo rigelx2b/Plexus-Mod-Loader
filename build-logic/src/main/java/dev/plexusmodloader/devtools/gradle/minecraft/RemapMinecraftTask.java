@@ -100,7 +100,7 @@ public abstract class RemapMinecraftTask extends DefaultTask {
 
         // The same file the installer gives version modules and runs.
         Path remapped = versionDir.resolve(side + "-" + version + "-mojang.jar");
-        RemappedGameJar made = RemappedGameJar.ensure(original, mappingsFile, libraries, remapped, getLogger());
+        RemappedGameJar made = RemappedGameJar.ensure(original, mappingsFile, remapped, getLogger());
         MojangJarRemapper.Result remap = made.result();
         long remapMillis = made.remapMillis();
         String determinism;
@@ -109,7 +109,7 @@ public abstract class RemapMinecraftTask extends DefaultTask {
             determinism = "not checked (cached jar reused)";
         } else {
             Path second = versionDir.resolve(side + "-" + version + "-mojang.second.jar");
-            MojangJarRemapper.remap(original, mappings, libraries, second);
+            MojangJarRemapper.remap(original, mappings, second);
             boolean same = VerifiedDownloader.hash(second, "SHA-1").equals(VerifiedDownloader.hash(remapped, "SHA-1"));
             delete(second);
             if (!same) {
@@ -269,9 +269,7 @@ public abstract class RemapMinecraftTask extends DefaultTask {
                     .append(remap.absentListedClassCount())
                     .append(" (removed by the obfuscator, such as package-info).\n");
             out.append("- Signature files removed: ").append(list(remap.removedSignatureFiles())).append(".\n");
-            out.append("- Stack map frames computed again; type merges with a class outside the jar, libraries and JDK: ")
-                    .append(remap.unknownTypeMerges())
-                    .append(".\n");
+            out.append("- Stack map frames: the obfuscated jar's, with `this` and the parameters live in every one.\n");
             out.append("- Other META-INF files copied as they are: ")
                     .append(list(remap.otherMetaInfFiles()))
                     .append(".\n");

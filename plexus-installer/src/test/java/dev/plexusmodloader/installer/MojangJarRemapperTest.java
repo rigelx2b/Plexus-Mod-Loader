@@ -29,12 +29,11 @@ class MojangJarRemapperTest {
         Path output = folder.resolve("out/client-mojang.jar");
 
         MojangJarRemapper.Result result = MojangJarRemapper.remap(
-                input, MojangMappings.parse(SyntheticGame.MAPPINGS.lines().toList()), List.of(), output);
+                input, MojangMappings.parse(SyntheticGame.MAPPINGS.lines().toList()), output);
 
         assertEquals(3, result.classCount());
         assertEquals(3, result.renamedClassCount());
         assertEquals(List.of(), result.unlistedClasses());
-        assertEquals(0, result.unknownTypeMerges());
         assertEquals(List.of("META-INF/MOJANGCS.RSA", "META-INF/MOJANGCS.SF"), result.removedSignatureFiles());
         try (JarFile jar = new JarFile(output.toFile())) {
             assertNotNull(jar.getEntry("net/minecraft/world/Thing.class"));
@@ -58,7 +57,7 @@ class MojangJarRemapperTest {
         Path input = folder.resolve("client.jar");
         SyntheticGame.write(input);
         Path output = folder.resolve("client-mojang.jar");
-        MojangJarRemapper.remap(input, mappings(), List.of(), output);
+        MojangJarRemapper.remap(input, mappings(), output);
 
         try (JarClassLoader loader = new JarClassLoader(output)) {
             Class<?> sub = loader.loadClass("net.minecraft.world.Sub");
@@ -78,8 +77,8 @@ class MojangJarRemapperTest {
         Path first = folder.resolve("first.jar");
         Path second = folder.resolve("second.jar");
 
-        MojangJarRemapper.remap(input, mappings(), List.of(), first);
-        MojangJarRemapper.remap(input, mappings(), List.of(), second);
+        MojangJarRemapper.remap(input, mappings(), first);
+        MojangJarRemapper.remap(input, mappings(), second);
 
         assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
     }
@@ -92,7 +91,7 @@ class MojangJarRemapperTest {
         MojangMappings unrelated =
                 MojangMappings.parse(SyntheticGame.UNRELATED_MAPPINGS.lines().toList());
 
-        MojangJarRemapper.Result result = MojangJarRemapper.remap(input, unrelated, List.of(), output);
+        MojangJarRemapper.Result result = MojangJarRemapper.remap(input, unrelated, output);
         List<String> problems = RemappedGameJar.RemappedJarCheck.problems(output, unrelated, result);
 
         assertEquals(0, result.renamedClassCount());

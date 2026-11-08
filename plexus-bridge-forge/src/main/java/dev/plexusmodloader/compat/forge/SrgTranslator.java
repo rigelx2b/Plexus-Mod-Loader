@@ -43,8 +43,14 @@ import org.objectweb.asm.commons.Remapper;
 final class SrgTranslator {
 
     private static final int MAX_NESTING = 4;
-    /** Changes when the translation changes (2: jars nested anywhere under META-INF, such as META-INF/jars/). */
-    static final int FORMAT = 2;
+    // The element of Mixin's injector annotations (@Inject, @Redirect, @ModifyVariable, ...) that names target methods.
+    private static final String METHOD_SELECTOR = "method";
+    /**
+     * Changes when the translation changes (2: jars nested anywhere under META-INF, such as META-INF/jars/; 3: a Mixin
+     * {@code method} that is one SRG name of an overloaded method gets the Mojang descriptor; 4: not when overrides give the
+     * SRG id other descriptors; 5: also when the selector names the owner, "Lowner;m_1_").
+     */
+    static final int FORMAT = 5;
 
     // JarJar puts nested jars where its metadata.json says: META-INF/jarjar/ or META-INF/jars/ in practice.
     private static final String NESTED_JARS = "meta-inf/";
@@ -315,13 +321,31 @@ final class SrgTranslator {
         }
 
         private AnnotationVisitor annotations(AnnotationVisitor next) {
+            return annotations(next, false);
+        }
+
+        /** @param selectors whether the values are Mixin method selectors (the elements of a {@code method} array) */
+        private AnnotationVisitor annotations(AnnotationVisitor next, boolean selectors) {
             if (next == null) {
                 return null;
             }
             return new AnnotationVisitor(api, next) {
                 @Override
                 public void visit(String name, Object value) {
-                    super.visit(name, value instanceof String text ? names.translateText(text) : value);
+                    super.visit(name, value instanceof String text ? translate(name, text) : value);
+                }
+
+                private String translate(String name, String text) {
+                    boolean selector = selectors || METHOD_SELECTOR.equals(name);
+                    if (selector && text.startsWith("m_") && SrgMojangNames.isSrgName(text)) {
+                        return names.methodSelector(text);
+                    }
+                    // An owner-qualified selector, "Lowner;m_1_": the same, after the owner.
+                    int ownerEnd = text.startsWith("L") ? text.indexOf(';') + 1 : 0;
+                    if (selector && ownerEnd > 0 && SrgMojangNames.isSrgName(text.substring(ownerEnd))) {
+                        return text.substring(0, ownerEnd) + names.methodSelector(text.substring(ownerEnd));
+                    }
+                    return names.translateText(text);
                 }
 
                 @Override
@@ -331,7 +355,7 @@ final class SrgTranslator {
 
                 @Override
                 public AnnotationVisitor visitArray(String name) {
-                    return annotations(super.visitArray(name));
+                    return annotations(super.visitArray(name), METHOD_SELECTOR.equals(name));
                 }
             };
         }

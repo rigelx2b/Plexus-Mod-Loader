@@ -4,9 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -59,10 +56,7 @@ final class MojangJarRemapper {
      * Bumped whenever the output for the same input changes, so cached jars made by an older remapper are made again.
      * Equal to the build's remapper revision.
      */
-    static final int REVISION = 3;
-
-    /** The newest class file version the bundled ASM reads without a check; newer JDK classes are read as this. */
-    private static final int READABLE_MAJOR = 65;
+    static final int REVISION = 4;
 
     private static final Pattern SIGNATURE_FILE =
             Pattern.compile("META-INF/[^/]+\\.(SF|RSA|DSA|EC)|META-INF/SIG-[^/]+");
@@ -77,33 +71,25 @@ final class MojangJarRemapper {
      * @param absentListedClassCount classes the mappings list that the jar does not have (removed by the obfuscator,
      *     such as {@code package-info})
      * @param removedSignatureFiles the signature files left out
-     * @param unknownTypeMerges times two types met in a frame and one of them was in neither the jar, the libraries
-     *     nor the JDK, so {@code java/lang/Object} was used
      */
     record Result(
             int classCount,
             int renamedClassCount,
             List<String> unlistedClasses,
             int absentListedClassCount,
-            List<String> removedSignatureFiles,
-            int unknownTypeMerges) {}
+            List<String> removedSignatureFiles) {}
 
     private MojangJarRemapper() {}
 
     /**
      * Remaps {@code input} into {@code output}, replacing it if it exists.
      *
-     * <p>Stack map frames are computed again. The obfuscator keeps only live locals in a frame, so at the last {@code
-     * return} of a method a frame may hold no locals at all, and a hook that a transformation rule inserts there could
-     * not load {@code this} or a parameter. Recomputed frames hold every local assigned on the way, like javac's.
-     * Merging two types needs their superclasses: the jar's classes, then {@code libraries} and the JDK.
-     *
-     * <p>Then the locals that nothing reads after a frame are turned into {@code TOP} again, except {@code this} and
-     * the parameters ({@link DeadLocalFrames}, revision 3): Mixin counts the locals of a type in the frame, and a dead
-     * local that the obfuscated jar does not list makes an implicit local-variable injection find one candidate too
-     * many.
+     * <p>The obfuscated jar's stack map frames are kept, with {@code this} and the parameters live in every one
+     * ({@link ParameterFrames}, revision 4): a hook that a transformation rule inserts before a {@code return} can load
+     * them, and Mixin reads the other locals at an injection point from the same frames as on the obfuscated jar the
+     * mods were made against.
      */
-    static Result remap(Path input, MojangMappings mappings, List<Path> libraries, Path output) {
+    static Result remap(Path input, MojangMappings mappings, Path output) {
         Map<String, byte[]> classes = new TreeMap<>(readClasses(input));
         Map<String, Declarations> declarations = new HashMap<>();
         classes.forEach((name, bytes) -> declarations.put(name, Declarations.of(bytes)));
@@ -112,27 +98,20 @@ final class MojangJarRemapper {
         Map<String, byte[]> entries = new TreeMap<>();
         List<String> unlisted = new ArrayList<>();
         int renamed = 0;
-        int unknownMerges;
-        try (URLClassLoader outside = new URLClassLoader(urls(libraries), ClassLoader.getPlatformClassLoader())) {
-            TypeHierarchy hierarchy = new TypeHierarchy(remapper, declarations, outside);
-            for (Map.Entry<String, byte[]> entry : classes.entrySet()) {
-                if (mappings.listsClass(entry.getKey())) {
-                    renamed++;
-                } else {
-                    unlisted.add(entry.getKey());
-                }
-                ClassReader reader = new ClassReader(entry.getValue());
-                ClassWriter writer = new FrameComputingWriter(hierarchy);
-                reader.accept(new ClassRemapper(writer, remapper), ClassReader.SKIP_FRAMES);
-                String name = remapper.map(entry.getKey()) + ".class";
-                if (entries.put(name, DeadLocalFrames.prune(writer.toByteArray())) != null) {
-                    throw new IllegalStateException(
-                            "Two classes of " + input + " remap to " + name + "; the mappings do not match this jar.");
-                }
+        for (Map.Entry<String, byte[]> entry : classes.entrySet()) {
+            if (mappings.listsClass(entry.getKey())) {
+                renamed++;
+            } else {
+                unlisted.add(entry.getKey());
             }
-            unknownMerges = hierarchy.unknownMerges;
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to close the library class loader", e);
+            ClassReader reader = new ClassReader(entry.getValue());
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassRemapper(writer, remapper), 0);
+            String name = remapper.map(entry.getKey()) + ".class";
+            if (entries.put(name, ParameterFrames.keepParameters(writer.toByteArray())) != null) {
+                throw new IllegalStateException(
+                        "Two classes of " + input + " remap to " + name + "; the mappings do not match this jar.");
+            }
         }
         int absent = (int) mappings.obfuscatedClasses().stream()
                 .filter(name -> !classes.containsKey(name))
@@ -166,12 +145,7 @@ final class MojangJarRemapper {
         }
         write(output, manifest, entries);
         return new Result(
-                classes.size(),
-                renamed,
-                List.copyOf(unlisted),
-                absent,
-                List.copyOf(new TreeSet<>(signatures)),
-                unknownMerges);
+                classes.size(), renamed, List.copyOf(unlisted), absent, List.copyOf(new TreeSet<>(signatures)));
     }
 
     /** The class files of {@code jar} by internal name, without {@code META-INF/} and {@code module-info}. */
@@ -190,122 +164,6 @@ final class MojangJarRemapper {
             throw new UncheckedIOException("Failed to read " + jar, e);
         }
         return classes;
-    }
-
-    private static URL[] urls(List<Path> paths) {
-        List<URL> urls = new ArrayList<>();
-        for (Path path : paths) {
-            try {
-                urls.add(path.toUri().toURL());
-            } catch (MalformedURLException e) {
-                throw new IllegalArgumentException("Not a valid library path: " + path, e);
-            }
-        }
-        return urls.toArray(URL[]::new);
-    }
-
-    /** A {@link ClassWriter} that computes frames with {@link TypeHierarchy} instead of loading classes. */
-    private static final class FrameComputingWriter extends ClassWriter {
-
-        private final TypeHierarchy hierarchy;
-
-        FrameComputingWriter(TypeHierarchy hierarchy) {
-            super(ClassWriter.COMPUTE_FRAMES);
-            this.hierarchy = hierarchy;
-        }
-
-        @Override
-        protected String getCommonSuperClass(String type1, String type2) {
-            return hierarchy.commonSuperClass(type1, type2);
-        }
-    }
-
-    /**
-     * Superclasses by Mojang name, for merging two types in a frame: the jar's classes (renamed), then the libraries
-     * and the JDK through {@code outside}.
-     */
-    private static final class TypeHierarchy {
-
-        private record Type(String superName, boolean isInterface) {}
-
-        private final Map<String, Type> game = new HashMap<>();
-        private final ClassLoader outside;
-        private final Map<String, Type> outsideTypes = new HashMap<>();
-        private final Set<String> missing = new HashSet<>();
-        private int unknownMerges;
-
-        TypeHierarchy(HierarchyRemapper remapper, Map<String, Declarations> declarations, ClassLoader outside) {
-            this.outside = outside;
-            declarations.forEach((name, type) -> game.put(
-                    remapper.map(name),
-                    new Type(type.superName() == null ? null : remapper.map(type.superName()), type.isInterface())));
-        }
-
-        String commonSuperClass(String type1, String type2) {
-            if (type1.equals(type2)) {
-                return type1;
-            }
-            Type first = type(type1);
-            Type second = type(type2);
-            if (first == null || second == null) {
-                unknownMerges++;
-                return "java/lang/Object";
-            }
-            if (first.isInterface() || second.isInterface()) {
-                return "java/lang/Object";
-            }
-            Set<String> ancestors = new HashSet<>();
-            for (String current = type1; current != null; ) {
-                ancestors.add(current);
-                Type type = type(current);
-                if (type == null) {
-                    unknownMerges++;
-                    return "java/lang/Object";
-                }
-                current = type.superName();
-            }
-            for (String current = type2; current != null; ) {
-                if (ancestors.contains(current)) {
-                    return current;
-                }
-                Type type = type(current);
-                if (type == null) {
-                    unknownMerges++;
-                    return "java/lang/Object";
-                }
-                current = type.superName();
-            }
-            return "java/lang/Object";
-        }
-
-        private Type type(String name) {
-            Type known = game.get(name);
-            if (known != null || missing.contains(name)) {
-                return known;
-            }
-            Type cached = outsideTypes.get(name);
-            if (cached != null) {
-                return cached;
-            }
-            try (InputStream in = outside.getResourceAsStream(name + ".class")) {
-                if (in == null) {
-                    missing.add(name);
-                    return null;
-                }
-                byte[] bytes = in.readAllBytes();
-                // Only the header is read; a JDK class newer than the bundled ASM knows is read as the newest it does.
-                if (bytes.length > 7 && (((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)) > READABLE_MAJOR) {
-                    bytes[6] = 0;
-                    bytes[7] = (byte) READABLE_MAJOR;
-                }
-                ClassReader reader = new ClassReader(bytes);
-                Type type = new Type(reader.getSuperName(), (reader.getAccess() & Opcodes.ACC_INTERFACE) != 0);
-                outsideTypes.put(name, type);
-                return type;
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read the class " + name, e);
-            }
-        }
     }
 
     private static boolean isClass(String name) {

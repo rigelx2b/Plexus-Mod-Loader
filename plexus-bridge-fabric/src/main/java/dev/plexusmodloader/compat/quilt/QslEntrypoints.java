@@ -116,13 +116,13 @@ final class QslEntrypoints {
                     && finding.detail().contains("'" + QUILT_BASE + "'"));
         }
         if (had303 && !notRunnable.isEmpty()) {
-            findings.add(new CompatibilityFinding(
-                    "PLEXUS-COMPAT-303",
-                    false,
-                    "entrypoints " + notRunnable.stream().map(Declared::value).toList(),
-                    "QSL runs these entrypoints, and QSL has no release for Minecraft 26.x, so Quilt Loader does not"
-                            + " run them either; Plexus Mod Loader does not run them, because their class does not"
-                            + " implement the Fabric initializer itself"));
+            findings.add(
+                    new CompatibilityFinding(
+                            "PLEXUS-COMPAT-303",
+                            false,
+                            "entrypoints "
+                                    + notRunnable.stream().map(Declared::value).toList(),
+                            "QSL runs these entrypoints, but QSL is not installed or has no release for this Minecraft version; Quilt Loader does not run them without QSL, and Plexus does not run them because their class does not implement the Fabric initializer."));
         }
         List<String> run = runnable.stream()
                 .map(declared -> declared.key() + " " + declared.value())
@@ -132,7 +132,7 @@ final class QslEntrypoints {
                 false,
                 "QSL entrypoints " + run,
                 "run as Fabric entrypoints (main, client, server) because their class implements the Fabric"
-                        + " initializer; QSL, which would run them, has no release for Minecraft 26.x"
+                        + "; QSL, which would run them, is not installed or has no release for this Minecraft version"
                         + (quiltBaseMet ? ". The dependency on 'quilt_base' counts as met for this mod" : "")));
     }
 

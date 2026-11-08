@@ -389,9 +389,7 @@ public final class QuiltModJsonReader {
                     "PLEXUS-COMPAT-303",
                     false,
                     "entrypoints " + qslKeys,
-                    "QSL runs these entrypoints, and QSL has no release for Minecraft 26.x, so Quilt Loader does not"
-                            + " run them either; Plexus Mod Loader does not run them, and applies the mod's mixins and"
-                            + " resources"
+                    "QSL runs these entrypoints, and without QSL installed, Quilt Loader does not run them either; Plexus Mod Loader does not run them, and still applies the mod's mixins and resources"
                             + (othersRun
                                     ? ""
                                     : ". This mod's initialization code does not run (under Quilt Loader it does not"

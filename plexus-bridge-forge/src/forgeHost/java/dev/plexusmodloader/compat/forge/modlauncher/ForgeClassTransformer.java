@@ -67,13 +67,25 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
             "flowerpotblock",
             "itemstack");
 
+    /**
+     * NeoForge 21.1's coremod with the same job ({@code ReplaceFieldWithGetterAccess}, NeoForge 21.1.265; ADR-0043 point
+     * 10): it refuses the same way ({@code Field climateSettings in net/minecraft/world/level/biome/Biome is not private
+     * and an instance field}).
+     */
+    private static final String NEOFORGE_FIELD_TO_METHOD_TRANSFORMER =
+            "net.neoforged.neoforge.coremods.ReplaceFieldWithGetterAccess";
+
+    /** The class of a coremod script's class transformer in NeoForge's coremods 6 (NeoForge 20.4). */
+    private static final String NEOFORGE_COREMOD_CLASS_TRANSFORMER =
+            "net.neoforged.coremod.transformer.CoreModClassTransformer";
+
     /** The launch plugins now; a mod may replace the map they come from (ModernFix adds its own). */
     private final Supplier<Collection<ILaunchPluginService>> plugins;
 
     private final GameClassBytes classes;
     private final Map<String, List<ITransformer<?>>> transformersByTarget = new HashMap<>();
     private final Set<String> classesWithTransformers = new HashSet<>();
-    /** How deep this thread is in {@link #transform(String, byte[], boolean)}. */
+    /** How deep this thread is in {@link #transform(String, byte[], boolean, String)}. */
     private final ThreadLocal<Integer> processing = ThreadLocal.withInitial(() -> 0);
 
     ForgeClassTransformer(Supplier<Collection<ILaunchPluginService>> plugins, GameClassBytes classes) {
@@ -146,7 +158,19 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
 
     @Override
     public byte[] transform(String className, byte[] bytes) {
-        byte[] result = transform(className, bytes, false);
+        byte[] result = transform(className, bytes, false, ITransformerActivity.CLASSLOADING_REASON);
+        return result == null ? bytes : result;
+    }
+
+    /**
+     * The class as launch plugin {@code reason} reads it, the way ModLauncher's class loader builds it for the loader a
+     * plugin gets in {@code initializeLaunch}: every other plugin and transformer applied, the plugin itself skipping
+     * classes offered under its own name. Mixin builds its class metadata from this, so it sees the access an access
+     * transformer gave a member (NeoForge 21.1: a private {@code LevelRenderer.renderHitOutline} made public, and Mixin
+     * looked for a private method in its metadata).
+     */
+    byte[] transformFor(String reason, String className, byte[] bytes) {
+        byte[] result = transform(className, bytes, false, reason);
         return result == null ? bytes : result;
     }
 
@@ -160,23 +184,22 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
         if (processing.get() > 0) {
             return null;
         }
-        return transform(className, new byte[0], true);
+        return transform(className, new byte[0], true, ITransformerActivity.CLASSLOADING_REASON);
     }
 
     /** The transformed class, or {@code null} when nothing changed it. */
-    private byte[] transform(String className, byte[] input, boolean empty) {
+    private byte[] transform(String className, byte[] input, boolean empty, String reason) {
         processing.set(processing.get() + 1);
         try {
-            return transformOnce(className, input, empty);
+            return transformOnce(className, input, empty, reason);
         } finally {
             processing.set(processing.get() - 1);
         }
     }
 
-    private byte[] transformOnce(String className, byte[] input, boolean empty) {
+    private byte[] transformOnce(String className, byte[] input, boolean empty, String reason) {
         String internalName = className.replace('.', '/');
         Type type = Type.getObjectType(internalName);
-        String reason = ITransformerActivity.CLASSLOADING_REASON;
         EnumMap<ILaunchPluginService.Phase, List<ILaunchPluginService>> phases =
                 new EnumMap<>(ILaunchPluginService.Phase.class);
         for (ILaunchPluginService plugin : plugins.get()) {
@@ -323,16 +346,22 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
      */
     static boolean redirectsFieldsToMethods(ITransformer<?> transformer) {
         String type = transformer.getClass().getName();
-        if (type.equals(FIELD_TO_METHOD_TRANSFORMER)) {
+        if (type.equals(FIELD_TO_METHOD_TRANSFORMER) || type.equals(NEOFORGE_FIELD_TO_METHOD_TRANSFORMER)) {
             return true;
         }
-        if (!type.equals(COREMOD_CLASS_TRANSFORMER)) {
+        String owner;
+        if (type.equals(COREMOD_CLASS_TRANSFORMER)) {
+            owner = "forge";
+        } else if (type.equals(NEOFORGE_COREMOD_CLASS_TRANSFORMER)) {
+            // NeoForge 20.4's coremods/field_to_method.js has a subset of Forge's functions, owned by "neoforge".
+            owner = "neoforge";
+        } else {
             return false;
         }
         String[] labels = transformer.labels();
         return labels != null
                 && labels.length == 2
-                && "forge".equals(labels[0])
+                && owner.equals(labels[0])
                 && FIELD_TO_METHOD_COREMOD_FUNCTIONS.contains(labels[1]);
     }
 

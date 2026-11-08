@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.1.3 — 2026-11-08
+
+### Summary
+
+Plexus Mod Loader 2.1.3 runs Quilt Standard Libraries (QSL) and Quilted Fabric API on Minecraft 1.20.1, 1.20.4, and 1.21.1 with automatic first-launch downloads, enables Fabric and Quilt mods headless alongside NeoForge 20.4.253 (1.20.4) and 21.1.265 (1.21.1), and verifies game client windows on Forge 1.20.1, 1.20.4, and 1.21.1 and NeoForge 20.4 and 21.1.
+
+### What's New
+
+- Run Quilt Standard Libraries (QSL) / Quilted Fabric API on Minecraft 1.20.1, 1.20.4, and 1.21.1 (ADR-0048), automatically downloading pinned, SHA-512-checked Quilted Fabric API builds on first launch when an installed Quilt mod needs a QSL module (`PLEXUS-DISCOVERY-006` / `PLEXUS-DISCOVERY-007`, enabled by default like Fabric API and disabled via `-Dplexus.qsl=off`), verified on game test servers with Quilted Fabric API alone on 1.20.1, 1.20.4, and 1.21.1 and with Polymer (Lightning Podoboo) on 1.20.4.
+- Run Fabric and Quilt mods headless in the same game as NeoForge 21.1.265 (Minecraft 1.21.1) and NeoForge 20.4.253 (1.20.4) with one shared Mixin, passing `corpusFabricNeoForge` (1.21.1: 15 loaded / 40 not loaded; 1.20.4: 48 / 80), `corpusFabricOnNeoForge` (1.21.1: 69 / 88; 1.20.4: 65 / 89), and `corpusQuiltNeoForge` (1.21.1: 72 / 194; 1.20.4: 77 / 179), while leaving out Fabric API's own build when Forgified Fabric API is present on 1.21.1, not listing other loaders' mods in FML's `ModList`, and leaving client windows unchecked for this combination.
+- Verify Forge and NeoForge game client windows one window at a time using the real-mod corpus with the `plexus-client-session` driver (reaching the world, running 200 client ticks, and leaving), passing `corpusForgeClient` on Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 and `corpusNeoForgeClient` on 1.20.4 (NeoForge 20.4.253), 1.21.1 (21.1.265), and 1.21.11 (21.11.48).
+
+### Improvements & Fixes
+
+- Preserve the obfuscated jar's stack map frames in remapped pre-26.1 game jars with `this` and parameters kept live in every frame (remapper revision 4, `ParameterFrames`), fixing implicit `@ModifyVariable` injections (such as QSL's `EnchantmentMenu`) that recomputed frames broke because Mixin 0.8.7 reads locals from frame kinds, avoiding Minecraft client library downloads in the installer just for the remap, and regenerating remapped jars on first launch.
+- Fix game test server startup on Minecraft 1.20.1, 1.20.4, and 1.21.1 so it no longer re-runs `BuiltInRegistries.bootStrap` before tests (performing only freeze and validate), ensuring QSL `init` entrypoints run once.
+- Fix launcher world quick play (`--quickPlaySingleplayer`) on Forge 1.21.1 and 1.20.x by starting Forge's game event bus before the integrated server so `ServerStartingEvent` reaches mods, preventing Xaero's Minimap and World Map from disconnecting the player ("Error loading server world map properties") and passing client window verification on Forge 1.21.1 (`corpusForgeClient`).
+- Fix Forge 1.20.x SRG translation so a Mixin method selector that is a bare SRG name of an overloaded method receives the Mojang descriptor unless overrides give the ID other descriptors, resolving Entity Model Features' `MixinModelPart` picking the wrong `render` overload on Forge 1.20.4.
+- Fix Forge 1.20.x SRG translation so a Mixin method selector that names its owner, such as `Lnet/minecraft/client/renderer/entity/layers/ParrotOnShoulderLayer;m_117317_` (Entity Texture Features' `MixinShoulderParrotFeatureRenderer` `@ModifyArg`), also receives the Mojang descriptor when the Mojang name is overloaded, preventing Mixin from picking the wrong `render` overload and crashing the Forge 1.20.4 client ("failed injection check, (0/1) succeeded").
+- Fix the Forge and NeoForge ModLauncher bridge so the class loader handed to launch plugins in `initializeLaunch` builds a class with the other launch plugins and transformers applied, under the plugin's name, as ModLauncher does, allowing Mixin's class metadata to see access transformer changes and resolving Forgified Fabric API's `@ModifyVariable` failing with `LVTGeneratorError` ("Could not locate method metadata for renderHitOutline") on NeoForge 21.1 where an access transformer made `LevelRenderer.renderHitOutline` public.
+- Fix loader detection for NeoForge 20.4 mods whose `mods.toml` names no loader (Entity Texture Features, BadOptimizations, ImmediatelyFast, Mouse Tweaks, and Dynamic FPS) by recognising them as NeoForge mods from their classes so NeoForge runs instead of MinecraftForge leaving 31 NeoForge mods out (`PLEXUS-COMPAT-221`), with the NeoForge 20.4 client window reaching the world and leaving after 200 ticks.
+- Fix `IllegalAccessError` failures on Forge 1.20.1 and NeoForge 21.1 when Mixins target library classes (such as FancyMenu targeting LWJGL's `GLFW`) by using the library class untransformed as under ModLauncher instead of making an empty class in the game class loader.
+- Update `PLEXUS-COMPAT-303`, `PLEXUS-COMPAT-308`, and `PLEXUS-COMPAT-311` messages to name QSL's releases (1.20.1, 1.20.4, and 1.21.1) instead of saying QSL has no release for 26.x.
+
+### Known Limitations
+
+- On the Minecraft 1.20.1 Quilt game test server, the Cardinal Components API 5.2.3 block module stops on an implicit `@ModifyVariable` in `BlockInput.place` where the obfuscated frames chop parameters.
+- Origins 1.10.2 / Apoli on Minecraft 1.20.1 does not run yet because Plexus block-break hooks rewrite `ServerPlayerGameMode.destroyBlock`.
+- Pre-26.1 Quilt corpus runs still leave QSL out, as several corpus mods stop a server under QSL just as they would under Quilt Loader.
+- On Minecraft 1.20.1, `corpusQuiltForge` stops at Cardinal Components' `FallingBlockEntity` Mixin next to Forge (`PLEXUS-COMPAT-225`), before the `RuntimeEnumExtender` `$VALUES` point.
+- Manual checks (installer window and `MANUAL_QA_CHECKLIST`) still require a person.
+
 ## 2.1.2 — 2026-11-08
 
 ### Summary

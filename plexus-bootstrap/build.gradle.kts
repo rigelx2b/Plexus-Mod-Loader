@@ -809,13 +809,8 @@ val matrix = listOfNotNull(
         expectedOutput.addAll(
             nativeHello,
             fabricHello,
-            // On FML 4 the refusal comes first from the shared Mixin (ADR-0043): NeoForge 21.1 / 20.4 do not yet run next
-            // to Fabric or Quilt mods, with or without the agent.
-            if (neoForgeOnModLauncher) {
-                "does not run together with Fabric or Quilt mods yet: FML ${if (minecraft == "1.20.4") "2" else "4"} would start a second Mixin"
-            } else {
-                "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: $fmlNeedsInvokeOpened"
-            },
+            // NeoForge 21.1 / 20.4 run next to Fabric and Quilt mods too since 2.1.3 (ADR-0043 point 10).
+            "PLEXUS-COMPAT-216 NeoForge cannot run here (java.io.IOException: $fmlNeedsInvokeOpened",
             neoforgeBlocked,
         )
     },
@@ -1036,7 +1031,7 @@ val matrix = listOfNotNull(
         expectedOutput.addAll(
             nativeHello,
             "[Plexus Mod Loader] Quilt mod quilt_qsl_resource 1.0.0 (quilt-qsl-resource-$testModVersion.jar): BLOCKED - NOT loaded",
-            "PLEXUS-COMPAT-308 [limited] dependencies: depends on the QSL module 'quilt_resource_loader'; the Quilt Standard Libraries have no release for Minecraft 26.x",
+            "PLEXUS-COMPAT-308 [limited] dependencies: depends on the QSL module 'quilt_resource_loader'; only QSL or Quilted Fabric API provide it",
             "PLEXUS-COMPAT-114 [blocking] dependencies: requires 'quilt_resource_loader' *, which is not installed",
             "[Plexus Mod Loader] Quilt mod quilt_plugin 1.0.0 (quilt-plugin-$testModVersion.jar): BLOCKED - NOT loaded",
             "PLEXUS-COMPAT-301 [blocking] loader plugin: declares a Quilt Loader plugin (experimental_quilt_loader_plugin)",
@@ -1521,30 +1516,48 @@ val corpusScenarios = listOf(
     // FML the NeoForge mods and the jars built for both, and one Mixin (Fabric's) serves both, as Sinytra Connector
     // runs Fabric mods on NeoForge. Fabric mods register with NeoForge's registries open; Fabric mixins that meet
     // NeoForge's patches are moved to the patch (PLEXUS-COMPAT-226, 212) or keep the mod out (224, ADR-0030) as next to Forge.
+    // NeoForge 21.1 and 20.4 (FML 4 and FML 2 on ModLauncher, ADR-0043 point 10): the same with the 1.x corpora. Their
+    // Fabric mods freeze registries in their game layers (as corpusFabricMods), so no Fabric harness, and NeoForge's
+    // side has the hello mod FML constructs (neoForgeWorldTest) in place of the 26.x harness and probe.
     scenarios.gameTest(
         "corpusFabricNeoForge",
-        fabricCorpusBesideNeoForgeServer() + neoForgeServerCorpus() +
-            modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-environment-probe"),
+        fabricCorpusBesideNeoForgeServer() + neoForgeServerCorpus() + (if (neoForgeOnModLauncher) {
+            modJars(":test-mods:neoforge-fml4-hello")
+        } else {
+            modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-environment-probe")
+        }),
     ) {
         dependsOn(modCorpus)
+        modCorpusNeoForge?.let { dependsOn(it) }
         runsNeoForge()
         expectedOutput.addAll(
             "Fabric or Quilt mod(s) run together; one Mixin serves both (ADR-0026 30)",
             "share Fabric's Mixin",
             "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
-            // With Fabric mods, Yumi in Lambda Dynamic Lights for NeoForge picks Fabric Loader's API and still finds
-            // the mod's default configuration through Fabric's container for it (ADR-0026 36).
-            "[neoforge_environment_probe] Fabric Loader API visible: true",
-            "for lambdynlights finds lambdynlights.toml: true",
-            // Cloth Config's Fabric build (cloth-config) and NeoForge build (cloth_config) are one mod under IDs each
-            // loader spells its way: NeoForge's build runs, the Fabric build is left out, and Fabric mods that need it
-            // use NeoForge's build. Both builds register Cloth's example config; with both, the client stopped
-            // (ADR-0026 37, corpusFabricNeoForgeClient 2026-10-24).
-            "PLEXUS-COMPAT-139 Fabric mod cloth-config (cloth-config-",
-            "loads its own build of it as cloth_config (the same ID as NeoForge spells it)",
             "All 1 required tests passed",
             worldsSavedLine,
         )
+        if (neoForgeOnModLauncher) {
+            expectedOutput.addAll(
+                "for the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0043)",
+                "[neoforge_fml4_hello] constructed by FML",
+            )
+            // Nothing runs half-applied: a mixin failure in the game would be one the check before the launch missed.
+            unexpectedOutput.add("PLEXUS-COMPAT-225")
+        } else {
+            expectedOutput.addAll(
+                // With Fabric mods, Yumi in Lambda Dynamic Lights for NeoForge picks Fabric Loader's API and still finds
+                // the mod's default configuration through Fabric's container for it (ADR-0026 36).
+                "[neoforge_environment_probe] Fabric Loader API visible: true",
+                "for lambdynlights finds lambdynlights.toml: true",
+                // Cloth Config's Fabric build (cloth-config) and NeoForge build (cloth_config) are one mod under IDs each
+                // loader spells its way: NeoForge's build runs, the Fabric build is left out, and Fabric mods that need it
+                // use NeoForge's build. Both builds register Cloth's example config; with both, the client stopped
+                // (ADR-0026 37, corpusFabricNeoForgeClient 2026-10-24).
+                "PLEXUS-COMPAT-139 Fabric mod cloth-config (cloth-config-",
+                "loads its own build of it as cloth_config (the same ID as NeoForge spells it)",
+            )
+        }
         unexpectedOutput.addAll("PLEXUS-COMPAT-216")
         expectedFiles.add("universe/gametestworld/level.dat")
     },
@@ -1605,9 +1618,16 @@ val corpusScenarios = listOf(
     // Sinytra Connector's own case: the corpus's Fabric mods on NeoForge, with no NeoForge build of any of them, so the
     // Fabric builds of Architectury, Balm, Lithium, Puzzles Lib and Forge Config API Port run against NeoForge's patch
     // (docs/PERFORMANCE.md measurement 9 found them failing under Connector). Only the harnesses are NeoForge mods.
+    // NeoForge 21.1 and 20.4 (ADR-0043 point 10): the 1.21.1 NeoForge corpus has Forgified Fabric API, under whose ID
+    // the Fabric corpus's Fabric API is left out (139) in corpusFabricNeoForge; here the Fabric builds run against
+    // NeoForge's patch with the hello mod as the only NeoForge mod.
     scenarios.gameTest(
         "corpusFabricOnNeoForge",
-        fabricCorpusBesideNeoForgeServer() + modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness"),
+        fabricCorpusBesideNeoForgeServer() + if (neoForgeOnModLauncher) {
+            modJars(":test-mods:neoforge-fml4-hello")
+        } else {
+            modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness")
+        },
     ) {
         dependsOn(modCorpus)
         runsNeoForge()
@@ -1617,6 +1637,10 @@ val corpusScenarios = listOf(
             "All 1 required tests passed",
             worldsSavedLine,
         )
+        if (neoForgeOnModLauncher) {
+            expectedOutput.add("[neoforge_fml4_hello] constructed by FML")
+            unexpectedOutput.add("PLEXUS-COMPAT-225")
+        }
         unexpectedOutput.addAll("PLEXUS-COMPAT-216", "PLEXUS-COMPAT-139")
         expectedFiles.add("universe/gametestworld/level.dat")
     },
@@ -1635,6 +1659,7 @@ val corpusScenarios = listOf(
         }),
     ) {
         dependsOn(modCorpus)
+        modCorpusNeoForge?.let { dependsOn(it) }
         runsNeoForge()
         launchTarget.set("dedicated_server")
         gameArgumentOverrides.set(listOf<String>())
@@ -1706,11 +1731,31 @@ val quiltDataBrokenOnGame = when (minecraft) {
     "1.20.1", "1.20.4" -> listOf("Terralith_1.20.4_v2.4.10.jar")
     else -> listOf()
 }
-val quiltBrokenUnderNeoForge = listOf("more-beets-1.0-release.jar").filter { minecraft == "26.1" }
-// Before 26.1 QSL does not run on Plexus Mod Loader yet (ADR-0048): QSL's quilt_block_content_registry Mixin on
-// EnchantmentMenu (an implicit @ModifyVariable) finds no local, because the game jar's frames are recomputed
-// (MojangJarRemapper) and Mixin 0.8.7 reads the compressed chop frame there differently from the obfuscated jar's full
-// frame, so Bootstrap stops (1.20.1, 1.20.4 and 1.21.1 with Quilted Fabric API, 2026-11-08). The runs leave out every
+val quiltBrokenUnderNeoForge = listOf("more-beets-1.0-release.jar").filter { minecraft == "26.1" } + listOf(
+    // Modrinth's generated data pack wrappers (1.20.4 Quilt corpus): their neoforge.mods.toml names a javafml mod whose
+    // class carries MinecraftForge's @Mod (net.minecraftforge.fml.common.Mod), which NeoForge 20.4's FML 2.0.17 does not
+    // read, so FML's own ModLoader stops mod loading ("The following classes are missing, but are reported in the
+    // mods.toml", corpusQuiltNeoForge 2026-11-08). The check is FML's, not Plexus Mod Loader's; NeoForge's own launcher
+    // was not run with them.
+    "infinite-items-1.1.jar", "items-timer-1.1.jar", "0,5-hp-1.1.jar",
+).filter { minecraft == "1.20.4" } + listOf(
+    // Constant Music 1.0.5 (1.21.1 Quilt corpus, a Fabric build): its main entrypoint (CommonClass.init) uses client
+    // classes (fgr$n and others, left in their obfuscated names because the server's mappings do not have them), so any
+    // server stops with NoClassDefFoundError once its fabric-screen-api-v1 dependency is there, as beside NeoForge
+    // (corpusQuiltNeoForge 2026-11-08).
+    "constantmusic-fabric-1.21-1.0.5.jar",
+).filter { minecraft == "1.21.1" }
+// The 1.21.1 NeoForge corpus has Forgified Fabric API, a NeoForge build of Fabric API (for Sinytra Connector). Beside it,
+// Fabric API's own build is left out (139), its resource loader with it, and Forgified Fabric API's resource loader reads
+// only the mods FML loads: the data of Fabric and Quilt mods is not read as data packs, and Quilt mods that place
+// worldgen features through fabric-biome-api-v1 stop the game test server ("Missing key ... roadarchitect:road",
+// "pearlanium_mod:end_pearled_ore", corpusQuiltNeoForge 2026-11-08). A limitation of Plexus Mod Loader beside NeoForge 21.1
+// (ADR-0043 "Not done"); corpusQuiltNeoForge runs the Quilt corpus with Fabric API's own build there instead.
+val neoForgeBrokenBesideQuilt = listOf("forgified-fabric-api-0.116.15+2.3.6+1.21.1.jar").filter { minecraft == "1.21.1" }
+// QSL runs before 26.1 since the remapped game jar keeps the obfuscated jar's frames (remapper revision 4, ADR-0048;
+// modProbe with Quilted Fabric API alone and with Polymer on 1.20.1, 1.20.4 and 1.21.1, 2026-11-08). With QSL, QSL runs
+// the corpus mods' init entrypoints, and several stop a server as they would under Quilt Loader (OpenLink and Quilt
+// Crasher load client classes, Regedit is built for 1.20.2), so the corpus runs still leave out every
 // jar that is or nests a QSL or Quilted Fabric API module (older QSL copies nested in other mods then win and fail on
 // their own), and the mods that need QSL are reported not loaded (114): the folder as a player without QSL installs it,
 // with Fabric API, which the 1.21.1 Quilt corpus does not list (Quilted Fabric API stood for it), so its runs take the
@@ -1755,10 +1800,11 @@ val leavesQslOut = minecraft.startsWith("1.")
 // - Tritium 1.3.2 (1.20.1, 1.21.1) loads its client config screen class in its main initialiser.
 // - Modpack Update Checker 0.12.2 (1.20.1) registers commands through QSL's CommandRegistrationCallback without
 //   declaring QSL, so without QSL its server initialiser stops with NoClassDefFoundError.
-// A Plexus Mod Loader limit, the frames of decision 6 of ADR-0048 again: Origins 1.10.2 (1.20.1) nests Apoli 2.9.2, whose
-// ServerPlayerInteractionManagerMixin captures the locals of ServerPlayerGameMode.destroyBlock at its return; Mixin finds
-// other locals in the recomputed frames ("LVT ... has incompatible changes at opcode 177") and stops the game test
-// server when the class loads.
+// A Plexus Mod Loader limit: Origins 1.10.2 (1.20.1) nests Apoli 2.9.2, whose ServerPlayerInteractionManagerMixin
+// captures the locals of ServerPlayerGameMode.destroyBlock at its return; the game layer's block break hooks
+// (plexus:block_break, plexus:block_broken) rewrite that method, and Mixin finds other locals there ("LVT ... has
+// incompatible changes at opcode 177"), so the game test server stops when the class loads (still so with the
+// obfuscated frames kept, remapper revision 4, 2026-11-08).
 val quiltBrokenOnGame = when (minecraft) {
     "1.20.1" -> listOf(
         "Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.1-quilt.jar", "tritium-quilt-1.20.1-1.3.2.jar",
@@ -1884,10 +1930,17 @@ val quiltCorpusScenarios = listOf(
     // alone too (neoForgeProbe with only that jar, 2026-10-24), where 26.2.0.93 warns and reads it another way.
     scenarios.gameTest(
         "corpusQuiltNeoForge",
-        quiltCorpus(true).filter { it.name !in quiltBrokenUnderNeoForge } + neoForgeServerCorpus() +
-            modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness"),
+        quiltCorpus(true).filter { it.name !in quiltBrokenUnderNeoForge } +
+            neoForgeServerCorpus().filter { it.name !in neoForgeBrokenBesideQuilt } +
+            // NeoForge 21.1 and 20.4 (ADR-0043 point 10): no harness before 26.1, the hello mod FML constructs instead.
+            if (neoForgeOnModLauncher) {
+                modJars(":test-mods:neoforge-fml4-hello")
+            } else {
+                modJars(gameTestHarness, ":test-mods:neoforge-gametest-harness")
+            },
     ) {
         dependsOn(modCorpus, modCorpusQuilt)
+        modCorpusNeoForge?.let { dependsOn(it) }
         runsNeoForge()
         description = "The Quilt mod corpus with the corpus's NeoForge mods on the game test server."
         expectedOutput.addAll(
@@ -2774,7 +2827,8 @@ clientWorldReload("corpusNeoForgeClient") {
     timeoutSeconds.set(400)
     expectedOutput.addAll(
         "NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
-        "[Plexus Mod Loader] FML ",
+        // NeoForge 20.4 and 21.1 (FML 2 and 4 on ModLauncher) report their game layer instead, as corpusNeoForgeServer.
+        if (neoForgeOnModLauncher) "[Plexus Mod Loader] FML's game layer:" else "[Plexus Mod Loader] FML ",
         "joined the game",
     )
     expectedOutput.addAll(clientSessionLines("neoforge"))
@@ -3229,8 +3283,9 @@ tasks.register("compatibilityCorpus") {
             dependsOn("corpusFabricForge")
         }
         // Not corpusQuilt on 1.20.1 yet: Cardinal Components API 5.2.3's block module (nested in the corpus's
-        // cardinal-components-api jar) has an implicit @ModifyVariable in BlockInput that finds no local in the recomputed
-        // frames (ADR-0048 decision 6), and the game test server stops when the class loads (2026-11-08).
+        // cardinal-components-api jar) has an implicit @ModifyVariable in BlockInput.place that finds no local. The
+        // obfuscated frames there chop the dead parameters (chop 2, chop 3); with this and the parameters kept live they
+        // are full frames, which Mixin 0.8.7 counts differently (still so with remapper revision 4, 2026-11-08).
         if (quiltCorpusLock.exists()) {
             dependsOn("corpusQuiltServer")
             if (minecraft != "1.20.1") {

@@ -104,6 +104,32 @@ tasks.test {
         listOf("-Dplexus.fml12Loader=" + fml12.singleFile.absolutePath)
     })
 }
+// Fml4SharedMixinPatchTest checks the patch against FML 4 (NeoForge 21.1) and FML 2 (NeoForge 20.4), whose classes share
+// package names with FML 11's on the test class path; the test reads them from these jars (plexus.fml4Loader, fml2Loader).
+val neoForgeFml4Loader = configurations.create("neoForgeFml4Loader") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val neoForgeFml2Loader = configurations.create("neoForgeFml2Loader") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    neoForgeFml4Loader(libs.neoforge.fml4.loader)
+    neoForgeFml2Loader(libs.neoforge.fml2.loader)
+}
+tasks.test {
+    val fml4 = neoForgeFml4Loader.incoming.files
+    val fml2 = neoForgeFml2Loader.incoming.files
+    inputs.files(fml4).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("neoForgeFml4Loader")
+    inputs.files(fml2).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("neoForgeFml2Loader")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "-Dplexus.fml4Loader=" + fml4.singleFile.absolutePath,
+            "-Dplexus.fml2Loader=" + fml2.singleFile.absolutePath,
+        )
+    })
+}
 // NeoForge 21.1 and 20.4 (FML 4, ADR-0043) still run on ModLauncher (11.0.5), with FML's types in net.neoforged. They use the
 // ModLauncher implementation of forge-host.jar (forgeHost) and add their own service providers and game test launch handler,
 // compiled against FML 4 here and packed with it as META-INF/plexusmodloader/neoforge-fml4-host.jar.

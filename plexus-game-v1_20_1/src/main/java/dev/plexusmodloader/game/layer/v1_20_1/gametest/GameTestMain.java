@@ -2,6 +2,7 @@ package dev.plexusmodloader.game.layer.v1_20_1.gametest;
 
 import dev.plexusmodloader.game.layer.v1_20_1.GameHooks;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestRegistry;
 import net.minecraft.gametest.framework.GameTestRunner;
@@ -80,13 +82,22 @@ public final class GameTestMain {
     /**
      * Freezes the registries now if the game has not: Fabric API's registry sync takes the freeze out of {@code
      * Bootstrap} so that Fabric mods register first, and its {@code MinecraftServer.runServer} mixin does it just
-     * before the server sets up, which is after the tests are chosen here. {@code bootStrap} is what that mixin calls;
-     * the registry sync cancels its second {@code createContents}, and the game layer's freeze hook runs once.
+     * before the server sets up, which is after the tests are chosen here. Only the part of {@code bootStrap} after
+     * {@code createContents} runs ({@code freeze}, then {@code validate} of the root registry): Quilted Fabric API runs
+     * QSL's {@code init} entrypoints in place of {@code Bootstrap}'s {@code bootStrap} call, and QSL's {@code
+     * quilt_base} runs them again at the {@code freeze} call in {@code bootStrap}, which then stops on its second
+     * {@code init} (ADR-0048). The game layer's freeze hook runs once.
      */
-    private static void freezeRegistriesIfPending() {
-        if (!GameHooks.registriesFreezeHookRan()) {
-            BuiltInRegistries.bootStrap();
+    private static void freezeRegistriesIfPending() throws ReflectiveOperationException {
+        if (GameHooks.registriesFreezeHookRan()) {
+            return;
         }
+        Method freeze = BuiltInRegistries.class.getDeclaredMethod("freeze");
+        freeze.setAccessible(true);
+        freeze.invoke(null);
+        Method validate = BuiltInRegistries.class.getDeclaredMethod("validate", Registry.class);
+        validate.setAccessible(true);
+        validate.invoke(null, BuiltInRegistries.REGISTRY);
     }
 
     /** The pack sources of the game's own repository for this world, plus the folder of {@code --packs}. */
