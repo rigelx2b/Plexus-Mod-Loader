@@ -164,6 +164,22 @@ class NeoForgeModRequirementsTest {
                 result.excluded().toString());
     }
 
+    /** FML 2 (NeoForge 20.4) refuses a javafml mod with an empty loaderVersion, as YACL 3.6.6 has; FML 11 runs it. */
+    @Test
+    void neoForge20Point4RefusesAnEmptyJavaLanguageLoaderVersion() throws Exception {
+        Path empty = jar("yacl.jar", Map.of("META-INF/mods.toml", modsToml("javafml", "", "yacl", "1.0", "")));
+        Path ranged = jar("ranged.jar", Map.of("META-INF/mods.toml", modsToml("javafml", "[1,)", "ranged", "1.0", "")));
+
+        ForgeModRequirements.Result fml2 = NeoForgeModRequirements.check(
+                List.of(empty, ranged), "1.20.4", "20.4.253", "2.0", GameSide.CLIENT, ranges());
+        ForgeModRequirements.Result fml11 = check(List.of(empty, ranged), GameSide.CLIENT);
+
+        assertEquals(List.of(ranged), fml2.kept());
+        assertEquals("yacl", fml2.excluded().getFirst().modId());
+        assertTrue(fml2.excluded().getFirst().reasons().getFirst().contains("loaderVersion"), fml2.toString());
+        assertEquals(List.of(empty, ranged), fml11.kept());
+    }
+
     @Test
     void incompatibleModsAndSidesAreRespected() throws Exception {
         Path bundle = jar(

@@ -1059,7 +1059,8 @@ public final class PlexusRuntime {
                 line -> LOGGER.info("[Plexus Mod Loader] {}", line),
                 fabricMods > 0,
                 configuration.systemClassPath(),
-                Optional.empty(),
+                // Forge 47's securejarhandler reflects into java.lang.invoke as NeoForge's FML does (ForgeGameHost).
+                configuration.jdkModuleAccess(),
                 plexusEarlyWindow);
         for (dev.plexusmodloader.compat.bridge.ModLoaderBridge bridge : foreignMods.bridges()) {
             if (!bridge.metadataPath().equals(ModFileKind.FORGE.metadataPath())) {

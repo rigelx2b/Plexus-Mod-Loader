@@ -215,6 +215,23 @@ final class ForgeGameHost implements GameHost {
         return jars;
     }
 
+    /**
+     * The module of securejarhandler's {@code UnionFileSystem} as ModLauncher's module sees it (loaded, not initialised),
+     * which reflects into {@code java.lang.invoke} when it initialises; empty when this FML has no such class.
+     */
+    private static Optional<Module> unionFileSystemModule(ModuleLayer boot) {
+        ClassLoader loader = boot.findModule(ForgeBootModules.MODLAUNCHER)
+                .map(Module::getClassLoader)
+                .orElse(ForgeGameHost.class.getClassLoader());
+        try {
+            return Optional.of(Class.forName("cpw.mods.niofs.union.UnionFileSystem", false, loader)
+                    .getModule());
+        } catch (ClassNotFoundException e) {
+            // An FML whose file systems are not securejarhandler's: nothing to open for it.
+            return Optional.empty();
+        }
+    }
+
     @Override
     public void prepare(GameModuleLayers layers, GameClassBytes classes) throws Exception {
         ModuleLayer boot = ForgeBootModules.define(
@@ -224,6 +241,25 @@ final class ForgeGameHost implements GameHost {
                         + libraries.modFiles().size()
                         + " mod file(s) for FML, " + libraries.onClassPath().size()
                         + " librar(y/ies) shared with the game");
+        // Forge 47's securejarhandler reflects into java.lang.invoke when its file system class loads; Forge's launcher
+        // profile opens it with --add-opens. In an installed launcher profile Plexus Mod Loader's class path holds that
+        // securejarhandler (unnamed module), so the Java agent opens it, as for NeoForge's FML.
+        request.jdkModuleAccess().ifPresent(access -> {
+            Set<Module> reaching = new LinkedHashSet<>(boot.modules());
+            reaching.add(ClassLoader.getSystemClassLoader().getUnnamedModule());
+            reaching.add(ForgeGameHost.class.getClassLoader().getUnnamedModule());
+            // With mods of another loader the boot modules' class loader defines the class path's libraries itself
+            // (ForgeBootModules.define), in its unnamed module.
+            boot.modules()
+                    .forEach(module -> reaching.add(module.getClassLoader().getUnnamedModule()));
+            unionFileSystemModule(boot).ifPresent(reaching::add);
+            access.open(Object.class.getModule(), "java.lang.invoke", reaching);
+        });
+        // In an installed launcher profile Forge 47's securejarhandler is on the JVM class path, where its handler for
+        // union: URLs (the locations of FML's jar modules) is not found, as for NeoForge's FML 2.
+        if (!UnionUrls.installed() && UnionUrls.available()) {
+            UnionUrls.install(boot);
+        }
         Module modLauncher = boot.findModule(ForgeBootModules.MODLAUNCHER).orElseThrow();
         Class<?> host = Class.forName(modLauncher, ForgeBootModules.HOST_PACKAGE + ".PlexusModLauncher");
         if (host == null) {

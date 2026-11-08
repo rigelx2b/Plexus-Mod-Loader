@@ -79,6 +79,12 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
     private static final String NEOFORGE_COREMOD_CLASS_TRANSFORMER =
             "net.neoforged.coremod.transformer.CoreModClassTransformer";
 
+    /** Forge's launch plugin that adds enum constants at run time (by an enum's {@code create} methods). */
+    private static final String RUNTIME_ENUM_EXTENDER = "runtime_enum_extender";
+    /** The flags javac gives an enum's {@code $VALUES} field, which Forge's enum extender looks it up by. */
+    private static final int ENUM_VALUES_ACCESS =
+            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
+
     /** The launch plugins now; a mod may replace the map they come from (ModernFix adds its own). */
     private final Supplier<Collection<ILaunchPluginService>> plugins;
 
@@ -247,9 +253,40 @@ final class ForgeClassTransformer implements BridgeClassTransformer {
             String reason) {
         int flags = ILaunchPluginService.ComputeFlags.NO_REWRITE;
         for (ILaunchPluginService plugin : phases.getOrDefault(phase, List.of())) {
-            flags |= plugin.processClassWithFlags(phase, node, type, reason);
+            flags |= RUNTIME_ENUM_EXTENDER.equals(plugin.name())
+                    ? withEnumValuesAsCompiled(node, () -> plugin.processClassWithFlags(phase, node, type, reason))
+                    : plugin.processClassWithFlags(phase, node, type, reason);
         }
         return flags;
+    }
+
+    /**
+     * Runs {@code process} with an enum's {@code $VALUES} field {@code private static final synthetic}, as the compiler
+     * wrote it, then puts back the visibility another loader's mod widened it to. Forge's {@code RuntimeEnumExtender}
+     * finds the field by exactly those flags, and an access widener of a Fabric or Quilt mod makes it public or mutable
+     * (Forge 1.20.1 {@code EnchantmentCategory}: "Enum has create method but we could not find $VALUES").
+     */
+    static int withEnumValuesAsCompiled(ClassNode node, java.util.function.IntSupplier process) {
+        Map<FieldNode, Integer> widened = new HashMap<>();
+        String descriptor = "[L" + node.name + ";";
+        for (FieldNode field : node.fields) {
+            if (field.name.equals("$VALUES")
+                    && field.desc.equals(descriptor)
+                    && (field.access & ENUM_VALUES_ACCESS) != ENUM_VALUES_ACCESS
+                    && (field.access & Opcodes.ACC_STATIC) != 0) {
+                widened.put(field, field.access);
+                field.access = (field.access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) | ENUM_VALUES_ACCESS;
+            }
+        }
+        try {
+            return process.getAsInt();
+        } finally {
+            // Forge may have taken final away; the widened visibility, and the widener's own removal of final, stay.
+            widened.forEach((field, access) -> field.access = (field.access
+                            & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL))
+                    | (access & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE))
+                    | (access & field.access & Opcodes.ACC_FINAL));
+        }
     }
 
     private ClassNode vote(String internalName, byte[] input, ClassNode node) {

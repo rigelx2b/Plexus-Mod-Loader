@@ -1,4 +1,4 @@
-package dev.plexusmodloader.devtools.gradle.minecraft;
+package dev.plexusmodloader.internal.transform.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -66,13 +66,14 @@ class ParameterFramesTest {
             body.visitFrame(
                     Opcodes.F_FULL,
                     5,
-                    new Object[] {OWNER, "net/minecraft/world/item/ItemStack", Opcodes.TOP, Opcodes.TOP, Opcodes.INTEGER},
+                    new Object[] {OWNER, "net/minecraft/world/item/ItemStack", Opcodes.TOP, Opcodes.TOP, Opcodes.INTEGER
+                    },
                     0,
                     new Object[0]);
             body.visitInsn(Opcodes.RETURN);
         });
 
-        FrameNode frame = frames(ParameterFrames.keepParameters(input)).get(0);
+        FrameNode frame = frames(keep(input)).get(0);
 
         assertEquals(Opcodes.F_FULL, frame.type);
         assertEquals(
@@ -97,7 +98,7 @@ class ParameterFramesTest {
             body.visitInsn(Opcodes.RETURN);
         });
 
-        FrameNode frame = frames(ParameterFrames.keepParameters(input)).get(0);
+        FrameNode frame = frames(keep(input)).get(0);
 
         assertEquals(Opcodes.F_FULL, frame.type);
         assertEquals(List.of(Opcodes.INTEGER, Opcodes.INTEGER), frame.local);
@@ -123,7 +124,7 @@ class ParameterFramesTest {
             body.visitInsn(Opcodes.RETURN);
         });
 
-        assertSame(input, ParameterFrames.keepParameters(input));
+        assertSame(input, keep(input));
     }
 
     /** A dead {@code long} parameter is two {@code TOP} slots in the obfuscator's frame; it becomes one {@code LONG}. */
@@ -138,7 +139,7 @@ class ParameterFramesTest {
             body.visitInsn(Opcodes.RETURN);
         });
 
-        FrameNode frame = frames(ParameterFrames.keepParameters(input)).get(0);
+        FrameNode frame = frames(keep(input)).get(0);
 
         assertEquals(Opcodes.F_FULL, frame.type);
         assertEquals(List.of(Opcodes.LONG, Opcodes.INTEGER), frame.local);
@@ -158,9 +159,25 @@ class ParameterFramesTest {
             body.visitInsn(Opcodes.RETURN);
         });
 
-        FrameNode frame = frames(ParameterFrames.keepParameters(input)).get(0);
+        FrameNode frame = frames(keep(input)).get(0);
 
         assertEquals(Opcodes.F_FULL, frame.type);
         assertEquals(List.of(Opcodes.TOP, Opcodes.INTEGER), frame.local);
+    }
+
+    /** Every method of {@code input} through {@link ParameterFrames#keepParameters}; the same array if none changed. */
+    private static byte[] keep(byte[] input) {
+        ClassNode node = new ClassNode();
+        new ClassReader(input).accept(node, 0);
+        boolean changed = false;
+        for (MethodNode method : node.methods) {
+            changed |= ParameterFrames.keepParameters(node.name, method);
+        }
+        if (!changed) {
+            return input;
+        }
+        ClassWriter writer = new ClassWriter(0);
+        node.accept(writer);
+        return writer.toByteArray();
     }
 }

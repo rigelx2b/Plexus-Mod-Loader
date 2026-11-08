@@ -117,6 +117,30 @@ class ForgeClassTransformerTest {
         assertEquals(List.of("accesstransformer:mixin"), offered);
     }
 
+    /** Forge's enum extender sees $VALUES as compiled; the visibility a Fabric access widener gave it comes back. */
+    @Test
+    void theEnumExtenderSeesValuesAsCompiled() {
+        ClassNode node = new ClassNode();
+        node.name = "game/Category";
+        org.objectweb.asm.tree.FieldNode values = new org.objectweb.asm.tree.FieldNode(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                "$VALUES",
+                "[Lgame/Category;",
+                null,
+                null);
+        node.fields.add(values);
+        int[] seen = new int[1];
+
+        ForgeClassTransformer.withEnumValuesAsCompiled(node, () -> {
+            seen[0] = values.access;
+            values.access &= ~Opcodes.ACC_FINAL;
+            return 0;
+        });
+
+        assertEquals(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC, seen[0]);
+        assertEquals(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, values.access);
+    }
+
     private interface Processing {
         int process(ClassNode node, String reason);
     }

@@ -267,7 +267,11 @@ public final class ClassTransformExecutor {
             }
             byMethod.computeIfAbsent(method, ignored -> new ArrayList<>()).add(rule.action());
         }
-        byMethod.forEach((method, actions) -> MethodActionApplier.applyInOrder(actions, internalName, method));
+        byMethod.forEach((method, actions) -> {
+            // The obfuscated game's frames drop dead parameters; an inserted hook loads them (ParameterFrames).
+            ParameterFrames.keepParameters(internalName, method);
+            MethodActionApplier.applyInOrder(actions, internalName, method);
+        });
         if (!widenings.isEmpty()) {
             for (AccessWidening widening : widenings) {
                 Optional<String> missing = AccessWideningApplier.checkTarget(widening, classNode);

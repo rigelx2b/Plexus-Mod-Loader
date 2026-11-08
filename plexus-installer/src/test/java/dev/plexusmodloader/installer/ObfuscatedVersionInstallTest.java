@@ -139,7 +139,7 @@ class ObfuscatedVersionInstallTest {
         assertEquals(
                 SyntheticGame.MAPPINGS,
                 Files.readString(remappedFolder.resolve("client-mappings-" + VERSION + ".txt")));
-        // The launcher downloads the libraries; the remap reads none (it keeps the jar's frames, ParameterFrames).
+        // The launcher downloads the libraries; the remap reads none (it keeps the jar's frames as they are).
         assertFalse(Files.exists(minecraft.resolve("libraries/com/example/lib/1/lib-1.jar")));
         assertFalse(downloaded.contains(NATIVE_URL), downloaded.toString());
         assertFalse(downloaded.contains(OTHER_OS_URL), downloaded.toString());

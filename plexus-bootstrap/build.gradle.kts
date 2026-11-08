@@ -1800,15 +1800,19 @@ val leavesQslOut = minecraft.startsWith("1.")
 // - Tritium 1.3.2 (1.20.1, 1.21.1) loads its client config screen class in its main initialiser.
 // - Modpack Update Checker 0.12.2 (1.20.1) registers commands through QSL's CommandRegistrationCallback without
 //   declaring QSL, so without QSL its server initialiser stops with NoClassDefFoundError.
+// - Graphene 1.5.0 (1.20.1) loads a client class (enn, which the server's mappings do not list) in its server tick
+//   handler (MemoryCleaner.cleanupResources), so the game test server stops at the first tick.
 // A Plexus Mod Loader limit: Origins 1.10.2 (1.20.1) nests Apoli 2.9.2, whose ServerPlayerInteractionManagerMixin
 // captures the locals of ServerPlayerGameMode.destroyBlock at its return; the game layer's block break hooks
 // (plexus:block_break, plexus:block_broken) rewrite that method, and Mixin finds other locals there ("LVT ... has
-// incompatible changes at opcode 177"), so the game test server stops when the class loads (still so with the
-// obfuscated frames kept, remapper revision 4, 2026-11-08).
+// incompatible changes at opcode 177"), so the game test server stops when the class loads. Since remapper revision 5
+// only the methods a rule changes get live parameters in their frames (the transformation engine's ParameterFrames),
+// and destroyBlock is one of them (still so on 2026-11-08).
 val quiltBrokenOnGame = when (minecraft) {
     "1.20.1" -> listOf(
         "Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.1-quilt.jar", "tritium-quilt-1.20.1-1.3.2.jar",
         "modpack-update-checker-1.20.1-quilt-0.12.2.jar", "Origins-1.10.2+mc.1.20.x.jar",
+        "Graphene-fabric-quilt-1.20.1-1.5.0.jar",
     )
     "1.20.4" -> listOf("Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.4-quilt.jar")
     "1.21.1" -> listOf(
@@ -1846,6 +1850,16 @@ fun quiltCorpus(gameTestServer: Boolean): FileCollection =
             include(if (quiltFabricApiFromFabricCorpus) "fabric-api-*.jar" else "none")
         }
     })
+// A Plexus Mod Loader limit next to Forge 1.20.1 (corpusQuiltForge, 2026-11-08): Metal Pipe 1.0.5 adds a subclass of
+// EnchantmentCategory (its Mixin plugin lists EnchantmentCategory$MetalPipeTarget as permitted) that calls the enum's
+// constructor. The obfuscated vanilla class has that constructor package-private; Forge's recompiled class has it private,
+// so the subclass stops the game test server with IllegalAccessError. Opening it as on vanilla is not done yet.
+// Cardinal Components API 5.2.3's block module captures the locals of FallingBlockEntity.tick, which Forge's patch
+// recompiled; Mixin finds other locals there ("LVT ... has incompatible changes at opcode 444"), and the check before the
+// launch does not foresee it, so the game stops (PLEXUS-COMPAT-225). The mods that need Cardinal Components are left out
+// with it by the dependency check.
+val quiltBrokenNextToForge =
+    listOf("metal_pipe-1.0.5.jar", "cardinal-components-api-5.2.3.jar").filter { minecraft == "1.20.1" }
 // What no Quilt corpus run may show: a bridge that threw (002), and crashes.
 val quiltCorpusUnexpected = listOf(
     "PLEXUS-COMPAT-002",
@@ -1977,7 +1991,10 @@ val quiltCorpusScenarios = listOf(
                 "${quiltDataPacks.filter(::enabled)} of the Quilt mods ${quiltDataPacks}")
         }
     },
-    scenarios.gameTest("corpusQuiltForge", quiltCorpus(true) + gameTestCorpus("forge") + modJars(gameTestHarness)) {
+    scenarios.gameTest(
+        "corpusQuiltForge",
+        quiltCorpus(true).filter { it.name !in quiltBrokenNextToForge } + gameTestCorpus("forge") + modJars(gameTestHarness),
+    ) {
         dependsOn(modCorpus, modCorpusQuilt)
         classpath(forgeClassPath)
         description = "The Quilt mod corpus with the corpus's MinecraftForge mods on the game test server."
@@ -2850,7 +2867,8 @@ clientWorldReload("corpusFabricNeoForgeClient") {
     description = "Opens the saved world in a NeoForge client with every Fabric and NeoForge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
     javaAgents.from(plexusAgentJar)
-    devModJars.from(modJars(":test-mods:neoforge-client-session"))
+    // 1.20.4 and 1.21.1 (NeoForge 20.4 and 21.1 on ModLauncher, ADR-0043 point 10): Plexus Mod Loader's client session.
+    devModJars.from(modJars(clientSession("neoforge")))
     devModJars.from(corpusRoot.map {
         it.dir("fabric").asFileTree.matching { include("*.jar"); exclude(brokenUnderNeoForge); exclude(brokenOnNeoForgeClient) }
     })
@@ -2865,13 +2883,16 @@ clientWorldReload("corpusFabricNeoForgeClient") {
     expectedOutput.addAll(
         "Fabric or Quilt mod(s) run together; one Mixin serves both (ADR-0026 30)",
         "share Fabric's Mixin",
+        "joined the game",
+    )
+    expectedOutput.addAll(clientSessionLines("neoforge"))
+    if (neoForgeOnModLauncher) {
+        expectedOutput.add("for the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0043)")
+    } else {
         // One build of Cloth Config, NeoForge's: with both, its example config was registered twice and the client
         // stopped (ADR-0026 37).
-        "loads its own build of it as cloth_config (the same ID as NeoForge spells it)",
-        "joined the game",
-        "[neoforge_client_session] 200 client ticks in the world; save and quit",
-        "[neoforge_client_session] left the saved world; stopping the client",
-    )
+        expectedOutput.add("loads its own build of it as cloth_config (the same ID as NeoForge spells it)")
+    }
 }
 
 // What a player sees of their mods on NeoForge (opens a window, run it alone after the headless checks): Sodium and Iris
@@ -3282,15 +3303,10 @@ tasks.register("compatibilityCorpus") {
         if (hasForgeRelease) {
             dependsOn("corpusFabricForge")
         }
-        // Not corpusQuilt on 1.20.1 yet: Cardinal Components API 5.2.3's block module (nested in the corpus's
-        // cardinal-components-api jar) has an implicit @ModifyVariable in BlockInput.place that finds no local. The
-        // obfuscated frames there chop the dead parameters (chop 2, chop 3); with this and the parameters kept live they
-        // are full frames, which Mixin 0.8.7 counts differently (still so with remapper revision 4, 2026-11-08).
+        // corpusQuilt runs on 1.20.1 too since remapper revision 5 (2026-11-08): Cardinal Components API 5.2.3's
+        // implicit @ModifyVariable in BlockInput.place found no local when every frame was made full (revision 4).
         if (quiltCorpusLock.exists()) {
-            dependsOn("corpusQuiltServer")
-            if (minecraft != "1.20.1") {
-                dependsOn("corpusQuilt")
-            }
+            dependsOn("corpusQuiltServer", "corpusQuilt")
         }
     } else {
         dependsOn(
