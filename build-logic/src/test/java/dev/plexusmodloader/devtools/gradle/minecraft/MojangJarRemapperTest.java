@@ -161,7 +161,7 @@ class MojangJarRemapperTest {
     }
 
     @Test
-    void aReturnFrameKeepsThisAndTheParameters() throws IOException {
+    void theObfuscatorsFramesAreKeptAsTheyAre() throws IOException {
         // Like the obfuscator's output: the frame at the last return keeps no locals, as none is read after it.
         org.objectweb.asm.ClassWriter writer = new org.objectweb.asm.ClassWriter(0);
         writer.visit(org.objectweb.asm.Opcodes.V1_8, org.objectweb.asm.Opcodes.ACC_PUBLIC, "f", null,
@@ -199,9 +199,10 @@ class MojangJarRemapperTest {
         });
         assertEquals(1, frames.size());
         org.objectweb.asm.tree.FrameNode frame = frames.getFirst();
-        // The obfuscator's full frame stays full, now with this and the int parameter (ParameterFrames).
+        // The obfuscator's full frame without locals stays so (revision 5): the transformation engine makes the
+        // parameters live only in the methods its rules change, and Mixin reads the frames the mods were made against.
         assertEquals(org.objectweb.asm.Opcodes.F_FULL, frame.type);
-        assertEquals(List.of("net/minecraft/Frames", org.objectweb.asm.Opcodes.INTEGER), frame.local);
+        assertEquals(List.of(), frame.local);
         RemappedJarLoadCheck.Result load = RemappedJarLoadCheck.check(output, List.of());
         assertEquals(List.of(), load.failures());
     }

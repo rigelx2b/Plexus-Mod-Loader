@@ -117,7 +117,7 @@ final class NeoForgeModRequirements {
                     continue;
                 }
                 List<String> reasons =
-                        reasons(entry.getValue(), installed, excludedIds, javaLanguageVersion, sideName, ranges);
+                        reasons(entry.getValue(), installed, excludedIds, javaLanguageVersion, sideName, ranges, fml2);
                 if (!reasons.isEmpty()) {
                     failures.put(entry.getKey(), reasons);
                     changed = true;
@@ -147,8 +147,16 @@ final class NeoForgeModRequirements {
             Map<String, Path> excludedIds,
             String javaLanguageVersion,
             String side,
-            ForgeModRequirements.VersionRanges ranges) {
+            ForgeModRequirements.VersionRanges ranges,
+            boolean fml2) {
         List<String> reasons = new ArrayList<>();
+        // FML 2 (NeoForge 20.4) refuses a javafml mod without a loaderVersion range ("Missing language javafml version
+        // wanted by ..."); FML 11 does not check it. YACL 3.6.6 for 1.20.4 has loaderVersion = "" in its mods.toml.
+        if (fml2
+                && JAVA_LANGUAGE.equals(toml.modLoader())
+                && toml.loaderVersion().isEmpty()) {
+            reasons.add("its language loader javafml has an empty or missing loaderVersion");
+        }
         if (JAVA_LANGUAGE.equals(toml.modLoader())
                 && !toml.loaderVersion().isEmpty()
                 && !ranges.contains(toml.loaderVersion(), javaLanguageVersion)) {

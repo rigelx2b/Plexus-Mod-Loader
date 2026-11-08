@@ -56,7 +56,7 @@ final class MojangJarRemapper {
      * Bumped whenever the output for the same input changes, so cached jars made by an older remapper are made again.
      * Equal to the build's remapper revision.
      */
-    static final int REVISION = 4;
+    static final int REVISION = 5;
 
     private static final Pattern SIGNATURE_FILE =
             Pattern.compile("META-INF/[^/]+\\.(SF|RSA|DSA|EC)|META-INF/SIG-[^/]+");
@@ -84,10 +84,11 @@ final class MojangJarRemapper {
     /**
      * Remaps {@code input} into {@code output}, replacing it if it exists.
      *
-     * <p>The obfuscated jar's stack map frames are kept, with {@code this} and the parameters live in every one
-     * ({@link ParameterFrames}, revision 4): a hook that a transformation rule inserts before a {@code return} can load
-     * them, and Mixin reads the other locals at an injection point from the same frames as on the obfuscated jar the
-     * mods were made against.
+     * <p>The obfuscated jar's stack map frames are kept as they are (revision 5): Mixin reads the locals at an
+     * injection point from the same frames as on the obfuscated jar the mods were made against. The transformation
+     * engine makes the parameters live in the methods its rules change (its {@code ParameterFrames}); revision 4 did it
+     * here, in every method, and the full frames that made kept Cardinal Components' implicit {@code @ModifyVariable} in
+     * {@code BlockInput.place} from finding its {@code BlockEntity}.
      */
     static Result remap(Path input, MojangMappings mappings, Path output) {
         Map<String, byte[]> classes = new TreeMap<>(readClasses(input));
@@ -108,7 +109,7 @@ final class MojangJarRemapper {
             ClassWriter writer = new ClassWriter(0);
             reader.accept(new ClassRemapper(writer, remapper), 0);
             String name = remapper.map(entry.getKey()) + ".class";
-            if (entries.put(name, ParameterFrames.keepParameters(writer.toByteArray())) != null) {
+            if (entries.put(name, writer.toByteArray()) != null) {
                 throw new IllegalStateException(
                         "Two classes of " + input + " remap to " + name + "; the mappings do not match this jar.");
             }

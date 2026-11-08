@@ -121,6 +121,46 @@ class ForgeModRequirementsTest {
         assertFalse(ForgeModRequirements.emptyLanguageRangeRefused("61.2.5"));
     }
 
+    /** Forge 47 refuses a javafml mod whose jar has no class (a data pack packed as a mod); later Forge runs it. */
+    @Test
+    void aJavaModWithoutItsModClassIsRefusedByForge47Only() throws Exception {
+        Path pack = jar("pack.jar", modsToml("javafml", "[1,)", "mr_05_hp", "1.1", ""));
+        byte[] modClass = ClassFile.of()
+                .build(
+                        ClassDesc.of("a.Coded"),
+                        builder -> builder.with(RuntimeVisibleAnnotationsAttribute.of(Annotation.of(
+                                ClassDesc.ofDescriptor("Lnet/minecraftforge/fml/common/Mod;"),
+                                AnnotationElement.ofString("value", "coded")))));
+        Path coded = jar(
+                "coded.jar",
+                Map.of(
+                        "META-INF/mods.toml",
+                        modsToml("javafml", "[1,)", "coded", "1.0", ""),
+                        "a/Coded.class",
+                        modClass));
+        // Classes, but none with @Mod("other"): a Quilt mod whose mods.toml is for another loader.
+        Path other = jar(
+                "other.jar",
+                Map.of(
+                        "META-INF/mods.toml",
+                        modsToml("javafml", "[1,)", "other", "1.0", ""),
+                        "a/Coded.class",
+                        modClass));
+
+        ForgeModRequirements.Result forge47 = ForgeModRequirements.check(
+                List.of(pack, coded, other), "1.20.1", "47.4.28", GameSide.DEDICATED_SERVER, ranges());
+        ForgeModRequirements.Result forge49 = ForgeModRequirements.check(
+                List.of(pack, coded, other), "1.20.4", "49.2.13", GameSide.DEDICATED_SERVER, ranges());
+
+        assertEquals(List.of(coded), forge47.kept());
+        assertEquals(
+                List.of("mr_05_hp", "other"),
+                forge47.excluded().stream()
+                        .map(ForgeModRequirements.Excluded::modId)
+                        .toList());
+        assertEquals(List.of(pack, coded, other), forge49.kept());
+    }
+
     @Test
     void aDependencyNestedInAnotherJarCountsAndSidesAreRespected() throws Exception {
         Path bundle = jar(

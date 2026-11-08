@@ -13,7 +13,6 @@ import java.io.InputStream;
 import java.lang.classfile.ClassHierarchyResolver;
 import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -334,7 +333,7 @@ final class NeoForgeFml4GameHost implements GameHost {
         reaching.add(ClassLoader.getSystemClassLoader().getUnnamedModule());
         reaching.add(NeoForgeFml4GameHost.class.getClassLoader().getUnnamedModule());
         request.jdkModuleAccess().orElseThrow().open(Object.class.getModule(), "java.lang.invoke", reaching);
-        installUnionUrls(boot);
+        UnionUrls.install(boot);
         Module modLauncher = boot.findModule(ForgeBootModules.MODLAUNCHER).orElseThrow();
         Class<?> host = Class.forName(modLauncher, ForgeBootModules.HOST_PACKAGE + ".PlexusModLauncher");
         if (host == null) {
@@ -414,37 +413,6 @@ final class NeoForgeFml4GameHost implements GameHost {
                 dropped -> request.log()
                         .accept("FML's module " + reference.descriptor().name() + " leaves " + dropped
                                 + " to Plexus Mod Loader's Fabric Loader API (ADR-0043)"));
-    }
-
-    /**
-     * Makes {@code union:} URLs (the locations of FML's jar modules) work: securejarhandler 3 has no URL handler service.
-     * NeoForge's bootstrap sets {@code ModularURLHandler} as the JVM's URL stream handler factory; so does this.
-     */
-    private void installUnionUrls(ModuleLayer boot) throws ReflectiveOperationException {
-        Class<?> handler = Class.forName("cpw.mods.cl.ModularURLHandler", true, ClassLoader.getSystemClassLoader());
-        handler.getMethod("initFrom", ModuleLayer.class).invoke(null, boot);
-        Object instance = handler.getField("INSTANCE").get(null);
-        if (((java.net.URLStreamHandlerFactory) instance).createURLStreamHandler("union") == null) {
-            // securejarhandler 2 (FML 2) offers its handler only as a service of its module, and here the jar is on the
-            // class path (FML's file systems need it there), not a module of the BOOT layer: register it by hand.
-            Class<?> union = Class.forName("cpw.mods.cl.UnionURLStreamHandler", true, handler.getClassLoader());
-            Class<?> provider =
-                    Class.forName("cpw.mods.cl.ModularURLHandler$IURLProvider", true, handler.getClassLoader());
-            Field handlers = handler.getDeclaredField("handlers");
-            handlers.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, Object> known = (java.util.Map<String, Object>) handlers.get(instance);
-            Object created = union.getDeclaredConstructor().newInstance();
-            known.put((String) provider.getMethod("protocol").invoke(created), created);
-        }
-        try {
-            java.net.URL.setURLStreamHandlerFactory((java.net.URLStreamHandlerFactory) instance);
-        } catch (Error alreadySet) {
-            throw new IllegalStateException(
-                    "The JVM's URL stream handler factory is set already, so union: URLs (FML's"
-                            + " jar modules) cannot be opened: " + alreadySet,
-                    alreadySet);
-        }
     }
 
     /**

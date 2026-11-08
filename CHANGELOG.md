@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.4 — 2026-11-08
+
+### Summary
+
+Plexus Mod Loader 2.1.4 keeps obfuscated stack map frames unchanged in remapped pre-26.1 game jars so the Minecraft 1.20.1 Quilt game test server runs, fixes Forge 47 and NeoForge 20.4 startup, mod discovery, and enum extension issues so `corpusQuiltForge` passes on 1.20.1, and verifies installed launcher profiles on Forge 1.20.1, 1.20.4, 1.21.1, and 1.21.11 and NeoForge 1.20.4, 1.21.1, and 1.21.11 as well as Fabric client windows alongside NeoForge 21.1.265.
+
+### Improvements & Fixes
+
+- Keep the obfuscated jar's stack map frames as they are in remapped pre-26.1 game jars (remapper revision 5, regenerating remapped jars on first launch) and make `this` and parameters live in frames only inside methods changed by a Plexus transform rule (moving `ParameterFrames` into `ClassTransformExecutor` in the transform engine), fixing Mixin 0.8.7 local capture broken by revision 4's widened frames in Cardinal Components API 5.2.3's block-module implicit `@ModifyVariable` in `BlockInput.place` (1.20.1) and Fabric API's lifecycle `LocalCapture` in `LevelChunk.setBlockEntity` while keeping QSL passing on 1.20.1, 1.20.4 (Polymer), and 1.21.1.
+- Include `corpusQuilt` on Minecraft 1.20.1 in `compatibilityCorpus` now that the 1.20.1 Quilt game test server runs past Cardinal Components API, loading 184 mods with 877 not loaded (leaving Graphene 1.5.0 out of that run because its server tick handler loads an unmapped client class) alongside 186 loaded / 821 not loaded on the 1.20.1 Quilt dedicated server.
+- Fix startup crashes (`PLEXUS-COMPAT-208`) on Forge 1.20.1 (Forge 47) in installed launcher profiles, where `securejarhandler` 2.1.10 on the JVM class path needs `java.lang.invoke` opened and a `union:` URL handler, by passing the Java agent's JDK module access to the Forge game host, opening `java.lang.invoke`, and installing the `union:` URL handler shared with NeoForge, passing `launcherProfileForgeTest` on 1.20.1, 1.20.4, 1.21.1, and 1.21.11 and `launcherProfileNeoForgeTest` on 1.20.4, 1.21.1, and 1.21.11 (installed Forge and NeoForge launcher profiles on 1.20.1, 1.20.4, and 1.21.1 were unverified in 2.1.3).
+- Fix NeoForge 20.4 (FML 2) stopping with "Missing language javafml version" by leaving out `javafml` mods whose `mods.toml` has an empty or missing `loaderVersion` before FML starts (`PLEXUS-COMPAT-217`), allowing multi-loader jars such as YACL 3.6.6 to run through the Fabric bridge so Zoomify finds YACL.
+- Fix Forge 47 (Minecraft 1.20.1) stopping with "has mods that were not found" by leaving `javafml` jars whose `mods.toml` declares a mod with no matching `@Mod` class (data packs packaged as mods and multi-loader Quilt or Fabric jars carrying another loader's `mods.toml`, such as a Sinytra Connector placeholder) out of Forge discovery (`PLEXUS-COMPAT-209`) so multi-loader jars fall back to the Quilt or Fabric bridge, while leaving Forge 49 and later unaffected.
+- Fix Forge's `RuntimeEnumExtender` failing with "Enum has create method but we could not find $VALUES" when a Fabric or Quilt access widener widens an enum's `$VALUES` field (such as `EnchantmentCategory` on Forge 1.20.1) by showing the plugin `$VALUES` with its compiled flags (`private static final synthetic`) and restoring the widened access afterwards.
+- Pass `corpusQuiltForge` (Quilt mods next to Forge) on Minecraft 1.20.1 with 98 loaded mods, leaving Metal Pipe 1.0.5 (illegal access to Forge's private `EnchantmentCategory` constructor) and Cardinal Components API 5.2.3 (local variable mismatch in Forge's patched `FallingBlockEntity.tick`) out of that run.
+- Verify Fabric mods next to NeoForge 21.1.265 (Minecraft 1.21.1) in a game client window, passing `corpusFabricNeoForgeClient` after reaching the world, running 200 ticks, and leaving.
+- Verify the 2026-11-08 release on Java 25 with `check`, `build-logic` `check`, headless runs on all 9 supported versions (`serverBootSmokeTest`, `worldCreateSaveTest`, `gameTests *:*`, and `compatibilityMatrix`, 172-213 s per version), `compatibilityCorpus` on all 9 versions (last-stage loaded / not loaded: 1.20.1 Quilt server 186 / 821, 1.20.4 111 / 153, 1.21.1 109 / 123, 1.21.11 123 / 96, and 26.1 Quilt server 116 / 72), and all 20 window tasks run one at a time 20 s apart (`clientWorldReloadTest` on 1.20.1, 1.20.4, 1.21.1, and 1.21.11, with 26.x not rerun as no 26.x game-layer code changed since 2.1.3; `corpusForgeClient` and `launcherProfileForgeTest` on 1.20.1, 1.20.4, 1.21.1, and 1.21.11; `corpusNeoForgeClient` and `launcherProfileNeoForgeTest` on 1.20.4, 1.21.1, and 1.21.11; `corpusFabricNeoForgeClient` on 1.21.1; and `launcherProfileTest` on 26.3).
+
+### Known Limitations
+
+- Running Fabric mods next to NeoForge 20.4.253 (Minecraft 1.20.4) in a client window disconnects the client during NeoForge 20.4 network negotiation ("Incompatible client! Please use NeoForge 20.4.253") when Fabric API networking is present, while headless runs are unaffected.
+- Origins 1.10.2 / Apoli on Minecraft 1.20.1 does not run yet because Plexus block-break hooks change `ServerPlayerGameMode.destroyBlock` and Apoli's local capture there still fails.
+- Pre-26.1 Quilt corpus runs still leave QSL out, as several corpus mods stop a server under QSL just as they would under Quilt Loader.
+- On Minecraft 1.20.1 next to Forge, Metal Pipe 1.0.5 (illegal access to Forge's private `EnchantmentCategory` constructor) and Cardinal Components API 5.2.3 (local variable mismatch in Forge's patched `FallingBlockEntity.tick`) do not run.
+- FML's `ModList` does not list other loaders' mods.
+- Manual checks (installer window and `MANUAL_QA_CHECKLIST`) still require a person.
+
 ## 2.1.3 — 2026-11-08
 
 ### Summary

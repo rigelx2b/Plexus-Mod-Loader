@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 import java.util.jar.Manifest;
@@ -123,6 +124,15 @@ final class ForgeModRequirements {
                     List<String> mixinReasons = mixinReasons(mixinConfigs(jar), mixinLevels);
                     if (!mixinReasons.isEmpty()) {
                         failures.put(jar, mixinReasons);
+                    } else if (missingModClassRefused(forgeVersion) && "javafml".equals(toml.modLoader())) {
+                        List<String> missing =
+                                modIdsWithoutModClass(jar, toml.versions().keySet());
+                        if (!missing.isEmpty()) {
+                            failures.put(
+                                    jar,
+                                    List.of("its mods.toml declares javafml mods with no matching @Mod class: "
+                                            + String.join(", ", missing)));
+                        }
                     }
                 } else if (side != GameSide.CLIENT) {
                     Optional<String> clientOnly = clientOnlyFabricId(jar);
@@ -324,6 +334,55 @@ final class ForgeModRequirements {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /**
+     * Whether FML of Forge {@code forgeVersion} refuses a {@code javafml} mod file in which a mod its {@code mods.toml}
+     * lists has no {@code @Mod} class: Forge 47.4.28 (Minecraft 1.20.1) stops the launch with "The Mod File ... has mods
+     * that were not found" (a data pack packed as a mod, as Modrinth generates them; a Quilt mod with a {@code mods.toml}
+     * for another loader). Not seen with later Forge versions.
+     */
+    static boolean missingModClassRefused(String forgeVersion) {
+        int dot = forgeVersion.indexOf('.');
+        try {
+            return Integer.parseInt(dot < 0 ? forgeVersion : forgeVersion.substring(0, dot)) < 48;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /** The IDs among {@code modIds} that no class of {@code jar} names in its {@code @Mod} annotation. */
+    static List<String> modIdsWithoutModClass(Path jar, Set<String> modIds) throws IOException {
+        Set<String> annotated = new java.util.HashSet<>();
+        try (JarFile file = new JarFile(jar.toFile())) {
+            for (JarEntry entry : java.util.Collections.list(file.entries())) {
+                if (!entry.getName().endsWith(".class")) {
+                    continue;
+                }
+                byte[] bytes;
+                try (InputStream input = file.getInputStream(entry)) {
+                    bytes = input.readAllBytes();
+                }
+                if (!new String(bytes, StandardCharsets.ISO_8859_1).contains(MOD)) {
+                    continue;
+                }
+                ClassModel model = ClassFile.of().parse(bytes);
+                for (var attribute : model.findAttributes(Attributes.runtimeVisibleAnnotations())) {
+                    for (Annotation annotation : attribute.annotations()) {
+                        if (annotation.className().stringValue().equals("L" + MOD + ";")) {
+                            annotation.elements().stream()
+                                    .filter(element -> element.name().equalsString("value"))
+                                    .forEach(element -> {
+                                        if (element.value() instanceof AnnotationValue.OfString id) {
+                                            annotated.add(id.stringValue());
+                                        }
+                                    });
+                        }
+                    }
+                }
+            }
+        }
+        return modIds.stream().filter(id -> !annotated.contains(id)).sorted().toList();
     }
 
     private static boolean providesLanguage(Path jar) {

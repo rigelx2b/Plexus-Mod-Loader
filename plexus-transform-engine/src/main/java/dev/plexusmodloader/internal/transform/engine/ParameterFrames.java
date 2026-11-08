@@ -1,58 +1,42 @@
-package dev.plexusmodloader.devtools.gradle.minecraft;
+package dev.plexusmodloader.internal.transform.engine;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.MethodNode;
 
 /**
- * Keeps the obfuscated jar's stack map frames and makes {@code this} and the parameters live in every one.
+ * Makes {@code this} and the parameters live in every stack map frame of a method a transformation rule changes.
  *
  * <p>The obfuscator keeps only live locals in a frame: a parameter nothing reads any more is {@code TOP}, and at the
- * last {@code return} of a method a frame may hold no locals at all, so a hook that a transformation rule inserts there
- * could not load {@code this} or a parameter (ADR-0019, remapper revision 2). Every other local stays as the obfuscator
- * wrote it, and so does the kind of each frame where it still fits: Mixin 0.8.7 reads the locals at an injection point
- * from the frames' kinds ({@code Locals.getLocalsAt}: a {@code chop} or {@code append} frame changes its count of
- * locals by at least the method's parameter slots, a full frame sets it), and the mods were made against the
- * obfuscated frames. Frames recomputed from the code (revision 3) wrote {@code chop 1} where the obfuscated jar has a
- * full frame, and QSL's implicit {@code @ModifyVariable} in {@code EnchantmentMenu} found no {@code int} (ADR-0048).
+ * last {@code return} of a method a frame may hold no locals at all, so a hook that a rule inserts there could not load
+ * {@code this} or a parameter (ADR-0019). The remapped game jar keeps the obfuscated jar's frames as they are (remapper
+ * revision 5): Mixin 0.8.7 reads the locals at an injection point from the frames' kinds ({@code Locals.getLocalsAt}),
+ * and the mods were made against those frames (QSL's implicit {@code @ModifyVariable} in {@code EnchantmentMenu},
+ * ADR-0048; Cardinal Components' in {@code BlockInput.place} found no {@code BlockEntity} when every frame was full).
+ * Only the methods a rule changes get live parameters, when the rule applies.
  *
- * <p>A frame whose kind no longer fits because a parameter became live (a {@code chop} into the parameters, or a frame
- * after a full frame that changed) is written as a full frame. A parameter slot that holds anything but {@code TOP}
- * keeps its type. In a constructor, {@code this} is left as it is: before the call to the super constructor it is
- * uninitialised. The frames stay valid: a parameter slot is only ever written with a value of the parameter's type.
- *
- * <p>The same class is in {@code plexus-installer} for the remapper that runs on the player's machine; change both
- * together and raise {@code MojangJarRemapper.REVISION}.
+ * <p>Every other local stays as the obfuscator wrote it, and so does the kind of each frame where it still fits. A frame
+ * whose kind no longer fits because a parameter became live (a {@code chop} into the parameters, or a frame after a full
+ * frame that changed) is written as a full frame. A parameter slot that holds anything but {@code TOP} keeps its type.
+ * In a constructor, {@code this} is left as it is: before the call to the super constructor it is uninitialised. The
+ * frames stay valid: a parameter slot is only ever written with a value of the parameter's type. A method whose frames
+ * already hold its parameters (code compiled by {@code javac}, such as the game from 26.1 on) is not changed.
  */
 final class ParameterFrames {
 
     private ParameterFrames() {}
 
-    /** The class with {@code this} and the parameters live in every frame; the same array if nothing changed. */
-    static byte[] keepParameters(byte[] classBytes) {
-        ClassNode node = new ClassNode();
-        new ClassReader(classBytes).accept(node, 0);
-        boolean changed = false;
-        for (MethodNode method : node.methods) {
-            changed |= keepParameters(node.name, method);
-        }
-        if (!changed) {
-            return classBytes;
-        }
-        ClassWriter writer = new ClassWriter(0);
-        node.accept(writer);
-        return writer.toByteArray();
-    }
-
-    private static boolean keepParameters(String owner, MethodNode method) {
+    /**
+     * Makes {@code this} and the parameters live in every frame of {@code method} of class {@code owner}.
+     *
+     * @return whether a frame changed
+     */
+    static boolean keepParameters(String owner, MethodNode method) {
         boolean constructor = method.name.equals("<init>");
         Object[] parameters = parameterSlots(owner, method, constructor);
         List<Object> previousOriginal = entries(parameters, constructor ? Opcodes.UNINITIALIZED_THIS : null);
@@ -151,7 +135,8 @@ final class ParameterFrames {
 
     /** {@code locals} with each parameter slot that is {@code TOP} or missing set to the parameter's type. */
     private static Object[] withParameters(Object[] locals, Object[] parameters) {
-        Object[] result = locals.length >= parameters.length ? locals.clone() : Arrays.copyOf(locals, parameters.length);
+        Object[] result =
+                locals.length >= parameters.length ? locals.clone() : Arrays.copyOf(locals, parameters.length);
         for (int slot = locals.length; slot < result.length; slot++) {
             result[slot] = Opcodes.TOP;
         }
@@ -179,29 +164,27 @@ final class ParameterFrames {
      * @return whether the frame changed
      */
     private static boolean rewrite(FrameNode frame, List<Object> previous, List<Object> kept) {
-        boolean fits =
-                switch (frame.type) {
-                    case Opcodes.F_SAME, Opcodes.F_SAME1 -> kept.equals(previous);
-                    case Opcodes.F_APPEND ->
-                        kept.size() == previous.size() + frame.local.size()
-                                && kept.subList(0, previous.size()).equals(previous)
-                                && kept.subList(previous.size(), kept.size()).equals(frame.local);
-                    case Opcodes.F_CHOP ->
-                        previous.size() - kept.size() == frame.local.size()
-                                && previous.subList(0, kept.size()).equals(kept);
-                    default -> false;
-                };
+        boolean fits = switch (frame.type) {
+            case Opcodes.F_SAME, Opcodes.F_SAME1 -> kept.equals(previous);
+            case Opcodes.F_APPEND ->
+                kept.size() == previous.size() + frame.local.size()
+                        && kept.subList(0, previous.size()).equals(previous)
+                        && kept.subList(previous.size(), kept.size()).equals(frame.local);
+            case Opcodes.F_CHOP ->
+                previous.size() - kept.size() == frame.local.size()
+                        && previous.subList(0, kept.size()).equals(kept);
+            default -> false;
+        };
         if (fits) {
             return false;
         }
         if (frame.type == Opcodes.F_FULL && frame.local.equals(kept)) {
             return false;
         }
-        List<Object> stack =
-                switch (frame.type) {
-                    case Opcodes.F_FULL, Opcodes.F_SAME1 -> frame.stack;
-                    default -> List.of();
-                };
+        List<Object> stack = switch (frame.type) {
+            case Opcodes.F_FULL, Opcodes.F_SAME1 -> frame.stack;
+            default -> List.of();
+        };
         frame.type = Opcodes.F_FULL;
         frame.local = new ArrayList<>(kept);
         frame.stack = new ArrayList<>(stack);
