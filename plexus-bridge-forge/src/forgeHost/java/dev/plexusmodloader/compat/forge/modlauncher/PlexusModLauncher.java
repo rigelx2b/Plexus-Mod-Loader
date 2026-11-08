@@ -16,10 +16,12 @@ import cpw.mods.modlauncher.serviceapi.ILaunchPluginService;
 import cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService;
 import dev.plexusmodloader.compat.bridge.BridgeClassTransformer;
 import dev.plexusmodloader.compat.bridge.SharedMixinConfig;
+import dev.plexusmodloader.compat.forge.ForeignModIndex;
 import dev.plexusmodloader.compat.forge.ForgeLaunch;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -63,6 +65,9 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
     private static final String MODLAUNCHER_VERSION = "10.2.6";
     /** {@link GameTestLaunchHandler}'s name. */
     private static final String GAME_TEST_TARGET = "plexusmodloader_server_gametest";
+    /** NeoForge's FML 2 and 4 host jars' answers to FML's mod list ({@code neoforge-fml4-host.jar}, ADR-0025). */
+    private static final String NEOFORGE_FOREIGN_MOD_LIST =
+            PlexusModLauncher.class.getPackageName() + ".NeoForgeForeignModList";
 
     private final Request request;
     private final Map<Layer, ModuleLayer> layers = new EnumMap<>(Layer.class);
@@ -89,6 +94,27 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         this.transformer = new ForgeClassTransformer(() -> plugins().values(), request.classes());
     }
 
+    /**
+     * NeoForge's FML 2 or 4: the host jar's {@code NeoForgeForeignModList}, compiled against that FML's neoforgespi,
+     * shows the other mods to FML's mod list (ADR-0025). Absent from MinecraftForge's host jar.
+     */
+    private void installNeoForgeForeignModList() throws ReflectiveOperationException {
+        Class<?> list;
+        try {
+            list = Class.forName(NEOFORGE_FOREIGN_MOD_LIST, true, PlexusModLauncher.class.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            return;
+        }
+        try {
+            list.getDeclaredMethod("install", ForeignModIndex.class).invoke(null, request.otherMods());
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
+    }
+
     private Map<String, ILaunchPluginService> plugins() {
         return launchPlugins.plugins();
     }
@@ -108,9 +134,8 @@ public final class PlexusModLauncher implements ForgeLaunch, IModuleLayerManager
         try {
             ForeignModList.install(request.otherMods());
         } catch (NoClassDefFoundError e) {
-            // NeoForge's FML 2 and 4 (ADR-0043) have no forgespi, and their ModList is not patched to ask for other
-            // mods: NeoForge mods do not see Plexus Mods through it (ForgeModListPatch logs PLEXUS-COMPAT-211); the
-            // other mods still run.
+            // NeoForge's FML 2 and 4 (ADR-0043) have no forgespi: their host jar's own list, with neoforgespi types.
+            installNeoForgeForeignModList();
         }
         if (request.launchTarget().equals(GAME_TEST_TARGET)) {
             // The game test launch is not production, so that Forge runs game tests (ForgeGameTestHooks reads

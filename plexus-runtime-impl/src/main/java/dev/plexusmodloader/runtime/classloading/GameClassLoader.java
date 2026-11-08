@@ -488,7 +488,7 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
             return transformer.transform(internalName, original);
         }
         // Plexus Mod Loader's call redirects come after the bridge's stage, so that its injections at those calls find
-        // them (ADR-0020).
+        // them (ADR-0020), and so do its hooks before returns, so that it reads the game's frames there.
         return transformer.transformLate(
                 internalName,
                 bridgeTransform(name, transformer.transformEarly(internalName, original)),

@@ -185,18 +185,31 @@ public final class FabricBridge implements ModLoaderBridge {
         EnumExtender extender = EnumExtender.of(tweakers.stream()
                 .flatMap(file -> file.enumExtensions().stream())
                 .toList());
+        HostEnumConstructors hostEnums = context.host().isHosted()
+                        && context.host().vanillaGameJar() != null
+                ? HostEnumConstructors.of(context.host().vanillaGameJar(), FabricBridge::reportHostEnumConstructor)
+                : null;
         Optional<BridgeClassTransformer> mixin = FabricMixinBootstrap.start(
                 context,
-                FabricClassTransformer.preMixinView(classes, stripper, injector, extender),
+                FabricClassTransformer.preMixinView(classes, stripper, injector, extender, hostEnums),
                 FABRIC_LOADER_VERSION,
                 MIXIN_EXTRAS_VERSION);
         Optional<HostInterfaceDefaults> hostDefaults = context.host().isHosted()
                 ? Optional.of(new HostInterfaceDefaults(classes, FabricBridge::reportHostDefault))
                 : Optional.empty();
-        return Optional.of(new FabricClassTransformer(classes, stripper, injector, extender, mixin, hostDefaults));
+        return Optional.of(
+                new FabricClassTransformer(classes, stripper, injector, extender, mixin, hostDefaults, hostEnums));
     }
 
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("Plexus Mod Loader");
+
+    /** Logs the enum constructors {@link HostEnumConstructors} opened again ({@code owner.<init>[descriptors]}). */
+    private static void reportHostEnumConstructor(String constructors) {
+        LOGGER.info(
+                "[Plexus Mod Loader] PLEXUS-COMPAT-212 {} is package-private again, as in vanilla: the host's patch made"
+                        + " it private, and Fabric or Quilt mods may add enum constants with bodies (ADR-0021 G8)",
+                constructors);
+    }
 
     /** Logs a default method conflict {@link HostInterfaceDefaults} resolved (ADR-0026 42). */
     private static void reportHostDefault(HostInterfaceDefaults.Resolution resolution) {

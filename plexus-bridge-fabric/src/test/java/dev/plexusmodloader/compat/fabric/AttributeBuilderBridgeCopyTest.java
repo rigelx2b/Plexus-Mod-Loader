@@ -34,7 +34,8 @@ class AttributeBuilderBridgeCopyTest {
                 InterfaceInjector.of(List.of()),
                 EnumExtender.of(List.of()),
                 Optional.empty(),
-                Optional.empty());
+                Optional.empty(),
+                null);
         URL guavaJar = ImmutableMap.class.getProtectionDomain().getCodeSource().getLocation();
         try (URLClassLoader gameGuava =
                 new URLClassLoader(new URL[] {guavaJar}, ClassLoader.getPlatformClassLoader())) {

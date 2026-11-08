@@ -63,7 +63,8 @@ class AttributeBuilderAdaptationTest {
                 InterfaceInjector.of(List.of()),
                 EnumExtender.of(List.of()),
                 Optional.empty(),
-                Optional.empty());
+                Optional.empty(),
+                null);
     }
 
     /** {@code AttributeSupplier$Builder} with its field {@code builder} of type {@code fieldDescriptor}. */

@@ -158,9 +158,10 @@ tasks.named<dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask>("
         "[Plexus Mod Loader] Loaded mod minimal_native_mod 0.1.0",
         "[Plexus Mod Loader] Phase GAME_LAUNCH: $gameTestMain",
         "[Plexus Mod Loader] Access widenings: 1 accepted, 0 rejected",
-        // A Fabric mod is installed (fabric_hello), so call redirects come after the Fabric stage (ADR-0020).
-        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [plexus:server_brand, plexus:server_tick_events, plexus:server_tick_end, plexus:server_running, plexus:server_stopping_event, plexus:world_unloaded, plexus:server_stopped, plexus:worldgen_features, plexus:world_loaded, access widening by transform_demo_mod]",
-        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [transform_demo_mod:tick_start_nanos]",
+        // A Fabric mod is installed (fabric_hello), so call redirects and the hooks before a return come after the
+        // Fabric stage (ADR-0020).
+        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [plexus:server_brand, plexus:server_tick_events, plexus:server_running, plexus:server_stopping_event, plexus:world_unloaded, plexus:worldgen_features, access widening by transform_demo_mod]",
+        "[Plexus Mod Loader] Transformed net/minecraft/server/MinecraftServer with [plexus:server_tick_end, transform_demo_mod:tick_start_nanos, plexus:server_stopped, plexus:world_loaded]",
         "[Plexus Mod Loader] System plexus:game_brand: com.example.plexus.brand.ExampleBrandProvider from custom_system_mod",
         "[Plexus Mod Loader] Transformed net/minecraft/world/level/storage/LevelStorageSource with [transform_demo_mod:storage_format_name]",
         "[transform_demo_mod] tickServer start time comes from the mod hook; MinecraftServer.tickCount is public: true",
@@ -1753,13 +1754,15 @@ val quiltBrokenUnderNeoForge = listOf("more-beets-1.0-release.jar").filter { min
 // (ADR-0043 "Not done"); corpusQuiltNeoForge runs the Quilt corpus with Fabric API's own build there instead.
 val neoForgeBrokenBesideQuilt = listOf("forgified-fabric-api-0.116.15+2.3.6+1.21.1.jar").filter { minecraft == "1.21.1" }
 // QSL runs before 26.1 since the remapped game jar keeps the obfuscated jar's frames (remapper revision 4, ADR-0048;
-// modProbe with Quilted Fabric API alone and with Polymer on 1.20.1, 1.20.4 and 1.21.1, 2026-11-08). With QSL, QSL runs
-// the corpus mods' init entrypoints, and several stop a server as they would under Quilt Loader (OpenLink and Quilt
-// Crasher load client classes, Regedit is built for 1.20.2), so the corpus runs still leave out every
-// jar that is or nests a QSL or Quilted Fabric API module (older QSL copies nested in other mods then win and fail on
-// their own), and the mods that need QSL are reported not loaded (114): the folder as a player without QSL installs it,
-// with Fabric API, which the 1.21.1 Quilt corpus does not list (Quilted Fabric API stood for it), so its runs take the
-// Fabric corpus's build.
+// modProbe with Quilted Fabric API alone and with Polymer on 1.20.1, 1.20.4 and 1.21.1, 2026-11-08). The 1.20.4 and
+// 1.21.1 Quilt corpus runs keep QSL (quiltBrokenWithQsl lists the mods that stop a server with it). The 1.20.1 runs, and
+// every run beside Forge or NeoForge, still leave out every jar that is or nests a QSL or Quilted Fabric API module, and
+// the mods that need QSL are reported not loaded (114): with QSL, more than ten 1.20.1 corpus mods load client classes
+// in their init entrypoints, and CristelLib 1.1.2's Mixin plugin loads PackResources while Mixin prepares the
+// configurations, before QSL's resource loader Mixin gives it QuiltResourcePack, so QSL's own Pack hook stops with
+// NoSuchMethodError (PackResources.getActivationType, 2026-11-09). Without QSL the folder is as a player without QSL
+// installs it, with Fabric API, which the 1.21.1 Quilt corpus does not list (Quilted Fabric API stood for it), so those
+// runs take the Fabric corpus's build.
 fun isQslModuleId(id: String) =
     id == "qsl" || id.startsWith("quilted_fabric_") || (id.startsWith("quilt_") && id != "quilt_loader")
 fun quiltModId(json: String): String? =
@@ -1780,7 +1783,8 @@ fun bringsQsl(jar: File): Boolean = try {
 } catch (e: IOException) {
     false
 }
-val leavesQslOut = minecraft.startsWith("1.")
+val qslInCorpus = minecraft in setOf("1.20.4", "1.21.1")
+fun leavesQslOut(besideHost: Boolean) = minecraft.startsWith("1.") && (besideHost || !qslInCorpus)
 // Quilt corpus builds that stop every start, as they would under Quilt Loader (the same Mixin; Quilt Loader itself was
 // not run on these versions):
 // - OctoLib 0.5.0.1 (1.21.1) names octolib-common.mixin.json in quilt.mod.json, but its jar does not hold it; Mixin stops
@@ -1802,16 +1806,10 @@ val leavesQslOut = minecraft.startsWith("1.")
 //   declaring QSL, so without QSL its server initialiser stops with NoClassDefFoundError.
 // - Graphene 1.5.0 (1.20.1) loads a client class (enn, which the server's mappings do not list) in its server tick
 //   handler (MemoryCleaner.cleanupResources), so the game test server stops at the first tick.
-// A Plexus Mod Loader limit: Origins 1.10.2 (1.20.1) nests Apoli 2.9.2, whose ServerPlayerInteractionManagerMixin
-// captures the locals of ServerPlayerGameMode.destroyBlock at its return; the game layer's block break hooks
-// (plexus:block_break, plexus:block_broken) rewrite that method, and Mixin finds other locals there ("LVT ... has
-// incompatible changes at opcode 177"), so the game test server stops when the class loads. Since remapper revision 5
-// only the methods a rule changes get live parameters in their frames (the transformation engine's ParameterFrames),
-// and destroyBlock is one of them (still so on 2026-11-08).
 val quiltBrokenOnGame = when (minecraft) {
     "1.20.1" -> listOf(
         "Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.1-quilt.jar", "tritium-quilt-1.20.1-1.3.2.jar",
-        "modpack-update-checker-1.20.1-quilt-0.12.2.jar", "Origins-1.10.2+mc.1.20.x.jar",
+        "modpack-update-checker-1.20.1-quilt-0.12.2.jar",
         "Graphene-fabric-quilt-1.20.1-1.5.0.jar",
     )
     "1.20.4" -> listOf("Little-Star-1.0.0-quilt.jar", "pride_land-1.1.3-1.20.4-quilt.jar")
@@ -1834,32 +1832,65 @@ val quiltBrokenOnServer = when (minecraft) {
     "1.21.1" -> listOf("xdlib-3.1.0-neo+quilt.jar")
     else -> listOf()
 }
+// Quilt corpus mods that need QSL and stop a server with it, as they would under Quilt Loader with QSL installed (the
+// same Mixin and QSL; Quilt Loader itself was not run), left out where the corpus runs keep QSL (1.20.4 and 1.21.1,
+// 2026-11-09):
+// - Regedit 1.0.2 is built for 1.20.2: its RegistryMixin shadows a MappedRegistry field (field_26683) that 1.20.1 and
+//   1.20.4 do not have, so Mixin refuses the class.
+// - OpenLink 1.1.1, its FRPC API and its ChmlFrp extension load client classes in their init entrypoints, or name an
+//   init class their jar does not hold (openlink_frpc_api's ExampleModQuilt).
+// - Quilt Crasher 2.0.0 stops the game on purpose.
+// - Ghost State 0.1.0 registers QSL's @ClientOnly ClientEntityLoadEvents in its init entrypoint.
+// - MC fetch 1.0.0 marks its init entrypoint's onInitialize @ClientOnly, so a server strips it (AbstractMethodError).
+// - Constant Music 1.0.5 and LAN World Plug-n-Play (mcwifipnp) load client classes, in init and at server start.
+// - Tools of Perseus 1.0.0+1.19.2 (minecraft >=1.19) has an @Accessor for ItemStack's tag field (field_8040), which
+//   1.21.1's ItemStack does not have, so Mixin refuses ItemStack.
+// - Items n Stuff 1.0 (1.21.1) loads a client class (fod) in its ModItems initialiser, from its main entrypoint.
+// - No UI on Tab 1.1.0 (1.21.1) names a @ClientOnly class as its init entrypoint.
+// - Simple Voice Chat 2.6.27 for 1.21.1 nests QSL's resource_loader 10.0.0-alpha.3, whose server LanguageMixin redirects
+//   the ImmutableMap.Builder call in Language.loadDefault that Quilted Fabric API 11.0.0-alpha.3's own resource loader
+//   (which does not use QSL's) redirects too; Mixin skips the second redirect and its required injection fails.
+// - AntiCrash 1.0.0 and CrashMod 1.0.0 (1.21.1) name init entrypoints that their jars do not hold or that do not
+//   implement QSL's ModInitializer.
+// - Custom Player Models 0.6.27a for 1.21 (1.21.1) uses QSL's ServerLifecycleEvents in its init entrypoint without
+//   declaring QSL's lifecycle_events module, which Quilted Fabric API 11.0.0-alpha.3 does not hold.
+val quiltBrokenWithQsl = listOf(
+    "regedit-*.jar", "openlink*.jar", "quilt_crasher-*.jar", "ghost_state-*.jar", "mcfetch-*.jar",
+    "constantmusic-quilt-*.jar", "mcwifipnp-*.jar", "tools_of_perseus-*.jar", "itemsnstuff-*.jar", "nouiontab-*.jar",
+    "voicechat-quilt-1.21.1-*.jar", "a-anticrash-quilt-*.jar", "crashmod-quilt-*.jar",
+    "CustomPlayerModels-Quilt-1.21-*.jar",
+)
+// Left out of the game test server runs only, where QSL is: QSL runs server_init entrypoints from its mixin into
+// net.minecraft.server.Main (quilt_base server.MainMixin), and the game test server does not start through Main.
+// Boring Default Game Rules 1.1.0 loads its configuration in server_init and checks it when GameRules is first made
+// (MinecraftServer's static initializer), so the game test server stops there; the dedicated server runs it.
+val qslServerInitOnly = listOf("boring_default_game_rules-*.jar").filter { qslInCorpus }
 val quiltFabricApiFromFabricCorpus = minecraft == "1.21.1"
-fun quiltCorpus(gameTestServer: Boolean): FileCollection =
+fun quiltCorpus(gameTestServer: Boolean, besideHost: Boolean = false): FileCollection =
     files(corpusRoot.map {
         it.dir("quilt").asFileTree.matching {
             include("*.jar")
             exclude(quiltBrokenOnGame)
-            exclude(if (gameTestServer) notOnGameTestServer + quiltDataBrokenOnGame else keepsTheServerJvmAlive + quiltBrokenOnServer)
-            if (leavesQslOut) {
+            exclude(
+                if (gameTestServer) {
+                    notOnGameTestServer + quiltDataBrokenOnGame + qslServerInitOnly
+                } else {
+                    keepsTheServerJvmAlive + quiltBrokenOnServer
+                },
+            )
+            if (leavesQslOut(besideHost)) {
                 exclude { !it.isDirectory && bringsQsl(it.file) }
+            } else if (qslInCorpus) {
+                // Quilted Fabric API stands for Fabric API, as with Quilt Loader; both would be one ID twice (117).
+                exclude("fabric-api-*.jar")
+                exclude(quiltBrokenWithQsl)
             }
         }
     }) + files(corpusRoot.map {
         it.dir("fabric").asFileTree.matching {
-            include(if (quiltFabricApiFromFabricCorpus) "fabric-api-*.jar" else "none")
+            include(if (quiltFabricApiFromFabricCorpus && leavesQslOut(besideHost)) "fabric-api-*.jar" else "none")
         }
     })
-// A Plexus Mod Loader limit next to Forge 1.20.1 (corpusQuiltForge, 2026-11-08): Metal Pipe 1.0.5 adds a subclass of
-// EnchantmentCategory (its Mixin plugin lists EnchantmentCategory$MetalPipeTarget as permitted) that calls the enum's
-// constructor. The obfuscated vanilla class has that constructor package-private; Forge's recompiled class has it private,
-// so the subclass stops the game test server with IllegalAccessError. Opening it as on vanilla is not done yet.
-// Cardinal Components API 5.2.3's block module captures the locals of FallingBlockEntity.tick, which Forge's patch
-// recompiled; Mixin finds other locals there ("LVT ... has incompatible changes at opcode 444"), and the check before the
-// launch does not foresee it, so the game stops (PLEXUS-COMPAT-225). The mods that need Cardinal Components are left out
-// with it by the dependency check.
-val quiltBrokenNextToForge =
-    listOf("metal_pipe-1.0.5.jar", "cardinal-components-api-5.2.3.jar").filter { minecraft == "1.20.1" }
 // What no Quilt corpus run may show: a bridge that threw (002), and crashes.
 val quiltCorpusUnexpected = listOf(
     "PLEXUS-COMPAT-002",
@@ -1944,7 +1975,7 @@ val quiltCorpusScenarios = listOf(
     // alone too (neoForgeProbe with only that jar, 2026-10-24), where 26.2.0.93 warns and reads it another way.
     scenarios.gameTest(
         "corpusQuiltNeoForge",
-        quiltCorpus(true).filter { it.name !in quiltBrokenUnderNeoForge } +
+        quiltCorpus(true, besideHost = true).filter { it.name !in quiltBrokenUnderNeoForge } +
             neoForgeServerCorpus().filter { it.name !in neoForgeBrokenBesideQuilt } +
             // NeoForge 21.1 and 20.4 (ADR-0043 point 10): no harness before 26.1, the hello mod FML constructs instead.
             if (neoForgeOnModLauncher) {
@@ -1993,7 +2024,7 @@ val quiltCorpusScenarios = listOf(
     },
     scenarios.gameTest(
         "corpusQuiltForge",
-        quiltCorpus(true).filter { it.name !in quiltBrokenNextToForge } + gameTestCorpus("forge") + modJars(gameTestHarness),
+        quiltCorpus(true, besideHost = true) + gameTestCorpus("forge") + modJars(gameTestHarness),
     ) {
         dependsOn(modCorpus, modCorpusQuilt)
         classpath(forgeClassPath)

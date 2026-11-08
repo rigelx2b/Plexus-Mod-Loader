@@ -101,7 +101,8 @@ final class ForgeBootModules {
         /** NeoForge's FML 4 on ModLauncher 11. */
         static final Flavor NEOFORGE_FML4 = new Flavor(
                 "fml_loader",
-                List.of(),
+                // NeoForgeForeignModList's mod files: neoforgespi (in fml_loader) and Maven versions (ADR-0025).
+                List.of("maven.artifact"),
                 Set.of("net.neoforged.fml.loading.moddiscovery.locators.ModsFolderLocator"),
                 jar -> Map.of(
                         LAUNCH_HANDLER_SERVICE,
@@ -119,7 +120,7 @@ final class ForgeBootModules {
         /** NeoForge's FML 2 (NeoForge 20.4) on ModLauncher 10.0.9, with its types in {@code net.neoforged} (ADR-0043). */
         static final Flavor NEOFORGE_FML2 = new Flavor(
                 "fml_loader",
-                List.of(),
+                List.of("fml_spi", "maven.artifact"),
                 Set.of("net.neoforged.fml.loading.moddiscovery.ModsFolderLocator"),
                 jar -> Map.of(
                         LAUNCH_HANDLER_SERVICE,

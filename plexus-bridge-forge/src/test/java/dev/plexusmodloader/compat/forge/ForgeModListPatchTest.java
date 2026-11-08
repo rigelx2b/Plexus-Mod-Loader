@@ -27,11 +27,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.zip.ZipEntry;
 import net.minecraftforge.forgespi.language.IModFileInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * ADR-0025: FML's {@code ModList} lookups ask Plexus Mod Loader only when FML has no answer. The class under test has
@@ -179,6 +183,69 @@ class ForgeModListPatchTest {
 
         ForgeModListPatch.Result result = ForgeModListPatch.apply(
                 original, ForgeModListPatch.Shape.NEOFORGE, ForgeModListPatch.Shape.NEOFORGE.foreignModList());
+
+        assertEquals(List.of("getModFileById", "isLoaded"), result.changed());
+        assertEquals(List.of(), result.unchanged());
+        assertEquals(List.of(), ClassFile.of().verify(result.bytes()));
+    }
+
+    /** NeoForge's FML 4 and FML 2 (NeoForge 21.1 and 20.4): their real {@code ModList} is patched and verifies. */
+    @ParameterizedTest
+    @ValueSource(strings = {"plexus.fml4Loader", "plexus.fml2Loader"})
+    void neoForgesModListOnModLauncherIsPatchedAndVerifies(String loaderProperty) throws Exception {
+        byte[] original;
+        try (JarFile loader = new JarFile(System.getProperty(loaderProperty))) {
+            ZipEntry entry = loader.getEntry(ForgeModListPatch.Shape.NEOFORGE_MODLAUNCHER.classFile());
+            assertNotNull(entry, "FML's loader jar holds ModList");
+            try (InputStream input = loader.getInputStream(entry)) {
+                original = input.readAllBytes();
+            }
+        }
+
+        ForgeModListPatch.Result result = ForgeModListPatch.apply(
+                original,
+                ForgeModListPatch.Shape.NEOFORGE_MODLAUNCHER,
+                ForgeModListPatch.Shape.NEOFORGE_MODLAUNCHER.foreignModList());
+
+        assertEquals(List.of("getModFileById", "isLoaded"), result.changed());
+        assertEquals(List.of(), result.unchanged());
+        assertEquals(List.of(), ClassFile.of().verify(result.bytes()));
+    }
+
+    /**
+     * MinecraftForge before 26.1 (fmlcore 1.20.1-47.4.28 to 1.21.11-61.2.5): {@code ModList}'s lookups are instance
+     * methods reading {@code this.fileById} and {@code this.indexedMods}; the Forge patch finds that shape when the
+     * static one is not there, and the class still verifies.
+     */
+    @Test
+    void forgesModListBefore26IsPatchedThroughItsInstanceLookups() {
+        ClassDesc fileInfo = ClassDesc.of("net.minecraftforge.forgespi.language.IModFileInfo");
+        byte[] instanceModList = ClassFile.of().build(MOD_LIST, builder -> {
+            builder.withFlags(ClassFile.ACC_PUBLIC);
+            builder.withField("fileById", MAP, ClassFile.ACC_PRIVATE | ClassFile.ACC_FINAL);
+            builder.withField("indexedMods", MAP, ClassFile.ACC_PRIVATE | ClassFile.ACC_FINAL);
+            builder.withMethodBody(
+                    "getModFileById",
+                    MethodTypeDesc.of(fileInfo, CD_String),
+                    ClassFile.ACC_PUBLIC,
+                    code -> code.aload(0)
+                            .getfield(MOD_LIST, "fileById", MAP)
+                            .aload(1)
+                            .invokeinterface(MAP, "get", MethodTypeDesc.of(CD_Object, CD_Object))
+                            .checkcast(fileInfo)
+                            .areturn());
+            builder.withMethodBody(
+                    "isLoaded",
+                    MethodTypeDesc.of(CD_boolean, CD_String),
+                    ClassFile.ACC_PUBLIC,
+                    code -> code.aload(0)
+                            .getfield(MOD_LIST, "indexedMods", MAP)
+                            .aload(1)
+                            .invokeinterface(MAP, "containsKey", MethodTypeDesc.of(CD_boolean, CD_Object))
+                            .ireturn());
+        });
+
+        ForgeModListPatch.Result result = ForgeModListPatch.apply(instanceModList, ANSWERS);
 
         assertEquals(List.of("getModFileById", "isLoaded"), result.changed());
         assertEquals(List.of(), result.unchanged());
