@@ -112,6 +112,9 @@ val quiltLoaderApiClasses = listOf(
     "org/quiltmc/loader/impl/util/LoaderUtil*",
     "org/quiltmc/loader/impl/util/ExceptionUtil*",
     "org/quiltmc/loader/impl/util/GlobalPaths*",
+    // Opens a jar as a zip file system (JDK classes only); Quilted Fabric API's client tags module (9.0.0-alpha.8 for
+    // 1.20.4) calls it.
+    "org/quiltmc/loader/impl/util/FileSystemUtil*",
     "org/quiltmc/loader/impl/entrypoint/EntrypointUtils*",
     // QuiltConfig (v1 and v2) for Quilt mods and QSL's registry module; they ask the bridge's own QuiltConfigImpl for
     // the environment. Quilt Loader's JSON5 serializer uses the packed JSON parser; its TOML one needs NightConfig,

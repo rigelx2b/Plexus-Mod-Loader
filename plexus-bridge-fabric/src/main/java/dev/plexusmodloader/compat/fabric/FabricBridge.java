@@ -141,8 +141,13 @@ public final class FabricBridge implements ModLoaderBridge {
         // Every mod jar has been prepared by now: the parsed name tables (33 to 48 MB before 26.1) are not needed again
         // unless a mod asks the mapping resolver.
         IntermediaryTranslations.releaseTables();
-        FabricLoaderRuntime fabric =
-                FabricLoaderRuntime.create(context, FABRIC_LOADER_VERSION, Map.of("mixinextras", MIXIN_EXTRAS_VERSION));
+        FabricLoaderRuntime fabric = FabricLoaderRuntime.createWithJars(
+                context,
+                FABRIC_LOADER_VERSION,
+                Map.of(
+                        "mixinextras",
+                        FabricLoaderRuntime.BuiltInLibrary.of(
+                                MIXIN_EXTRAS_VERSION, com.llamalad7.mixinextras.MixinExtrasBootstrap.class)));
         FabricLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(fabric);
         QuiltLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(
                 QuiltLoaderRuntime.create(context, fabric, BundledVersions.QUILT_LOADER));

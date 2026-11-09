@@ -29,7 +29,8 @@ final class FabricModContainer implements ModContainer {
     private Path lookupRoot;
 
     /**
-     * @param jar the mod's jar, {@code null} for a built-in mod without one
+     * @param jar the mod's jar (or, for a built-in mod, the folder its code is in), {@code null} for a built-in mod
+     *     without one
      * @param origin where it came from
      */
     FabricModContainer(ModMetadata metadata, Path jar, ModOrigin origin) {
@@ -89,6 +90,9 @@ final class FabricModContainer implements ModContainer {
         if (roots == null) {
             if (jar == null) {
                 roots = List.of();
+            } else if (java.nio.file.Files.isDirectory(jar)) {
+                // A built-in mod whose code is a folder: Fabric Loader's java mod is java.home.
+                roots = List.of(jar);
             } else {
                 try {
                     roots = List.of(SharedJarFileSystems.root(jar));

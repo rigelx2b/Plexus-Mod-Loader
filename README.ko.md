@@ -4,17 +4,17 @@
 
 # Plexus Mod Loader
 
-Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.1.5, 안정 버전). 외부 런처 래퍼 없이 공식 Minecraft 런처에 프로필로 설치되며, 수정되지 않은 바닐라 게임 파일을 로더를 통해 시작하고, Native API로 작성된 자체 Plexus 모드와 함께 Fabric 모드, Quilt 모드, Forge 모드, NeoForge 모드를 로드합니다. Forge와 NeoForge는 그 자체로 실행됩니다. Plexus Mod Loader는 실제 Forge와 FML, 또는 실제 NeoForge와 FML 11을 시작하며, 이러한 모드가 처음 있을 때 해당 파일을 자동으로 다운로드합니다. 게임을 시작하기 전에 모든 모드를 검사하며, 실행할 수 없는 모드는 나중에 충돌을 일으키는 대신 제외하고 `logs/latest.log`에 `PLEXUS-*` 오류 코드를 기록한 뒤 타이틀 화면에 알림을 표시합니다. 설치 프로그램은 [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/xyrz47-spec/Plexus-Mod-Loader/releases)에서 다운로드할 수 있습니다.
+Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.1.6, 안정 버전). 외부 런처 래퍼 없이 공식 Minecraft 런처에 프로필로 설치되며, 수정되지 않은 바닐라 게임 파일을 로더를 통해 시작하고, Native API로 작성된 자체 Plexus 모드와 함께 Fabric 모드, Quilt 모드, Forge 모드, NeoForge 모드를 로드합니다. Forge와 NeoForge는 그 자체로 실행됩니다. Plexus Mod Loader는 실제 Forge와 FML, 또는 실제 NeoForge와 FML 11을 시작하며, 이러한 모드가 처음 있을 때 해당 파일을 자동으로 다운로드합니다. 게임을 시작하기 전에 모든 모드를 검사하며, 실행할 수 없는 모드는 나중에 충돌을 일으키는 대신 제외하고 `logs/latest.log`에 `PLEXUS-*` 오류 코드를 기록한 뒤 타이틀 화면에 알림을 표시합니다. 설치 프로그램은 [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/rigelx2b/Plexus-Mod-Loader/releases)에서 다운로드할 수 있습니다.
 
 ## 현황
 
-현재 버전은 **2.1.5** (안정 버전)입니다. 지원 Minecraft 버전은 **1.20.1**, **1.20.4**, **1.21.1**, **1.21.11**, **26.1**, **26.1.1**, **26.1.2**, **26.2**, **26.3** (기본값 **26.3**)입니다. 게임은 **Java 25**를 사용합니다. 26.1 이전 난독화 버전은 매핑 파일이나 jar를 재배포하지 않고 플레이어 PC에서 Mojang 공식 매핑을 온디맨드로 받아 바닐라 게임 jar를 로컬에서 다시 매핑해 실행합니다.
+현재 버전은 **2.1.6** (안정 버전)입니다. 지원 Minecraft 버전은 **1.20.1**, **1.20.4**, **1.21.1**, **1.21.11**, **26.1**, **26.1.1**, **26.1.2**, **26.2**, **26.3** (기본값 **26.3**)입니다. 게임은 **Java 25**를 사용합니다. 26.1 이전 난독화 버전은 매핑 파일이나 jar를 재배포하지 않고 플레이어 PC에서 Mojang 공식 매핑을 온디맨드로 받아 바닐라 게임 jar를 로컬에서 다시 매핑해 실행합니다.
 
 | 모드 유형 / 조합 | 상태 | 세부 사항 및 제한 |
 | :--- | :--- | :--- |
 | Plexus 모드 | 검증됨 | Native API로 작성된 모드입니다. |
 | Fabric 모드 | 검증됨 | 진입점, Fabric Loader API, 중첩 JAR, Mixin, MixinExtras, 클래스 트위커를 지원합니다. Fabric Loader 내부 클래스는 실제 모드가 사용하는 항목만 제공됩니다. |
-| Quilt 모드 | 검증됨 | `quilt.mod.json`, Quilt Loader API, Mixin, 액세스 와이드너를 지원하며 2.1.2부터 1.20.1~1.21.11 서버에서도 Quilt 모드가 실행됩니다. 2.1.3부터 1.20.1, 1.20.4, 1.21.1에서 QSL/Quilted Fabric API가 실행되며, 설치된 Quilt 모드에 QSL 모듈이 필요하면 첫 실행 시 Quilted Fabric API 고정 빌드를 자동으로 다운로드합니다(`PLEXUS-DISCOVERY-006`/`007`, `-Dplexus.qsl=off`로 끔). QSL 릴리스가 없는 버전에서는 QSL이 필요한 모드가 제외됩니다(`PLEXUS-COMPAT-303`/`308`/`311`). |
+| Quilt 모드 | 검증됨 | `quilt.mod.json`, Quilt Loader API, Mixin, 액세스 와이드너를 지원하며 2.1.2부터 1.20.1~1.21.11 서버에서도 Quilt 모드가 실행됩니다. 2.1.3부터 1.20.1, 1.20.4, 1.21.1에서 QSL/Quilted Fabric API가 실행되며, 설치된 Quilt 모드에 QSL 모듈이 필요하면 첫 실행 시 Quilted Fabric API 고정 빌드를 자동으로 다운로드합니다(`PLEXUS-DISCOVERY-006`/`007`, `-Dplexus.qsl=off`로 끔). QSL 릴리스가 없는 버전에서는 QSL이 필요한 모드가 제외됩니다(`PLEXUS-COMPAT-303`/`308`/`311`). 2.1.6부터는 Quilt 모드가 1.20.1, 1.20.4, 1.21.1, 1.21.11의 클라이언트 게임 창에서도 월드에 도달합니다(로드 / 미로드: 1.20.1 QSL 제외 261 / 790, 1.20.4 QSL 포함 215 / 64, 1.21.1 QSL 포함 146 / 132, 1.21.11 143 / 124). |
 | NeoForge 모드 | 검증됨 | NeoForge 자체 FML 11을 실행합니다(26.3에서 `26.3.0.98`, 26.2에서 `26.2.0.93`). 1.20.4, 1.21.1, 1.21.11에서는 NeoForge `20.4.253`, `21.1.265`, `21.11.48`을 실행합니다(2.1.0부터 헤드리스 검증; 클라이언트 창은 2.1.3에서 모두 검증). 1.20.1용 NeoForge는 없습니다(`PLEXUS-COMPAT-216`). |
 | Forge 모드 | 검증됨 | Forge 자체를 실행합니다(26.3에서 `66.1.0`, 26.2에서 `65.1.5`). 1.20.1, 1.20.4, 1.21.1, 1.21.11에서는 Forge `47.4.28`, `49.2.13`, `52.1.21`, `61.2.5`를 실행합니다(2.1.0부터 헤드리스 검증; 클라이언트 창은 2.1.3에서 모두 검증). |
 | Forge 또는 NeoForge와 함께 사용하는 Fabric 또는 Quilt | 일부 지원 | Mixin이 패치된 게임과 맞지 않는 Fabric 또는 Quilt 모드는 제외되며(`PLEXUS-COMPAT-224`), 해당 모드를 필요로 하는 모드도 함께 제외됩니다. 2.1.2부터 1.20.1·1.20.4 Forge 옆에서도 Fabric API가 동작하며, 2.1.4부터 1.20.1 Forge 옆에서 Quilt 모드가 실행되고(`corpusQuiltForge`, 110개 모드 로드, 2.1.5), 2.1.3부터 NeoForge `21.1.265`(1.21.1) 및 `20.4.253`(1.20.4) 옆에서도 단일 공유 Mixin으로 Fabric·Quilt 모드가 헤드리스 실행됩니다(로드/미로드 — `corpusFabricNeoForge`: 1.21.1 15/40, 1.20.4 57/80; `corpusFabricOnNeoForge`: 69/88, 1.20.4 65/89; `corpusQuiltNeoForge`: 1.21.1 72/194, 1.20.4 77/179. 1.21.1에서 Forgified Fabric API가 있으면 Fabric API 자체 빌드는 제외되며, 2.1.4부터 NeoForge 21.1.265, 2.1.5부터 NeoForge 20.4.253 옆의 Fabric 모드는 클라이언트 창 검증(`corpusFabricNeoForgeClient`, 월드 진입 후 200틱 실행·종료)을 통과했습니다). |
@@ -27,7 +27,7 @@ Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.
 
 설치 프로그램 JAR 하나로 Windows, macOS, Linux를 지원합니다. 설치 프로그램을 실행하려면 **Java 17 이상**이 필요합니다.
 
-1. [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/xyrz47-spec/Plexus-Mod-Loader/releases)에서 `PlexusModLoader-<version>.jar`를 다운로드합니다.
+1. [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/rigelx2b/Plexus-Mod-Loader/releases)에서 `PlexusModLoader-<version>.jar`를 다운로드합니다.
 2. 런처에서 원하는 버전의 바닐라 Minecraft를 한 번 실행한 뒤 런처를 닫습니다.
 3. JAR 파일을 더블클릭하거나 `java -jar PlexusModLoader-<version>.jar`를 실행합니다. Minecraft 버전과 런처 폴더를 선택한 뒤 **Install**을 클릭합니다.
 4. 런처에서 `Plexus Mod Loader <Minecraft version>` 프로필을 선택하고 플레이합니다. 모드는 런처 폴더의 `mods/` 디렉터리에 넣습니다.
@@ -55,7 +55,7 @@ Plexus 모드는 **Java 25**와 **Gradle**을 사용합니다(**JDK 25** 필요)
 **JDK 25**와 **Git**이 필요합니다. 빌드는 **Gradle Wrapper 9.8.1** (Kotlin DSL)을 사용합니다. 첫 빌드 시 Mojang에서 Minecraft를 다운로드하고 SHA-1을 검증하며, 게임 JAR 파일은 Gradle 캐시에 유지되고 커밋되지 않습니다.
 
 ```sh
-git clone https://github.com/xyrz47-spec/Plexus-Mod-Loader.git
+git clone https://github.com/rigelx2b/Plexus-Mod-Loader.git
 cd Plexus-Mod-Loader
 ```
 

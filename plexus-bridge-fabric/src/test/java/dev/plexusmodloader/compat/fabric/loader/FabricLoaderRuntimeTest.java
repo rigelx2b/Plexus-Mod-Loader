@@ -108,6 +108,34 @@ class FabricLoaderRuntimeTest {
         FabricLoaderImpl.INSTANCE.attachPlexusModLoaderRuntime(runtime);
     }
 
+    /** As Fabric Loader: java.home for java, the loader API's jar, and a bundled library's jar (owo-lib asks all). */
+    @Test
+    @SuppressWarnings("deprecation") // getRootPath() is what such mods call.
+    void builtInModsHaveRootPaths() {
+        assertEquals(
+                Path.of(System.getProperty("java.home")),
+                runtime.getModContainer("java").orElseThrow().getRootPath());
+        assertTrue(Files.exists(
+                runtime.getModContainer("fabricloader").orElseThrow().getRootPath()));
+        FabricLoaderRuntime withMixinExtras = FabricLoaderRuntime.createWithJars(
+                new BridgeLaunchContext(
+                        GameSide.DEDICATED_SERVER,
+                        "26.2",
+                        directory.resolve("game.jar"),
+                        directory.resolve("game"),
+                        List.of(),
+                        getClass().getClassLoader(),
+                        List.of(),
+                        () -> null),
+                "0.19.5",
+                java.util.Map.of(
+                        "mixinextras",
+                        FabricLoaderRuntime.BuiltInLibrary.of(
+                                "0.5.5", com.llamalad7.mixinextras.MixinExtrasBootstrap.class)));
+        Path root = withMixinExtras.getModContainer("mixinextras").orElseThrow().getRootPath();
+        assertTrue(Files.exists(root.resolve("com/llamalad7/mixinextras/MixinExtrasBootstrap.class")), root.toString());
+    }
+
     @Test
     void everyLoadedModOfEveryLoaderAndTheBuiltInsAreVisible() {
         FabricLoader loader = FabricLoader.getInstance();

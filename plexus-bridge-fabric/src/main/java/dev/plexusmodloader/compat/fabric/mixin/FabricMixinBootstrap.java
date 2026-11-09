@@ -127,12 +127,15 @@ public final class FabricMixinBootstrap {
                     simpleName(finding.mixin()),
                     finding.reason());
         }
-        GameClassBytes mixinClasses = adjustments == HostPatchAdjustments.NONE
+        // Without a host, injections at Fabric Loader's and Quilt Loader's own game patch calls move to the adapter's.
+        LoaderHookCalls loaderHooks = LoaderHookCalls.of(context.host());
+        GameClassBytes mixinClasses = adjustments == HostPatchAdjustments.NONE && loaderHooks.isEmpty()
                 ? classes
                 : new GameClassBytes() {
                     @Override
                     public Optional<byte[]> classBytes(String className) {
-                        return classes.classBytes(className).map(bytes -> adjustments.apply(className, bytes));
+                        return classes.classBytes(className)
+                                .map(bytes -> loaderHooks.apply(adjustments.apply(className, bytes)));
                     }
 
                     @Override

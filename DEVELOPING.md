@@ -19,7 +19,7 @@ Welcome to the Plexus Mod Loader contributor documentation. This guide provides 
 
 ```powershell
 # Clone the repository
-git clone https://github.com/xyrz47-spec/Plexus-Mod-Loader.git
+git clone https://github.com/rigelx2b/Plexus-Mod-Loader.git
 cd Plexus-Mod-Loader
 
 # Verify code formatting and run all unit tests

@@ -2,7 +2,7 @@
 #   git tag v2.1.0 && git push origin v2.1.0
 # The installer jar is built here, from the tagged public source, and gets a signed build provenance attestation
 # (actions/attest, Sigstore), so anyone can check that a downloaded jar came from this workflow and this commit:
-#   gh attestation verify PlexusModLoader-<version>.jar --repo xyrz47-spec/Plexus-Mod-Loader
+#   gh attestation verify PlexusModLoader-<version>.jar --repo rigelx2b/Plexus-Mod-Loader
 # The tag must match plexus.version in gradle.properties, and CHANGELOG.md must have a "## <version>" section.
 # Versions with a "-" (alpha, beta, rc) are marked as pre-releases.
 name: release

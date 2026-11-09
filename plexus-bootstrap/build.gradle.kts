@@ -1712,7 +1712,70 @@ val keepsTheServerJvmAlive = listOf("invsearch-storage-indexer-*.jar")
 //   Fabric Loader 0.19.5 and Quilt Loader 0.31.0-beta.4 apply mixins with the same Mixin
 //   (net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7). Found by mixinAuditQuiltClient, its only failure in the 26.2,
 //   26.1 and 26.1.2 Quilt corpora.
-val brokenOnQuiltClient = listOf("NeoFullbright-1.0+mc26.2-quilt.jar")
+// - Icarus 4.2.0 (1.21.1) declares only quilted_fabric_api, but its init entrypoint uses QSL's networking, entity event
+//   and lifecycle classes (ServerPlayConnectionEvents and others), which Quilted Fabric API 11.0.0-alpha.3 (QSL base only)
+//   does not hold, so the client stops with NoClassDefFoundError when QSL runs init (corpusQuiltClient 2026-11-09).
+// - LambdaBetterGrass 1.5.2+1.20.1 (1.20.1) holds both metadata files and runs as a Fabric mod (PLEXUS-COMPAT-310); its
+//   Fabric-only MainMixin injects at the head of Main.*([Ljava/lang/String;Z)V, which 1.20.1's Main does not have (only
+//   main([Ljava/lang/String;)V, in the obfuscated jar too), so Mixin stops the client, as it would under Fabric Loader.
+//   Quilt Loader reads its quilt.mod.json, which does not name that configuration (corpusQuiltClient 2026-11-09).
+// - Even Better Moon & Sun 1.1.0 (1.21.11, minecraft ~1.21.11) injects into DebugEntryPosition (method_72751) with
+//   ChunkAccess (class_2791) parameters, but 1.21.11's method takes LevelChunk (class_2818), so Mixin refuses the
+//   handler's descriptor, as under Fabric Loader (the same Mixin).
+// - LAN Properties 1.0.0 (1.20.4) mixes into UUIDUtil, but Sparkweave's Mixin plugin (SparkweaveMixinConfigPlugin's
+//   static initializer, through its QuiltPlatformService and StringRepresentable.fromEnum) loads ExtraCodecs and with it
+//   UUIDUtil while Mixin selects the configurations, so Mixin refuses LAN Properties' configuration ("target ... was
+//   loaded too early"), as under Quilt Loader with both mods (the same Mixin; JFR class load trace, 2026-11-09).
+// - Utility Belt 2.0.1 (1.20.4) registers a key mapping from its common init entrypoint (Architectury's EnvExecutor),
+//   which Quilted Fabric API 9.0.0-alpha.8 runs from Bootstrap.bootStrap (its registry sync BootstrapMixin.initialize
+//   calls EntrypointUtil.invoke), before the client's Minecraft exists; Fabric API's key binding registry then reads
+//   Minecraft.getInstance().options (NullPointerException), as under Quilt Loader with that build.
+// - Create Empty Package 1.0.0 (1.20.1) shadows PackagerBlockEntity.notifyUpdate(), which the corpus's Create does not
+//   have, so Mixin refuses the class; and Create: Dreams & Desires 0.1d (1.20.1) uses
+//   com.simibubi.create.foundation.utility.Components, which it does not have either (NoClassDefFoundError in its main
+//   entrypoint): mods built against other Create releases.
+// - Keybind Profiles 1.2 (1.20.4) loads me.wawwior.config classes from its client_init entrypoint but neither nests nor
+//   declares the library that has them (NoClassDefFoundError), as under Quilt Loader.
+// - Lightning Podoboo 1.0.12 (1.20.4) nests Polymer 0.7.1, whose PolymerNetworking rebuilds
+//   ClientboundCustomPayloadPacket.KNOWN_TYPES as an ImmutableMap while mods initialize; QSL networking's client_init
+//   then puts its readers into that map (UnsupportedOperationException), as under Quilt Loader, which runs every init
+//   entrypoint before client_init (Mixin export of the class, 2026-11-09: QSL's and Bad Packets' TAIL handlers apply).
+// - Locki 0.11.1 standalone (1.20.1): DefaultInventoryNodes loads its Locki class, a QSL ModInitializer, but the jar
+//   neither declares nor nests QSL, which the 1.20.1 corpus runs leave out (NoClassDefFoundError once a player's
+//   inventory changes), as under Quilt Loader without QSL.
+// - Kit Tunes 0.7.0 (any version) downloads its native library (Catculator) from the internet while the client's
+//   MusicManager is made and stops the game when that fails ("Received invalid Content-Length header!", 1.20.4,
+//   2026-11-09), so a window run would depend on that server.
+// - Enchant Icon 1.1.1-13 (Quilt build in the 1.20.4 corpus) ships enchant_icon.accesswidener for the private
+//   ItemOverrides.<init>() but its quilt.mod.json names no access_widener, so no loader applies it; its model override
+//   then fails the first resource load (IllegalAccessError), the game reloads without resource packs and drops the
+//   --quickPlaySingleplayer world, as under Quilt Loader.
+// - MineLights 2.3.8.4 (any version) downloads MineLights.exe from the internet when the client starts, runs it as a
+//   separate process on the test PC (a lighting server that shows its own tray notices, such as a blocked legacy
+//   client) and searches the local network for lighting devices, so a window run would depend on that server and
+//   start a program outside the game (corpusQuiltClient 1.20.4, 1.21.1, 2026-11-09).
+val brokenOnQuiltClient = listOf(
+    "NeoFullbright-1.0+mc26.2-quilt.jar",
+    "kit-tunes-beaver-0.7.0.jar",
+    "EnchantIcon-Quilt-1.20.1-1.1.1-13.jar",
+    "minelights-2.3.8.4+1.20-quilt.jar",
+    "minelights-2.3.8.4+1.20.5-quilt.jar",
+    "minelights-2.3.8.4+1.21.11-quilt.jar",
+    "minelights-2.3.8.4+26.1-quilt.jar",
+    "minelights-2.3.8.4+26.2-quilt.jar",
+    "minelights-2.3.8.4+26.3-quilt.jar",
+) +
+    listOf(
+        "lan-properties_quilt-1.0.0+1.20.3-1.20.6.jar",
+        "utility-belt-quilt-2.0.1+1.20.4.jar",
+        "keybind_profiles-1.2+1.20.4.jar",
+        "lightning-podoboo-1.0.12+minecraft-1.20.4.jar",
+    ).filter { minecraft == "1.20.4" } +
+    listOf("locki-0.11.1-standalone.jar").filter { minecraft == "1.20.1" } +
+    listOf("create-empty-package-1.0.0-quilt-1.20.1.jar", "create_dd-0.1d.jar").filter { minecraft == "1.20.1" } +
+    listOf("Icarus-Quilt-4.2.0.jar").filter { minecraft == "1.21.1" } +
+    listOf("lambdabettergrass-1.5.2+1.20.1.jar").filter { minecraft == "1.20.1" } +
+    listOf("even-better-moon-sun-1.1.0.jar").filter { minecraft == "1.21.11" }
 // Quilt corpus data pack mods whose data the game cannot load, left out of the runs that load a world: PurpurPacks'
 // 26.3 builds (pack.mcmeta max_format 107.1; 26.3's data format is 121) still hold 26.2-format enchantments and
 // advancements, so 26.3's codecs stop the registry load ("No key type in MapLike[{"condition":"minecraft:match_tool"...",
@@ -1820,15 +1883,17 @@ val quiltBrokenOnGame = when (minecraft) {
     "1.21.11" -> listOf("all-in-one-veinminer-quilt-1.1.1.jar")
     else -> listOf()
 }
-// Left out of the dedicated server runs only, a Plexus Mod Loader limit: owo-lib's MainMixin injects after the call
-// Fabric Loader and Quilt Loader patch into net.minecraft.server.Main.main (Hooks.startServer, a required group of one),
-// which Plexus Mod Loader's Main does not have, so the dedicated server stops while Main loads (1.20.1 and 1.20.4,
-// 2026-11-08). The game test server does not load Main.
+// owo-lib's MainMixin injects after the call Fabric Loader and Quilt Loader patch into net.minecraft.server.Main.main
+// (Hooks.startServer, a required group of one); the Fabric bridge moves it to the version adapter's mod initialization
+// call there (LoaderHookCalls), so MainMixin no longer stops the dedicated server (owo-lib was left out here until
+// 2026-11-09). owo-lib 0.12.6 on 1.20.4 stays in the run but is not loaded on the dedicated server: the link check finds
+// Fabric API client rendering classes (HudRenderCallback, TooltipComponentCallback) missing there (PLEXUS-COMPAT-111).
 // XDLib 3.1.0 (1.21.1) replaces the EULA check with a prompt that reads the console ("Agree [Y/n]"); the server reaches
-// it, but the run's expected EULA line never comes and the empty console stops it.
+// it, but the run's expected EULA line never comes and the empty console stops it. owo-lib 0.11.2 (1.20.1) does the
+// same (its Eula mixin asks "By answering 'true' ..." and its Scanner finds no console input, NoSuchElementException,
+// corpusQuiltServer 1.20.1, 2026-11-09, after MainMixin had moved).
 val quiltBrokenOnServer = when (minecraft) {
     "1.20.1" -> listOf("owo-lib-0.11.2+1.20.jar")
-    "1.20.4" -> listOf("owo-lib-0.12.6+1.20.3.jar")
     "1.21.1" -> listOf("xdlib-3.1.0-neo+quilt.jar")
     else -> listOf()
 }
@@ -3229,13 +3294,18 @@ clientWorldReload("corpusFabricClient") {
 clientWorldReload("corpusQuiltClient") {
     description = "Opens the saved world in the client with every mod of the Quilt mod corpus (opens a window)."
     dependsOn(modCorpusQuilt)
-    devModJars.from(modJars(":test-mods:fabric-client-session", ":test-mods:quilt-hello"))
-    devModJars.from(corpusRoot.map {
-        // The world this opens cannot load the data of quiltDataBrokenOnGame's mods either.
-        it.dir("quilt").asFileTree.matching {
-            include("*.jar"); exclude(brokenOnQuiltClient); exclude(quiltDataBrokenOnGame)
-        }
-    })
+    devModJars.from(modJars(clientSession("fabric"), ":test-mods:quilt-hello"))
+    if (minecraft.startsWith("1.")) {
+        // Before 26.1: the game test server run's jars, QSL kept or left out as there (leavesQslOut).
+        devModJars.from(quiltCorpus(gameTestServer = true).filter { it.name !in brokenOnQuiltClient })
+    } else {
+        devModJars.from(corpusRoot.map {
+            // The world this opens cannot load the data of quiltDataBrokenOnGame's mods either.
+            it.dir("quilt").asFileTree.matching {
+                include("*.jar"); exclude(brokenOnQuiltClient); exclude(quiltDataBrokenOnGame)
+            }
+        })
+    }
     worldName.set("plexus_quilt_corpus")
     // One folder per Minecraft version, so each version's client log stays after the next version's run.
     runDirectory.set(layout.buildDirectory.dir("plexus/corpus-quilt-client/$minecraft"))
@@ -3247,13 +3317,16 @@ clientWorldReload("corpusQuiltClient") {
         "[quilt_hello] client entrypoint ran",
         "[quilt_hello] MinecraftQuiltLoader.getEnvironmentType() = CLIENT, QuiltLoader.getRawGameVersion() = $minecraft",
         "[quilt_hello] stripped on CLIENT: @ClientOnly method present = true, @DedicatedServerOnly method present = false",
-        "joined the game",
-        "[fabric_client_session] 200 client ticks in the world; save and quit",
-        // Only when the integrated server stops (opening the world saves too).
-        "(MinecraftServer) Stopping server",
-        "(MinecraftServer) Saving worlds",
-        "[fabric_client_session] left the saved world; stopping the client",
     )
+    // Only when the integrated server stops (opening the world saves too). Before 26.1 the logger names differ by version
+    // (Minecraft on 1.21.1, MinecraftServer on 1.21.11), and a corpus mod hides the join chat line on 1.21.11, so the
+    // join is PlayerList's login line there.
+    if (minecraft.startsWith("1.")) {
+        expectedOutput.addAll(" logged in with entity id ", " Stopping server", " Saving worlds")
+    } else {
+        expectedOutput.addAll("joined the game", "(MinecraftServer) Stopping server", "(MinecraftServer) Saving worlds")
+    }
+    expectedOutput.addAll(clientSessionLines("fabric"))
 }
 
 // The same corpus assessed for client and server without starting the game (ModCorpusAssessmentTest).
