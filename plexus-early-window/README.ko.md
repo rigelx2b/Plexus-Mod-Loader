@@ -17,7 +17,7 @@
   - 오른쪽 아래: 바깥 셰브런 세 개가 가운데 코어와 겹치지 않게 그 둘레를 도는 Plexus 로고(`plexus_cube.png`, 32 x 32 크기 120프레임, 60ms마다 한 프레임이라 한 바퀴에 7.2초)와 `Plexus Mod Loader` 명칭.
   - 진행 막대 아래: 각 로더별로 로드된 모드 수 집계(예: `Mods: Fabric 1 · Plexus 4`).
   - 왼쪽 아래: Plexus 모드 로더가 수행 중인 현재 작업 내용(예: `Found 5 mod files`, `Starting NeoForge`, `Starting Minecraft 26.2`).
-- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/LogoArt.java`가 저장소 루트의 `logo.svg`·`tools/logo/logo-tile.svg`와 같은 모양으로 생성합니다.
+- 창 아이콘으로 NeoForge 아이콘 아트와 동일한 `plexus_icon.png`(256 x 256, 배경 없는 로고. `EarlyWindowArt.icons()`가 Windows가 쓰는 16~256 크기로 줄여 모두 넘김)를 사용하며, 그래픽 자산은 `tools/logo/pixel/`의 Aseprite 스크립트(`plexus_logo.lua`, `plexus_loading.lua`)로 그린 픽셀 아트입니다.
 - 게임 실행 인수 `--width`/`--height`(기본값 854 x 480)와 `--gameDir`의 `options.txt`(`guiScale`, `darkMojangStudiosBackground`)를 읽어 게임 창 크기 및 화면 중앙 위치를 일치시킵니다.
 - Windows와 Linux에서 화면 픽셀 크기를 일치시키기 위해 `-Dsun.java2d.uiScale=1`을 적용합니다.
 - macOS 환경 지원: `-Dapple.awt.UIElement=true`를 적용하여 독(Dock) 아이콘 및 메뉴 표시줄 없이 보조 UI 요소로 실행되어 게임 창으로부터 포커스를 빼앗지 않으며, 창 크기가 포인트 단위인 레티나 환경에 맞게 `-Dsun.java2d.uiScale=1`을 적용하지 않습니다. 또한 상속된 환경 변수(`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`)에서 `-XstartOnFirstThread` 토큰을 제거하여 AWT/Swing과 macOS AppKit 이벤트 루프 간 데드락을 방지합니다.

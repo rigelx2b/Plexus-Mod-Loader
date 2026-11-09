@@ -19,7 +19,7 @@ class LoadingScreenPainterTest {
     @Test
     void artIsInTheModule() {
         List<BufferedImage> cube = EarlyWindowArt.cube();
-        assertEquals(120, cube.size());
+        assertEquals(36, cube.size());
         assertEquals(32, cube.getFirst().getWidth());
         List<BufferedImage> icons = EarlyWindowArt.icons();
         assertEquals(9, icons.size());
