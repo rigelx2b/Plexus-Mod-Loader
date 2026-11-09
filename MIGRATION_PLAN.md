@@ -126,7 +126,7 @@ flowchart LR
 > **원칙:** 저장소 이름 및 배포 액션을 정비하되, Java 소스 코드는 아직 건드리지 않습니다.
 
 1. **GitHub 저장소 리네이밍**
-   - `xyrz47-spec/Poly-Mod-Loader` ➔ `xyrz47-spec/Plexus-Mod-Loader`
+   - `rigelx2b/Poly-Mod-Loader` ➔ `rigelx2b/Plexus-Mod-Loader`
    - (GitHub 자체 기능으로 이전 URL 접근 시 새 URL로 자동 리다이렉트됨)
 2. **GitHub Actions 워크플로우 갱신**
    - `.github/workflows/` 내 저장소 이름 참조 및 릴리스 제목/태그 템플릿 정비
@@ -190,7 +190,7 @@ flowchart LR
   - [x] `docs/` 및 `i18n/ko/` 문서 텍스트 갱신
   - [x] 새 도메인 `ads.txt` 확인 및 애드센스 신청 (2026-10-31)
 - [x] **Phase 4: GitHub 인프라 정비**
-  - [x] 저장소 이름 변경 (`xyrz47-spec/Plexus-Mod-Loader`, GitHub 원격 URL 갱신 완료)
+  - [x] 저장소 이름 변경 (`rigelx2b/Plexus-Mod-Loader`, GitHub 원격 URL 갱신 완료)
   - [x] 배포 워크플로우 갱신 (`docs.yml`, `release.yml`, `publish-release.py` 저장소 경로 갱신)
   - [x] 프로젝트 문서 및 가이드 링크 전역 갱신 (`README.md`, `PROJECT.md`, `DEVELOPING.md`, `RELEASE_AND_DEPLOY.md`)
 - [x] **Phase 5: [최종 단계] 엔진 코드 리팩터링** (1.5.0, 2026-10-31)

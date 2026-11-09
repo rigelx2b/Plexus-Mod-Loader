@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import dev.plexusmodloader.compat.fabric.mixin.MixinConfigEntry;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -243,30 +244,16 @@ final class ModJarTranslator {
         return maps;
     }
 
+    /** Every configuration either metadata names, for both sides or one, read as the bridges read them. */
     private static Set<String> mixinConfigs(ZipFile zip) {
         Set<String> configs = new LinkedHashSet<>();
         JsonObject fabric = metadata(zip, "fabric.mod.json");
-        if (fabric != null && fabric.has("mixins") && fabric.get("mixins").isJsonArray()) {
-            for (JsonElement item : fabric.getAsJsonArray("mixins")) {
-                if (item.isJsonPrimitive()) {
-                    configs.add(item.getAsString());
-                } else if (item.isJsonObject() && item.getAsJsonObject().has("config")) {
-                    configs.add(item.getAsJsonObject().get("config").getAsString());
-                }
-            }
+        if (fabric != null) {
+            MixinConfigEntry.parse(fabric.get("mixins")).entries().forEach(entry -> configs.add(entry.config()));
         }
         JsonObject quilt = metadata(zip, "quilt.mod.json");
-        if (quilt != null && quilt.has("mixin")) {
-            JsonElement mixin = quilt.get("mixin");
-            if (mixin.isJsonPrimitive()) {
-                configs.add(mixin.getAsString());
-            } else if (mixin.isJsonArray()) {
-                for (JsonElement item : mixin.getAsJsonArray()) {
-                    if (item.isJsonPrimitive()) {
-                        configs.add(item.getAsString());
-                    }
-                }
-            }
+        if (quilt != null) {
+            MixinConfigEntry.parseQuilt(quilt.get("mixin")).entries().forEach(entry -> configs.add(entry.config()));
         }
         return configs;
     }

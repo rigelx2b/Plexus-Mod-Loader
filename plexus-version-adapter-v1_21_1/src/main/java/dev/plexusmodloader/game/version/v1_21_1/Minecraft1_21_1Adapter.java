@@ -5,6 +5,7 @@ import dev.plexusmodloader.api.system.SystemLookup;
 import dev.plexusmodloader.game.version.EventPublisher;
 import dev.plexusmodloader.game.version.GameLaunchTarget;
 import dev.plexusmodloader.game.version.GameVersionAdapter;
+import dev.plexusmodloader.game.version.ModInitializationCall;
 import dev.plexusmodloader.internal.transform.HeadHookResult;
 import dev.plexusmodloader.internal.transform.InjectStaticCallAtHead;
 import dev.plexusmodloader.internal.transform.InvokeHookAtCall;
@@ -92,6 +93,15 @@ public final class Minecraft1_21_1Adapter implements GameVersionAdapter {
         Minecraft1_21_1Hooks.bindModInitialization(initialization);
         client = target == GameLaunchTarget.CLIENT;
         return true;
+    }
+
+    /** The calls of {@link #modInitializationRules()}, in the client's constructor and the dedicated server's main. */
+    @Override
+    public List<ModInitializationCall> modInitializationCalls() {
+        String call = "L" + HOOKS + ";onModInitialization()V";
+        return List.of(
+                new ModInitializationCall(GameSide.CLIENT, "net/minecraft/client/Minecraft", "<init>", call),
+                new ModInitializationCall(GameSide.DEDICATED_SERVER, "net/minecraft/server/Main", "main", call));
     }
 
     @Override

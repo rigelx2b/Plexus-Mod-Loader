@@ -10,7 +10,9 @@ import dev.plexusmodloader.compat.bridge.BridgedEntrypoint;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
 import dev.plexusmodloader.compat.bridge.GameHost;
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
+import dev.plexusmodloader.compat.bridge.InjectionPointReplacement;
 import dev.plexusmodloader.game.version.GameVersionAdapter;
+import dev.plexusmodloader.game.version.ModInitializationCall;
 import dev.plexusmodloader.game.version.layer.GameLayer;
 import dev.plexusmodloader.game.version.layer.GameLayerContext;
 import dev.plexusmodloader.game.version.layer.LoadedModCounts;
@@ -745,7 +747,8 @@ public final class PlexusRuntime {
                 gameClassLoader,
                 everyMod,
                 () -> adapter.gameInstance().orElse(null),
-                host.map(found -> hostedLaunch(found, configuration.gameJar())).orElse(HostedLaunch.NONE));
+                host.map(found -> hostedLaunch(found, configuration.gameJar()))
+                        .orElseGet(() -> withoutHost(adapter, configuration.side())));
         prepareBridges(foreignMods, bridgeContext, gameClassLoader);
         // The host defines its loader's layers (Forge's mods) before code that runs before the game: a Mixin shared
         // with the host's mods finds their configurations' classes there.
@@ -1496,6 +1499,30 @@ public final class PlexusRuntime {
             gameClassLoader.installBridgeTransformer(transformer);
             LOGGER.info("[Plexus Mod Loader] {} transforms classes with {}", host.name(), transformer.name());
         });
+    }
+
+    /**
+     * A launch without a host: the bridges learn where the adapter's rules call the mod initialization, which stands for
+     * Fabric Loader's and Quilt Loader's {@code Hooks.startClient} and {@code Hooks.startServer} on this side ({@link
+     * InjectionPointReplacement.Placement#LOADER_HOOK}).
+     */
+    private static HostedLaunch withoutHost(GameVersionAdapter adapter, dev.plexusmodloader.api.runtime.GameSide side) {
+        List<InjectionPointReplacement> loaderHooks = new ArrayList<>();
+        for (ModInitializationCall call : adapter.modInitializationCalls()) {
+            if (call.side() != side) {
+                continue;
+            }
+            String hook = side == dev.plexusmodloader.api.runtime.GameSide.CLIENT ? "startClient" : "startServer";
+            for (String loader : List.of("net/fabricmc/loader", "org/quiltmc/loader")) {
+                loaderHooks.add(new InjectionPointReplacement(
+                        call.targetClass(),
+                        call.method(),
+                        "L" + loader + "/impl/game/minecraft/Hooks;" + hook + "(Ljava/io/File;Ljava/lang/Object;)V",
+                        call.call(),
+                        InjectionPointReplacement.Placement.LOADER_HOOK));
+            }
+        }
+        return loaderHooks.isEmpty() ? HostedLaunch.NONE : new HostedLaunch("", List.of(), loaderHooks, null, false);
     }
 
     /** What the bridges learn about {@code host}, which patched {@code vanillaGameJar}. */

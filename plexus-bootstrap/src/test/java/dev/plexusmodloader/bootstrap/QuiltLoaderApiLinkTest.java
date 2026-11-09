@@ -122,6 +122,7 @@ class QuiltLoaderApiLinkTest {
             code.ldc(ClassDesc.of("org.quiltmc.loader.api.minecraft.ClientOnly"));
             code.ldc(ClassDesc.of("org.quiltmc.loader.impl.util.DefaultLanguageAdapter"));
             code.ldc(ClassDesc.of("org.quiltmc.loader.impl.game.GameProvider"));
+            code.ldc(ClassDesc.of("org.quiltmc.loader.impl.util.FileSystemUtil$FileSystemDelegate"));
             code.ldc(ClassDesc.of("net.fabricmc.loader.api.FabricLoader"));
         });
 
@@ -182,6 +183,8 @@ class QuiltLoaderApiLinkTest {
             assertNotNull(jar.getEntry("org/quiltmc/loader/api/QuiltLoader.class"));
             assertNotNull(jar.getEntry("org/quiltmc/loader/api/minecraft/MinecraftQuiltLoader.class"));
             assertNotNull(jar.getEntry("org/quiltmc/loader/impl/QuiltLoaderImpl.class"), "the stand-in");
+            // Quilted Fabric API's client tags module (1.20.4) reads mod jars with it.
+            assertNotNull(jar.getEntry("org/quiltmc/loader/impl/util/FileSystemUtil$FileSystemDelegate.class"));
             assertNotNull(jar.getEntry("LICENSE_quilt-loader"));
             assertNotNull(jar.getEntry("quilt_loader/licenses.json"));
             assertFalse(

@@ -64,6 +64,15 @@ public interface GameVersionAdapter {
     }
 
     /**
+     * Where this adapter's built-in rules make the call that runs what {@link #bindModInitialization} bound, on the
+     * client and the dedicated server: the places Fabric Loader and Quilt Loader call their {@code Hooks.startClient}
+     * and {@code Hooks.startServer}. Empty when the adapter has no such calls.
+     */
+    default List<ModInitializationCall> modInitializationCalls() {
+        return List.of();
+    }
+
+    /**
      * The running game object, for loader APIs that hand it to mods (Fabric Loader's {@code getGameInstance}): the
      * client's {@code Minecraft} object from its constructor on, or the dedicated server once it starts running.
      * Empty before then, and on adapters that do not track it. Called from any thread, after the game started.

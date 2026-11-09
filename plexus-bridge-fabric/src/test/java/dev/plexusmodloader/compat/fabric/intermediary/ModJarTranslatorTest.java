@@ -215,6 +215,41 @@ class ModJarTranslatorTest {
         assertArrayEquals(files.get("assets/m/lang/en_us.json"), read(output, "assets/m/lang/en_us.json"));
     }
 
+    /** Quilted Fabric API's modules name their client configuration as a {config, environment} object. */
+    @Test
+    void aQuiltMixinEntryObjectsReferenceMapIsRewritten(@TempDir Path temp) throws IOException {
+        Path input = temp.resolve("in.jar");
+        Path output = temp.resolve("out.jar");
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("quilt.mod.json", """
+                {"schema_version":1,"quilt_loader":{"group":"x","id":"q","version":"1"},
+                 "mixin":["q.mixins.json",{"config":"q.client.mixins.json","environment":"client"}]}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("q.mixins.json", """
+                {"package":"x","mixins":[]}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("q.client.mixins.json", """
+                {"package":"x","refmap":"q-client-refmap.json","client":["C"]}
+                """.getBytes(StandardCharsets.UTF_8));
+        files.put("q-client-refmap.json", """
+                {"mappings":{"x/C":{"<init>":"Lnet/minecraft/class_1;<init>(Lnet/minecraft/class_2;)V"}}}
+                """.getBytes(StandardCharsets.UTF_8));
+        writeJar(input, files);
+
+        ModJarTranslator.Result result = ModJarTranslator.translate(TestMappings.translation(), input, output);
+
+        assertTrue(result.changed());
+        assertEquals(1, result.resources());
+        assertEquals(
+                "Lnet/minecraft/world/Level;<init>(Lnet/minecraft/server/Other;)V",
+                JsonParser.parseString(text(output, "q-client-refmap.json"))
+                        .getAsJsonObject()
+                        .getAsJsonObject("mappings")
+                        .getAsJsonObject("x/C")
+                        .get("<init>")
+                        .getAsString());
+    }
+
     @Test
     void anAccessorWithoutAValueGetsItsTranslatedTargetAsValue(@TempDir Path temp) throws IOException {
         ClassWriter writer = new ClassWriter(0);

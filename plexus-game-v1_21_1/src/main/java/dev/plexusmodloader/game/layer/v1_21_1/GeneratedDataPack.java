@@ -14,6 +14,7 @@ import dev.plexusmodloader.api.worldgen.BiomeSpawn;
 import dev.plexusmodloader.api.worldgen.FeaturePlacement;
 import dev.plexusmodloader.api.worldgen.GenerationStepName;
 import dev.plexusmodloader.api.worldgen.StructureDefinition;
+import dev.plexusmodloader.game.version.layer.EmptyStructureFile;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.BiomeDeclaration;
 import dev.plexusmodloader.game.version.layer.NativeDeclarations.CodeFeatureDeclaration;
@@ -33,12 +34,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
-import net.minecraft.SharedConstants;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.IntTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.world.level.levelgen.GenerationStep;
 
 /**
  * Writes the data Plexus Mod Loader derives from declarations: one {@code test_instance} per registered game test,
@@ -181,21 +176,13 @@ final class GeneratedDataPack {
         Path file = root.resolve("data").resolve("plexus").resolve("structure").resolve(name + ".nbt");
         if (!Files.exists(file)) {
             Files.createDirectories(file.getParent());
-            CompoundTag structure = new CompoundTag();
-            ListTag size = new ListTag();
-            size.add(IntTag.valueOf(area.width()));
-            size.add(IntTag.valueOf(area.height()));
-            size.add(IntTag.valueOf(area.depth()));
-            structure.put("size", size);
-            structure.put("blocks", new ListTag());
-            structure.put("palette", new ListTag());
-            structure.put("entities", new ListTag());
-            // Plexus Mod Loader starts the game layer before the game reads its version file.
-            SharedConstants.tryDetectVersion();
-            structure.putInt(
-                    "DataVersion",
-                    SharedConstants.getCurrentVersion().getDataVersion().getVersion());
-            NbtIo.writeCompressed(structure, file);
+            // Without the game's classes: the layer starts before a bridge's Mixin is ready (EmptyStructureFile).
+            EmptyStructureFile.write(
+                    file,
+                    area.width(),
+                    area.height(),
+                    area.depth(),
+                    EmptyStructureFile.dataVersion(GeneratedDataPack.class.getClassLoader()));
         }
         return "plexus:" + name;
     }
@@ -224,7 +211,7 @@ final class GeneratedDataPack {
         definition.foliageColor().ifPresent(color -> effects.addProperty("foliage_color", color & 0xFFFFFF));
         json.add("effects", effects);
         JsonArray features = new JsonArray();
-        for (int step = 0; step < GenerationStep.Decoration.values().length; step++) {
+        for (int step = 0; step < GenerationStepName.values().length; step++) {
             features.add(new JsonArray());
         }
         definition.features().forEach((step, ids) -> {
@@ -332,7 +319,7 @@ final class GeneratedDataPack {
     }
 
     private static int stepIndex(GenerationStepName step) {
-        return GenerationStep.Decoration.valueOf(step.name()).ordinal();
+        return step.ordinal();
     }
 
     private static String group(MobCategory category) {

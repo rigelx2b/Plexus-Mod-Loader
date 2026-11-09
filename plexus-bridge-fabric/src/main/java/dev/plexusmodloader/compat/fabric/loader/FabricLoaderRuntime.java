@@ -122,23 +122,62 @@ public final class FabricLoaderRuntime {
      */
     public static FabricLoaderRuntime create(
             BridgeLaunchContext context, String fabricLoaderVersion, Map<String, String> builtInLibraries) {
+        Map<String, BuiltInLibrary> libraries = new java.util.LinkedHashMap<>();
+        builtInLibraries.forEach((id, version) -> libraries.put(id, new BuiltInLibrary(version, null)));
+        return createWithJars(context, fabricLoaderVersion, libraries);
+    }
+
+    /**
+     * A further built-in mod: its version and the jar its classes come from (its root path, as Fabric Loader gives its
+     * bundled MixinExtras), or {@code null} when that jar is not known.
+     */
+    public record BuiltInLibrary(String version, Path jar) {
+
+        /** The library whose classes include {@code inJar}. */
+        public static BuiltInLibrary of(String version, Class<?> inJar) {
+            return new BuiltInLibrary(version, codeSource(inJar));
+        }
+    }
+
+    /** The jar or folder {@code type} was loaded from, or {@code null} when the JVM does not say. */
+    static Path codeSource(Class<?> type) {
+        java.security.CodeSource source = type.getProtectionDomain().getCodeSource();
+        if (source == null || source.getLocation() == null) {
+            return null;
+        }
+        try {
+            return Path.of(source.getLocation().toURI());
+        } catch (java.net.URISyntaxException | IllegalArgumentException | java.nio.file.FileSystemNotFoundException e) {
+            return null;
+        }
+    }
+
+    /**
+     * As {@link #create(BridgeLaunchContext, String, Map)}, with each further built-in mod's jar as its root path.
+     *
+     * @param builtInLibraries ID of each further built-in mod to its version and jar
+     */
+    public static FabricLoaderRuntime createWithJars(
+            BridgeLaunchContext context, String fabricLoaderVersion, Map<String, BuiltInLibrary> builtInLibraries) {
         FabricLoaderRuntime runtime = new FabricLoaderRuntime(context);
-        builtInLibraries.forEach((id, version) -> runtime.add(new FabricModContainer(
-                FabricModMetadata.other("builtin", id, version, id, List.of()),
-                null,
+        builtInLibraries.forEach((id, library) -> runtime.add(new FabricModContainer(
+                FabricModMetadata.other("builtin", id, library.version(), id, List.of()),
+                library.jar(),
                 FabricModContainer.Origin.unknown())));
         runtime.add(new FabricModContainer(
                 FabricModMetadata.other("builtin", "minecraft", context.gameVersion(), "Minecraft", List.of()),
                 context.gameJar(),
                 FabricModContainer.Origin.unknown()));
+        // Root paths as Fabric Loader gives them: java.home, and the jar the loader's API is in (mods such as owo-lib
+        // ask every mod for its root path).
         String java = System.getProperty("java.specification.version");
         runtime.add(new FabricModContainer(
                 FabricModMetadata.other("builtin", "java", java, "Java " + java, List.of()),
-                null,
+                Path.of(System.getProperty("java.home")),
                 FabricModContainer.Origin.unknown()));
         runtime.add(new FabricModContainer(
                 FabricModMetadata.other("builtin", "fabricloader", fabricLoaderVersion, "Fabric Loader", List.of()),
-                null,
+                codeSource(net.fabricmc.loader.api.FabricLoader.class),
                 FabricModContainer.Origin.unknown()));
         // Metadata first: a nested mod usually comes before the mod it is nested in (it runs first), and its
         // origin names that mod.

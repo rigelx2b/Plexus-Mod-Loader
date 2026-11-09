@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.1.6 — 2026-11-09
+
+### Summary
+
+Plexus Mod Loader 2.1.6 enables Quilt mod client windows on Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to reach a world with the real Quilt corpus (`corpusQuiltClient`), extending client window execution that previously ran only on 26.x. This release redirects Mixin injection points targeting Fabric and Quilt loader initialization hooks to Plexus Mod Loader's entry points when running without a Forge or NeoForge host, translates object-form Mixin entries in `quilt.mod.json`, packages Quilt Loader's `FileSystemUtil` within the Fabric bridge, supplies root paths for built-in container libraries, and eliminates premature game class loading during game test server data pack generation.
+
+### Improvements & Fixes
+
+- Move Mixin injection points targeting Fabric Loader and Quilt Loader initialization hooks (`Hooks.startClient` in the `Minecraft` constructor and `Hooks.startServer` in `Main.main`) to Plexus Mod Loader's `onModInitialization()V` via `InjectionPointReplacement.Placement.LOADER_HOOK`, `GameVersionAdapter.modInitializationCalls()` returning `ModInitializationCall` records across all seven version adapters, and the Fabric bridge's `LoaderHookCalls` (ADR-0049) when no Forge or NeoForge host runs the game (matching annotation string values only, moving only Fabric Loader's call when a class targets both loaders to keep `@Group` handlers satisfied, and logging one line per changed class), fixing target lookup failures in owo-lib's `MinecraftClientMixin` and `MainMixin` (`@Group clientFreezeHooks`) that stopped the game on 1.20.1 and 1.20.4.
+- Read object-form `quilt.mod.json` Mixin entries (`{"config": ..., "environment": "client"}`) in `ModJarTranslator` using `MixinConfigEntry.parse` and `parseQuilt` to translate their reference maps to Mojang names and increment `IntermediaryTranslations.REVISION` from 3 to 4 to regenerate translated mod copies on first launch, fixing an `InvalidInjectionException` on target `class_310` from Quilted Fabric API's data generation `MinecraftClientMixin` at 1.21.1 client start.
+- Pack Quilt Loader's JDK-only `org.quiltmc.loader.impl.util.FileSystemUtil` into the Fabric bridge and permit it through `QuiltBridge` link checks without triggering `PLEXUS-COMPAT-111` refusals, allowing Quilted Fabric API 9.0.0-alpha.8's client tags module and dependent mods to load in the 1.20.4 client.
+- Give built-in mods of the Fabric Loader view (`java`, `fabricloader`, `mixinextras`) root paths by having `FabricModContainer.getRootPaths()` return the directory or jar via the new `FabricLoaderRuntime.BuiltInLibrary`, resolving "mixinextras has no root path" failures when mods like owo-lib on 1.20.4 traverse every mod container's root path.
+- Write the game test server's generated data pack (`GeneratedDataPack`, across all seven game layers) empty structure file with the new `EmptyStructureFile` (hand-written gzip NBT with `DataVersion` read from `version.json`) and use its own `GenerationStepName` instead of `GenerationStep.Decoration`, preventing `SharedConstants`, NBT classes, and approximately 300 game classes from prematurely loading before mods' Mixin configurations apply.
+- Run `corpusQuiltClient` on Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 with each version's Quilt corpus and test mod `plexus-client-session` to join a saved world, run 200 client ticks, and save and quit (loading 261 / 790 foreign mods on 1.20.1 with QSL omitted, 215 / 64 on 1.20.4 with QSL and Quilted Fabric API, 146 / 132 on 1.21.1 with QSL, and 143 / 124 on 1.21.11), while including owo-lib in 1.20.4 `corpusQuiltServer` (160 / 145 loaded / not loaded, where owo-lib and nested Jankson remain unloaded due to link check `PLEXUS-COMPAT-111` for missing Fabric API client rendering classes `HudRenderCallback` and `TooltipComponentCallback`).
+- Verify the 2026-11-09 release on Java 25 with `check`, `build-logic` `check`, headless suites on all 9 supported versions (`serverBootSmokeTest`, `worldCreateSaveTest`, `gameTests "-PplexusTests=*:*"`, and `compatibilityMatrix`, passing first time in 160 s on 1.20.1, 172 s on 1.20.4, 146 s on 1.21.1, 163 s on 1.21.11, 173 s on 26.1, 175 s on 26.1.1, 170 s on 26.1.2, 176 s on 26.2, and 194 s on 26.3), `compatibilityCorpus` across all 9 versions (passing first time in 1270 s on 1.20.1, 434 s on 1.20.4, 370 s on 1.21.1, 344 s on 1.21.11, 563 s on 26.1, 558 s on 26.1.1, 533 s on 26.1.2, 666 s on 26.2, and 583 s on 26.3; loaded / not loaded across `corpusFabric`, `corpusFabricForge`, `corpusQuilt`, and `corpusQuiltServer`: 1.20.1 57/34, 29/50, 190/883, 192/827 with QSL omitted; 1.20.4 98/69, 52/86, 158/145, 160/145 with QSL; 1.21.1 92/68, 56/83, 121/171, 97/139 with QSL; 1.21.11 90/78, 64/98, 123/141, 123/96; 26.1 91/71, 75/81, 118/115, 116/72; 26.1.1 94/74, 79/82, 72/118, 70/75; 26.1.2 97/74, 82/82, 73/117, 71/73; 26.2 98/73, 91/74, 135/125, 133/80; and 26.3 98/73, 91/74, 109/79, 112/34, matching 2.1.5 except 1.20.4 `corpusQuiltServer` at 160/145 due to owo-lib and nested Jankson), 4 passing tests in `examples/crystal-garden` (`build gameTests "-PplexusTests=crystal_garden:*" -PplexusLocalSdk` after `publishToMavenLocal`), and 34 window task runs executed one at a time 20 s apart (`corpusQuiltClient` on 1.20.1, 1.20.4, 1.21.1, and 1.21.11 run twice, the second time without MineLights; `clientWorldReloadTest` across all 9 versions; `corpusForgeClient` on 1.20.1, 1.20.4, 1.21.1, and 1.21.11; `corpusNeoForgeClient` on 1.20.4, 1.21.1, and 1.21.11; `corpusFabricNeoForgeClient` on 1.20.4 and 1.21.1; `launcherProfileForgeTest` on 1.20.1, 1.20.4, 1.21.1 passing on isolated rerun after a Balm 21.0.67 `BalmClientRuntimeSpi` `NoSuchElementException` in `sided_setup`, and 1.21.11; `launcherProfileNeoForgeTest` on 1.20.4, 1.21.1, and 1.21.11; and `launcherProfileTest` on 26.3).
+
+### Known Limitations
+
+- Quilt corpus jars left out of client window runs (`brokenOnQuiltClient` in `plexus-bootstrap/build.gradle.kts`) because they stop the game or depend on outside services as under Quilt Loader: LAN Properties 1.0.0 (Sparkweave's Mixin plugin loads `UUIDUtil` before Mixin can apply LAN Properties' configuration), Utility Belt 2.0.1 (registers a key mapping before the client exists), Keybind Profiles 1.2 (missing library `me.wawwior.config`), Lightning Podoboo 1.0.12 (nested Polymer 0.7.1 makes `ClientboundCustomPayloadPacket.KNOWN_TYPES` immutable before QSL networking's client init), and Enchant Icon 1.1.1-13 (access widener not declared in `quilt.mod.json`; left out on every version) on 1.20.4; Create Empty Package 1.0.0 and Create: Dreams & Desires 0.1d (built against other Create releases), LambdaBetterGrass 1.5.2 (its `MainMixin` target is absent in 1.20.1), and standalone Locki 0.11.1 (uses QSL without declaring it) on 1.20.1; Icarus 4.2.0 (QSL classes missing from Quilted Fabric API 11.0.0-alpha.3; why it did not stop the game test server is not known) on 1.21.1; Even Better Moon & Sun 1.1.0 (Mixin descriptor mismatch between `ChunkAccess` and `LevelChunk`) on 1.21.11; and across all versions, Kit Tunes 0.7.0 (downloads a native library from the internet at client start and stops the game when that fails) and MineLights 2.3.8.4 (downloads `MineLights.exe` at client start, runs it as a separate lighting server process on the PC that displays tray notices, and searches the local network for lighting devices).
+- owo-lib 0.11.2 on the Minecraft 1.20.1 dedicated server and XDLib 3.1.0 on 1.21.1 are left out of `corpusQuiltServer` because both replace the EULA check with an interactive console prompt that reads standard input, which headless runs lack (owo-lib 0.11.2 fails with `NoSuchElementException`).
+- owo-lib 0.12.6 is not loaded on the Minecraft 1.20.4 dedicated server in `corpusQuiltServer` due to link check `PLEXUS-COMPAT-111` for missing Fabric API client rendering classes `HudRenderCallback` and `TooltipComponentCallback`.
+- QSL in Minecraft 1.20.1 Quilt corpus runs and QSL beside Forge or NeoForge in corpus runs are still left out.
+- A non-fatal Fabric API lifecycle-events `WorldChunkMixin` `setBlockEntity` injection error is still logged on Forge 1.20.1.
+- Quilt mods next to NeoForge 20.4 and 21.1 in a client window were not run.
+- Startup and memory optimization figures have no same-session alternating measurement.
+- Upgrading Quilt API to `0.31.0-beta.4` remains pending.
+- Manual checks (installer window and `MANUAL_QA_CHECKLIST`) still require a person.
+
 ## 2.1.5 — 2026-11-09
 
 ### Summary
@@ -723,7 +751,7 @@ Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions wit
 ### Client and loader adaptations
 
 - Standardized text rendering in `PolyLoadingOverlay`: replaced manual glyph manipulation with Minecraft's built-in `Component.literal` and `ChatFormatting` pipeline across `poly-game-v26_1`, `poly-game-v26_2`, and `poly-game-v26_3`, eliminating character encoding artifacts and unmapped glyph square icons across diverse GPU backends and window sizes.
-- Streamlined crash report and error handling: routed error and feedback CTAs directly to `https://github.com/xyrz47-spec/Poly-Mod-Loader/issues/new`, providing user-friendly diagnostic issue reporting.
+- Streamlined crash report and error handling: routed error and feedback CTAs directly to `https://github.com/rigelx2b/Poly-Mod-Loader/issues/new`, providing user-friendly diagnostic issue reporting.
 - Added `NeoForgeInjectionPoints`: adapted client screen mixins, menu hooks, and data attachments for NeoForge host patches.
 
 ## 1.2.2 — 2026-10-26
@@ -783,7 +811,7 @@ Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions wit
 
 - Minecraft 26.3 is supported. Poly Mods run on it without being rebuilt, including their default key bindings (26.3 reads the keyboard through SDL; Poly Mod Loader converts its key codes, ADR-0029). Fabric, Quilt, Forge (26.3-66.1.0) and NeoForge (26.3.0.98) mods run with the compatibility test mods on 26.3; the real-mod corpus for 26.3 is not run yet.
 - A mod can carry data and assets for several Minecraft versions in one jar: Poly Mod Loader now reads the overlays of a mod's `pack.mcmeta`, as the game does for its own packs. 26.3 changed several data formats (`worldgen/feature`, `material_rule`) and compiles shaders with `#include` and explicit locations, so mods that ship such files need a 26.3 overlay.
-- Poly Mod Loader is now open source under the Mozilla Public License 2.0, and its source is public at https://github.com/xyrz47-spec/Poly-Mod-Loader. You may use, modify and redistribute it for any purpose, including commercial ones; files of Poly Mod Loader that you change and distribute stay under the MPL 2.0. Mods, modpacks and launchers choose their own license.
+- Poly Mod Loader is now open source under the Mozilla Public License 2.0, and its source is public at https://github.com/rigelx2b/Poly-Mod-Loader. You may use, modify and redistribute it for any purpose, including commercial ones; files of Poly Mod Loader that you change and distribute stay under the MPL 2.0. Mods, modpacks and launchers choose their own license.
 - Code in `templates/` and `examples/` is under MIT No Attribution, so it can be copied into mods freely. The names "Poly" and "Poly Mod Loader" and the logo are not covered by the license; `TRADEMARKS.md` says how to use them.
 - Releases up to 1.1.0 keep the PolyLoader Non-Commercial License 1.0 they were distributed under.
 
@@ -791,7 +819,7 @@ Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions wit
 
 - Minecraft 26.3을 지원합니다. Poly 모드는 다시 빌드하지 않고 26.3에서 실행되며, 기본 키 바인딩도 그대로입니다(26.3은 키보드를 SDL로 읽고, Poly 모드 로더가 키 코드를 바꿉니다, ADR-0029). Fabric·Quilt·Forge(26.3-66.1.0)·NeoForge(26.3.0.98) 모드가 26.3에서 호환성 테스트 모드와 함께 실행됩니다. 26.3 실제 모드 묶음 검증은 아직 하지 않았습니다.
 - 모드 하나에 여러 Minecraft 버전용 데이터와 리소스를 담을 수 있습니다. 게임이 자기 팩에 하듯 모드의 `pack.mcmeta` 오버레이를 읽습니다. 26.3은 데이터 형식 몇 가지(`worldgen/feature`, `material_rule`)를 바꾸고 셰이더를 `#include`와 명시적 위치로 컴파일하므로, 그런 파일을 든 모드는 26.3 오버레이가 필요합니다.
-- Poly 모드 로더가 Mozilla Public License 2.0을 따르는 오픈소스가 되었고, 소스를 https://github.com/xyrz47-spec/Poly-Mod-Loader 에 공개합니다. 상업적 목적을 포함해 어떤 목적으로든 사용, 수정, 재배포할 수 있습니다. 고쳐서 배포하는 Poly 모드 로더 파일은 MPL 2.0으로 남습니다. 모드, 모드팩, 런처는 자기 라이선스를 정합니다.
+- Poly 모드 로더가 Mozilla Public License 2.0을 따르는 오픈소스가 되었고, 소스를 https://github.com/rigelx2b/Poly-Mod-Loader 에 공개합니다. 상업적 목적을 포함해 어떤 목적으로든 사용, 수정, 재배포할 수 있습니다. 고쳐서 배포하는 Poly 모드 로더 파일은 MPL 2.0으로 남습니다. 모드, 모드팩, 런처는 자기 라이선스를 정합니다.
 - `templates/`와 `examples/`의 코드는 MIT No Attribution이라 모드에 자유롭게 가져다 쓸 수 있습니다. "Poly", "Poly 모드 로더"라는 이름과 로고는 라이선스에 포함되지 않으며, 쓰는 방법은 `TRADEMARKS.md`에 있습니다.
 - 1.1.0까지의 릴리스는 배포 당시의 PolyLoader Non-Commercial License 1.0을 따릅니다.
 
@@ -1093,14 +1121,14 @@ Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions wit
 
 ### Highlights
 
-- PolyLoader is now **Poly Mod Loader**. The installer is `PolyModLoader-<version>.exe` / `.jar`, the launcher profile is **Poly Mod Loader <Minecraft version>**, and the releases live at github.com/xyrz47-spec/Poly-Mod-Loader.
+- PolyLoader is now **Poly Mod Loader**. The installer is `PolyModLoader-<version>.exe` / `.jar`, the launcher profile is **Poly Mod Loader <Minecraft version>**, and the releases live at github.com/rigelx2b/Poly-Mod-Loader.
 - A profile from an older installer stays in the launcher next to the new one; remove it there if you no longer need it.
 - Mods made with the old `dev.polyloader` SDK need to be rebuilt with the new SDK.
 - Forge mods now run on the client and on Minecraft 26.1 in our test setup. The installed Poly Mod Loader does not run Forge mods yet; that is the next step.
 
 ### 주요 변경
 
-- PolyLoader의 이름이 **Poly 모드 로더**(Poly Mod Loader)로 바뀌었습니다. 설치 파일은 `PolyModLoader-<버전>.exe`/`.jar`, 런처 프로필은 **Poly Mod Loader <Minecraft 버전>**이고, 릴리스는 github.com/xyrz47-spec/Poly-Mod-Loader에 있습니다.
+- PolyLoader의 이름이 **Poly 모드 로더**(Poly Mod Loader)로 바뀌었습니다. 설치 파일은 `PolyModLoader-<버전>.exe`/`.jar`, 런처 프로필은 **Poly Mod Loader <Minecraft 버전>**이고, 릴리스는 github.com/rigelx2b/Poly-Mod-Loader에 있습니다.
 - 이전 설치 프로그램이 만든 프로필은 새 프로필 옆에 그대로 남습니다. 필요 없으면 런처에서 지우세요.
 - 이전 `dev.polyloader` SDK로 만든 모드는 새 SDK로 다시 빌드해야 합니다.
 - 시험 환경에서 Forge 모드가 클라이언트와 Minecraft 26.1에서도 실행됩니다. 설치한 Poly 모드 로더에서 Forge 모드를 실행하는 것은 다음 단계입니다.
@@ -1109,7 +1137,7 @@ Promotes Minecraft 1.20.1, 1.20.4, 1.21.1, and 1.21.11 to supported versions wit
 
 - The product is now **Poly** and the mod loader **Poly Mod Loader** (Korean: Poly 모드 로더). PolyLoader is the old name
 - Identifiers that held `polyloader` now hold `polymodloader`: Java packages `dev.polymodloader.*`, the Maven group and the mod plugin ID `dev.polymodloader.mod`, the installer `PolyModLoader-<version>.jar`/`.exe`, the server jar `polymodloader-server.jar`, and the launcher version `polymodloader-<version>-<minecraft>` with the profile "Poly Mod Loader <minecraft>"
-- The public GitHub repository is now `xyrz47-spec/Poly-Mod-Loader`
+- The public GitHub repository is now `rigelx2b/Poly-Mod-Loader`
 - Unchanged: the `poly` prefix (modules, `poly.mod.json`, `POLY-` error codes, mod ID `poly`, `.poly/`), the website address and the license name
 - Mods built against the `dev.polyloader` SDK need to be rebuilt with the new SDK. A profile installed by an older installer stays next to the new one until removed
 

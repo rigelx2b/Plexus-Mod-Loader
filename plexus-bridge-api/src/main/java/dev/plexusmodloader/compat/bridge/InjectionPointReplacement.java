@@ -74,7 +74,16 @@ public record InjectionPointReplacement(
          * @WrapOperation} bridge at {@code <call>}, when the host passes that value; with any other value the host's
          * call runs as it is, so what the host's argument carries is not lost.
          */
-        HOST_NEUTRAL_ARGUMENT
+        HOST_NEUTRAL_ARGUMENT,
+        /**
+         * {@code replaced} is a call that Fabric Loader's or Quilt Loader's own patch of the game adds where it runs
+         * mods' entrypoints ({@code Lnet/fabricmc/loader/impl/game/minecraft/Hooks;startClient(Ljava/io/File;
+         * Ljava/lang/Object;)V}), which the game Plexus Mod Loader runs never has; {@code replacement} is Plexus Mod
+         * Loader's own call at that place, which runs the same entrypoints (the version adapter's mod initialization
+         * call). Mods that inject next to the loader's call (owo-lib freezes its registries right after it) inject
+         * next to {@code replacement} instead. Given without a host, where no host loader starts the game.
+         */
+        LOADER_HOOK
     }
 
     /** A replacement at the same place ({@link Placement#SAME_PLACE}). */

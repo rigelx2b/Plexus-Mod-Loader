@@ -96,9 +96,9 @@ public final class QuiltBridge implements ModLoaderBridge {
     }
 
     /**
-     * The Fabric bridge's, the packed Quilt Loader API, and the three internal classes the bridge provides itself
-     * (ADR-0027 decision 4). Quilt mods that use other Quilt Loader classes are blocked by the link check ({@code
-     * 111}).
+     * The Fabric bridge's, the packed Quilt Loader API, and the internal classes the bridge provides itself (ADR-0027
+     * decision 4; {@code FileSystemUtil} for Quilted Fabric API's client tags module). Quilt mods that use other Quilt
+     * Loader classes are blocked by the link check ({@code 111}).
      */
     @Override
     public List<String> providedPackages() {
@@ -107,6 +107,7 @@ public final class QuiltBridge implements ModLoaderBridge {
         packages.add("org/quiltmc/loader/impl/QuiltLoaderImpl");
         packages.add("org/quiltmc/loader/impl/game/GameProvider");
         packages.add("org/quiltmc/loader/impl/util/DefaultLanguageAdapter");
+        packages.add("org/quiltmc/loader/impl/util/FileSystemUtil");
         return List.copyOf(packages);
     }
 
