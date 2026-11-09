@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.7 — 2026-11-10
+
+### Summary
+
+Plexus Mod Loader 2.1.7 refreshes the brand identity across all loaders, installer interfaces, and early loading screens with a unified, hand-crafted pixel-art visual theme.
+
+### Improvements & Fixes
+
+- Replaced the brand visual identity with a pixel-art isometric cube in cyan, indigo, and purple across all interfaces and repository branding (`logo.svg`).
+- Added a 36-frame 32x32 pixel-art loading animation (cycling every 2.16 s) to the early window and game loading overlays in 26.1, 26.2, and 26.3, replacing the previous 120-frame vector animation.
+- Updated Forge and NeoForge early loading screens and spinners with clean 3x nearest-neighbour pixel scaling while preserving all loader-required image dimensions.
+- Updated the installer's window, tray, and launcher profile icons via `ProfileIcon` to render crisp integer-scaled pixel art directly from pixel assets.
+- Verified visual stability and launch integrity via unit tests (`check`) and real window reload and launcher profile tasks across modern target versions.
+
+### Known Limitations
+
+- Quilt corpus jars left out of client window runs (`brokenOnQuiltClient` in `plexus-bootstrap/build.gradle.kts`) because they stop the game or depend on outside services as under Quilt Loader: LAN Properties 1.0.0 (Sparkweave's Mixin plugin loads `UUIDUtil` before Mixin can apply LAN Properties' configuration), Utility Belt 2.0.1 (registers a key mapping before the client exists), Keybind Profiles 1.2 (missing library `me.wawwior.config`), Lightning Podoboo 1.0.12 (nested Polymer 0.7.1 makes `ClientboundCustomPayloadPacket.KNOWN_TYPES` immutable before QSL networking's client init), and Enchant Icon 1.1.1-13 (access widener not declared in `quilt.mod.json`; left out on every version) on 1.20.4; Create Empty Package 1.0.0 and Create: Dreams & Desires 0.1d (built against other Create releases), LambdaBetterGrass 1.5.2 (its `MainMixin` target is absent in 1.20.1), and standalone Locki 0.11.1 (uses QSL without declaring it) on 1.20.1; Icarus 4.2.0 (QSL classes missing from Quilted Fabric API 11.0.0-alpha.3; why it did not stop the game test server is not known) on 1.21.1; Even Better Moon & Sun 1.1.0 (Mixin descriptor mismatch between `ChunkAccess` and `LevelChunk`) on 1.21.11; and across all versions, Kit Tunes 0.7.0 (downloads a native library from the internet at client start and stops the game when that fails) and MineLights 2.3.8.4 (downloads `MineLights.exe` at client start, runs it as a separate lighting server process on the PC that displays tray notices, and searches the local network for lighting devices).
+- owo-lib 0.11.2 on the Minecraft 1.20.1 dedicated server and XDLib 3.1.0 on 1.21.1 are left out of `corpusQuiltServer` because both replace the EULA check with an interactive console prompt that reads standard input, which headless runs lack (owo-lib 0.11.2 fails with `NoSuchElementException`).
+- owo-lib 0.12.6 is not loaded on the Minecraft 1.20.4 dedicated server in `corpusQuiltServer` due to link check `PLEXUS-COMPAT-111` for missing Fabric API client rendering classes `HudRenderCallback` and `TooltipComponentCallback`.
+- QSL in Minecraft 1.20.1 Quilt corpus runs and QSL beside Forge or NeoForge in corpus runs are still left out.
+- A non-fatal Fabric API lifecycle-events `WorldChunkMixin` `setBlockEntity` injection error is still logged on Forge 1.20.1.
+- Quilt mods next to NeoForge 20.4 and 21.1 in a client window were not run.
+- Startup and memory optimization figures have no same-session alternating measurement.
+- Upgrading Quilt API to `0.31.0-beta.4` remains pending.
+- Manual checks (installer window and `MANUAL_QA_CHECKLIST`) still require a person.
+
 ## 2.1.6 — 2026-11-09
 
 ### Summary
