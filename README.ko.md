@@ -4,7 +4,7 @@
 
 # Plexus Mod Loader
 
-Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.1.6, 안정 버전). 외부 런처 래퍼 없이 공식 Minecraft 런처에 프로필로 설치되며, 수정되지 않은 바닐라 게임 파일을 로더를 통해 시작하고, Native API로 작성된 자체 Plexus 모드와 함께 Fabric 모드, Quilt 모드, Forge 모드, NeoForge 모드를 로드합니다. Forge와 NeoForge는 그 자체로 실행됩니다. Plexus Mod Loader는 실제 Forge와 FML, 또는 실제 NeoForge와 FML 11을 시작하며, 이러한 모드가 처음 있을 때 해당 파일을 자동으로 다운로드합니다. 게임을 시작하기 전에 모든 모드를 검사하며, 실행할 수 없는 모드는 나중에 충돌을 일으키는 대신 제외하고 `logs/latest.log`에 `PLEXUS-*` 오류 코드를 기록한 뒤 타이틀 화면에 알림을 표시합니다. 설치 프로그램은 [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/rigelx2b/Plexus-Mod-Loader/releases)에서 다운로드할 수 있습니다.
+Plexus Mod Loader는 Minecraft: Java Edition용 모드 로더입니다(버전 2.1.8, 안정 버전). 외부 런처 래퍼 없이 공식 Minecraft 런처에 프로필로 설치되며, 수정되지 않은 바닐라 게임 파일을 로더를 통해 시작하고, Native API로 작성된 자체 Plexus 모드와 함께 Fabric 모드, Quilt 모드, Forge 모드, NeoForge 모드를 로드합니다. Forge와 NeoForge는 그 자체로 실행됩니다. Plexus Mod Loader는 실제 Forge와 FML, 또는 실제 NeoForge와 FML 11을 시작하며, 이러한 모드가 처음 있을 때 해당 파일을 자동으로 다운로드합니다. 게임을 시작하기 전에 모든 모드를 검사하며, 실행할 수 없는 모드는 나중에 충돌을 일으키는 대신 제외하고 `logs/latest.log`에 `PLEXUS-*` 오류 코드를 기록한 뒤 타이틀 화면에 알림을 표시합니다. 설치 프로그램은 [plexusmc.net/download](https://www.plexusmc.net/download/) 또는 [GitHub 릴리스](https://github.com/rigelx2b/Plexus-Mod-Loader/releases)에서 다운로드할 수 있습니다.
 
 ## 현황
 
