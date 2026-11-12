@@ -96,7 +96,7 @@ cd Plexus-Mod-Loader
 
 ## 라이선스
 
-**MIT License**가 적용됩니다([`LICENSE`](LICENSE) 참고). Copyright 2026 _xyrz 및 Plexus Mod Loader 기여자.
+**MIT License**가 적용됩니다([`LICENSE`](LICENSE) 참고). Copyright 2026 rigelx2b 및 Plexus Mod Loader 기여자.
 
 - 모든 사본 또는 상당 부분에 저작권 및 라이선스 고지를 유지하는 한, 상업적 이용과 비공개 소스 배포를 포함한 모든 목적으로 Plexus Mod Loader를 사용, 복제, 수정, 병합, 게시, 배포, 재라이선스 및 판매할 수 있습니다. 1.1.0 이후부터 2.0.0까지의 릴리스는 MPL-2.0이 그대로 유지됩니다.
 - Plexus Mod Loader를 사용하는 모드, 모드팩, 런처는 각자 자체 라이선스를 선택할 수 있습니다. `templates/`에는 MIT No Attribution 라이선스가 적용됩니다([`templates/LICENSE`](templates/LICENSE) 참고).

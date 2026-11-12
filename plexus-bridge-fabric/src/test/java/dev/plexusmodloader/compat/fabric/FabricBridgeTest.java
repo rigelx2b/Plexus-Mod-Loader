@@ -73,11 +73,10 @@ class FabricBridgeTest {
 
         assertEquals(CompatibilityStatus.BLOCKED, assessment.status());
         assertEquals(
-                // The class tweaker cannot be read from metadata alone and blocks (125). Mixin configurations that
-                // cannot be read are skipped by Mixin, as under Fabric (136); preLaunch runs (PLEXUS-COMPAT-101, 102
-                // and
+                // The class tweaker cannot be read from metadata alone and blocks (125), and so do Mixin
+                // configurations, which Mixin would stop the game for (132); preLaunch runs (PLEXUS-COMPAT-101, 102 and
                 // 105 are retired).
-                List.of("PLEXUS-COMPAT-107", "PLEXUS-COMPAT-125", "PLEXUS-COMPAT-131", "PLEXUS-COMPAT-136"),
+                List.of("PLEXUS-COMPAT-107", "PLEXUS-COMPAT-125", "PLEXUS-COMPAT-131", "PLEXUS-COMPAT-132"),
                 assessment.findings().stream()
                         .map(CompatibilityFinding::code)
                         .sorted()
@@ -406,7 +405,11 @@ class FabricBridgeTest {
                 server.findings().getFirst().toString());
     }
 
-    /** Mixin stops the game only for a required configuration that needs a newer Mixin; it skips other bad ones. */
+    /**
+     * Mixin stops the game for a configuration of this side it cannot read (missing, not JSON, not an object; Fabric
+     * Loader rethrows {@code Mixins.addConfiguration}'s error) and for a required one that needs a newer Mixin; it skips
+     * one that is not required and needs a newer Mixin, and does not read one for the other side.
+     */
     @Test
     void onlyConfigurationsMixinWouldStopTheGameForBlockTheMod() {
         ModJarContents skipped = jarWithFiles(Map.of(
@@ -416,7 +419,8 @@ class FabricBridgeTest {
                 "mixer.mixins.json", "{\"required\": true, \"package\": \"a.mixin\", \"minVersion\": \"0.9.1\"}",
                 "mixer.client.mixins.json", "{\"package\": \"a.mixin.client\"}"));
 
-        BridgeAssessment loads = bridge.assess(MIXIN_MOD, GameSide.CLIENT, skipped);
+        BridgeAssessment loads = bridge.assess(MIXIN_MOD, GameSide.DEDICATED_SERVER, skipped);
+        BridgeAssessment notAnObject = bridge.assess(MIXIN_MOD, GameSide.CLIENT, skipped);
         BridgeAssessment blocked = bridge.assess(MIXIN_MOD, GameSide.CLIENT, fatal);
 
         assertEquals(CompatibilityStatus.EXPERIMENTAL, loads.status());
@@ -428,15 +432,24 @@ class FabricBridgeTest {
         assertTrue(
                 skip.toString().contains("mixer.mixins.json needs Mixin 0.9.1; Plexus Mod Loader has 0.8.7"),
                 skip.toString());
-        assertTrue(skip.toString().contains("mixer.client.mixins.json is not a JSON object"), skip.toString());
+        assertFalse(skip.toString().contains("mixer.client.mixins.json"), skip.toString());
+        assertEquals(CompatibilityStatus.BLOCKED, notAnObject.status());
+        assertTrue(
+                notAnObject.findings().stream()
+                        .anyMatch(finding -> finding.code().equals("PLEXUS-COMPAT-132")
+                                && finding.toString().contains("mixer.client.mixins.json is not a JSON object")),
+                notAnObject.findings().toString());
         assertEquals(CompatibilityStatus.BLOCKED, blocked.status());
         assertEquals(
-                "PLEXUS-COMPAT-132 [blocking] mixins: 1 required Mixin configuration(s) Mixin would stop the game for:"
+                "PLEXUS-COMPAT-132 [blocking] mixins: 1 Mixin configuration(s) Mixin would stop the game for:"
                         + " mixer.mixins.json needs Mixin 0.9.1; Plexus Mod Loader has 0.8.7",
                 blocked.findings().getFirst().toString());
-        assertTrue(bridge.assess(MIXIN_MOD, GameSide.CLIENT, ModJarContents.NONE).findings().stream()
-                .anyMatch(finding -> finding.toString()
-                        .contains("mixer.mixins.json is named in fabric.mod.json but" + " not in the jar")));
+        BridgeAssessment missing = bridge.assess(MIXIN_MOD, GameSide.CLIENT, ModJarContents.NONE);
+        assertEquals(CompatibilityStatus.BLOCKED, missing.status());
+        assertTrue(missing.findings().stream()
+                .anyMatch(finding -> finding.code().equals("PLEXUS-COMPAT-132")
+                        && finding.toString()
+                                .contains("mixer.mixins.json is named in fabric.mod.json but not in the jar")));
     }
 
     /** Fabric runs preLaunch after Mixin is ready; the bridge declares it so the link check sees its class. */

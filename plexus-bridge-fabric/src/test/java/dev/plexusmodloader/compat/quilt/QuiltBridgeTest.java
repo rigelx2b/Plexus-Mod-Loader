@@ -692,9 +692,9 @@ class QuiltBridgeTest {
                 GameSide.CLIENT,
                 Map.of("a.mixins.json", "{\"required\": true, \"package\": \"a\", \"minVersion\": \"0.9.1\"}"));
 
-        assertTrue(detail(missing, "PLEXUS-COMPAT-136").contains("named in quilt.mod.json but not in the jar"));
-        assertTrue(detail(missing, "PLEXUS-COMPAT-136").contains("as under Quilt Loader"));
-        assertEquals(List.of(), missing.blockingCodes());
+        // Mixin cannot read it and Quilt Loader rethrows the error, so the game would stop.
+        assertTrue(detail(missing, "PLEXUS-COMPAT-132").contains("named in quilt.mod.json but not in the jar"));
+        assertEquals(List.of("PLEXUS-COMPAT-132"), missing.blockingCodes());
         assertEquals(List.of("PLEXUS-COMPAT-132"), newer.blockingCodes());
     }
 

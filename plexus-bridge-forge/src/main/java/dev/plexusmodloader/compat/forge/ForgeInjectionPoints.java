@@ -13,6 +13,12 @@ import java.util.List;
 final class ForgeInjectionPoints {
 
     private static final String GAME_MODE = "net/minecraft/server/level/ServerPlayerGameMode";
+    /** fabric-lifecycle-events-v1's {@code @Inject} handler into {@code setBlockEntity}, in Mojang's names. */
+    private static final String SET_BLOCK_ENTITY_UNLOAD_HANDLER =
+            "(Lnet/minecraft/world/level/block/entity/BlockEntity;"
+                    + "Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfo;Lnet/minecraft/core/BlockPos;"
+                    + "Lnet/minecraft/world/level/block/entity/BlockEntity;)V";
+
     private static final String WORLD_REGISTRIES =
             "Lnet/minecraft/resources/RegistryDataLoader;WORLD_REGISTRIES:Ljava/util/List;";
     private static final String WORLD_AND_DIMENSION_REGISTRIES =
@@ -562,6 +568,31 @@ final class ForgeInjectionPoints {
                                 + "#onRemoveBlockEntity(Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
                         "its own Map.remove of a block entity that isRemoved(), before the createBlockEntity branch",
                         InjectionPointReplacement.Placement.HOST_COVERS),
+                // LevelChunk.setBlockEntity(BlockEntity) (Minecraft 1.20.1, Forge 47.4.28; javap -l): Forge's patch
+                // wraps
+                // the body in one if (hasBlockEntity), so the local holding the block entity that Map.put replaced
+                // (slot 3) is in scope from the put to the setRemoved() call and not at the return right after it.
+                // fabric-lifecycle-events-v1's WorldChunkMixin (server and client) captures that local right after
+                // setRemoved() (shift AFTER, CAPTURE_FAILEXCEPTION) to fire BLOCK_ENTITY_UNLOAD for it; Mixin found it
+                // missing there and put in a handler that throws InjectionError when a block entity is replaced
+                // (fabric-host-patch-probe, corpusFabricForge 1.20.1, 2026-11-12). The injection moves to right before
+                // setRemoved(), where both captured locals are in scope. Differs: the unload event comes before the
+                // replaced block entity is marked removed, as the same mixin's removeBlockEntity injection already
+                // does.
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/chunk/LevelChunk",
+                        "setBlockEntity",
+                        "net/fabricmc/fabric/mixin/event/lifecycle/server/WorldChunkMixin#onRemoveBlockEntity"
+                                + SET_BLOCK_ENTITY_UNLOAD_HANDLER,
+                        "Lnet/minecraft/world/level/block/entity/BlockEntity;setRemoved()V",
+                        InjectionPointReplacement.Placement.BEFORE_CALL),
+                new InjectionPointReplacement(
+                        "net/minecraft/world/level/chunk/LevelChunk",
+                        "setBlockEntity",
+                        "net/fabricmc/fabric/mixin/event/lifecycle/client/WorldChunkMixin#onRemoveBlockEntity"
+                                + SET_BLOCK_ENTITY_UNLOAD_HANDLER,
+                        "Lnet/minecraft/world/level/block/entity/BlockEntity;setRemoved()V",
+                        InjectionPointReplacement.Placement.BEFORE_CALL),
                 // BrewingStandBlockEntity.doBrew (Minecraft 1.21.1, Forge 52.1.21; javap): vanilla asks
                 // Item.hasCraftingRemainingItem() of the ingredient and makes the remainder with new
                 // ItemStack(Item.getCraftingRemainingItem()) after ItemStack.shrink(1). Forge asks the stack
