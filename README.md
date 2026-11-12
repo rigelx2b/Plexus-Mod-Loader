@@ -96,7 +96,7 @@ Every module has its own README in English and Korean.
 
 ## License
 
-Licensed under the **MIT License** (see [`LICENSE`](LICENSE)). Copyright 2026 _xyrz and the Plexus Mod Loader contributors.
+Licensed under the **MIT License** (see [`LICENSE`](LICENSE)). Copyright 2026 rigelx2b and the Plexus Mod Loader contributors.
 
 - You may use, copy, modify, merge, publish, distribute, sublicense, and sell Plexus Mod Loader for any purpose, including in commercial or closed-source works, provided the copyright and license notice are kept in all copies or substantial portions. Releases after 1.1.0 up to 2.0.0 remain under MPL-2.0.
 - Mods, modpacks, and launchers that use Plexus Mod Loader choose their own license. `templates/` is under MIT No Attribution (see [`templates/LICENSE`](templates/LICENSE)).

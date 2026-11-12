@@ -32,11 +32,13 @@ public final class MixinConfigCheck {
      * Checks {@code entries} and adds:
      *
      * <ul>
-     *   <li>{@code PLEXUS-COMPAT-132}: a configuration marked {@code required} needs a newer Mixin ({@code minVersion});
-     *       Mixin would stop the game, so the mod is left out instead
-     *   <li>{@code PLEXUS-COMPAT-136} (not blocking): a configuration that is missing, is not a JSON object, or is not
-     *       required and needs a newer Mixin; Mixin logs it and applies the mod's other configurations, as under the
-     *       mod's own loader
+     *   <li>{@code PLEXUS-COMPAT-132}: a configuration for this side that is missing from the jar, is not valid JSON or
+     *       is not a JSON object, or one marked {@code required} that needs a newer Mixin ({@code minVersion}); Mixin
+     *       would stop the game ({@code Mixins.addConfiguration} throws {@code MixinInitialisationError} for a
+     *       configuration it cannot read, and Fabric Loader and Quilt Loader rethrow it), so the mod is left out instead
+     *   <li>{@code PLEXUS-COMPAT-136} (not blocking): a configuration that is not required and needs a newer Mixin;
+     *       Mixin logs it and applies the mod's other configurations, as under the mod's own loader. A configuration
+     *       for the other side only is not read on this one
      *   <li>{@code PLEXUS-COMPAT-140}: an injection point of a mixin for this side whose {@code target} Mixin's selector
      *       parser refuses; blocking for a required configuration (its target class would not load), otherwise
      *       Mixin skips that mixin ({@link MixinTargetSelectors})
@@ -58,7 +60,7 @@ public final class MixinConfigCheck {
         List<String> fatal = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         for (MixinConfigEntry entry : entries) {
-            problem(entry.config(), metadataFile, jar)
+            problem(entry.config(), metadataFile, jar, entry.appliesTo(side))
                     .ifPresent(problem -> (problem.fatal() ? fatal : skipped).add(problem.text()));
         }
         if (!fatal.isEmpty()) {
@@ -66,7 +68,7 @@ public final class MixinConfigCheck {
                     "PLEXUS-COMPAT-132",
                     true,
                     "mixins",
-                    fatal.size() + " required Mixin configuration(s) Mixin would stop the game for: "
+                    fatal.size() + " Mixin configuration(s) Mixin would stop the game for: "
                             + ClassTweakerCheck.examples(fatal)));
         }
         if (!skipped.isEmpty()) {
@@ -130,25 +132,34 @@ public final class MixinConfigCheck {
     /** Why Mixin would not apply a configuration, and whether it would stop the game for it. */
     private record Problem(String text, boolean fatal) {}
 
-    /** What Mixin would do with the configuration at {@code path}, if it would not simply apply it. */
-    private static Optional<Problem> problem(String path, String metadataFile, ModJarContents jar) {
+    /**
+     * What Mixin would do with the configuration at {@code path}, if it would not simply apply it; {@code thisSide}
+     * whether it is one for this side, which Mixin reads.
+     */
+    private static Optional<Problem> problem(String path, String metadataFile, ModJarContents jar, boolean thisSide) {
         Optional<byte[]> bytes;
         try {
             bytes = jar.read(path);
         } catch (UncheckedIOException e) {
-            return Optional.of(new Problem(path + " cannot be read: " + e.getCause(), false));
+            return thisSide
+                    ? Optional.of(new Problem(path + " cannot be read: " + e.getCause(), true))
+                    : Optional.empty();
         }
         if (bytes.isEmpty()) {
-            return Optional.of(new Problem(path + " is named in " + metadataFile + " but not in the jar", false));
+            return thisSide
+                    ? Optional.of(new Problem(path + " is named in " + metadataFile + " but not in the jar", true))
+                    : Optional.empty();
         }
         JsonElement config;
         try {
             config = JsonParser.parseString(new String(bytes.get(), StandardCharsets.UTF_8));
         } catch (JsonParseException e) {
-            return Optional.of(new Problem(path + " is not valid JSON: " + e.getMessage(), false));
+            return thisSide
+                    ? Optional.of(new Problem(path + " is not valid JSON: " + e.getMessage(), true))
+                    : Optional.empty();
         }
         if (!(config instanceof JsonObject object)) {
-            return Optional.of(new Problem(path + " is not a JSON object", false));
+            return thisSide ? Optional.of(new Problem(path + " is not a JSON object", true)) : Optional.empty();
         }
         if (isString(object.get("minVersion"))) {
             String minVersion = object.get("minVersion").getAsString();
@@ -159,7 +170,7 @@ public final class MixinConfigCheck {
                         && value.getAsBoolean();
                 return Optional.of(new Problem(
                         path + " needs Mixin " + minVersion + "; Plexus Mod Loader has " + MixinBootstrap.VERSION,
-                        required));
+                        required && thisSide));
             }
         }
         return Optional.empty();

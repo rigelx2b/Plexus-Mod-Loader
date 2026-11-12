@@ -83,7 +83,18 @@ public record InjectionPointReplacement(
          * call). Mods that inject next to the loader's call (owo-lib freezes its registries right after it) inject
          * next to {@code replacement} instead. Given without a host, where no host loader starts the game.
          */
-        LOADER_HOOK
+        LOADER_HOOK,
+        /**
+         * {@code replaced} names one {@code @Inject} handler ({@code <mixin's internal name>#<handler name>}, or with
+         * its descriptor after the name) into {@code method} of {@code targetClass}, at right after the call {@code
+         * replacement} ({@code shift = AFTER}), that captures locals by position. The host's patch ends the scope of a
+         * captured local at that call, so the capture fails right after it (MinecraftForge 1.20.1's {@code
+         * LevelChunk.setBlockEntity}, which Fabric API's lifecycle events capture the replaced block entity in). The
+         * injection moves to right before the call, where the locals are those it captures; it is left as it is
+         * unless the patched method has that call once and its locals at the call, and only there, are the captured
+         * ones. Each rule is written after reading the handler: it must not need the call to have run.
+         */
+        BEFORE_CALL
     }
 
     /** A replacement at the same place ({@link Placement#SAME_PLACE}). */

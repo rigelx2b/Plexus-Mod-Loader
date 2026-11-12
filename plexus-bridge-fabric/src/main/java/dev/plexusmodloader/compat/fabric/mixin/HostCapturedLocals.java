@@ -1,6 +1,7 @@
 package dev.plexusmodloader.compat.fabric.mixin;
 
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
+import dev.plexusmodloader.compat.bridge.InjectionPointReplacement;
 import dev.plexusmodloader.compat.fabric.mixin.HostPatchAdjustments.Finding;
 import java.lang.classfile.AccessFlags;
 import java.lang.classfile.Annotation;
@@ -61,10 +62,19 @@ final class HostCapturedLocals {
     /** Handler {@code handler descriptor}: its parameters from {@code firstLocal} on are captured by type. */
     private record Conversion(String handler, String descriptor, int firstLocal) {}
 
+    /** Handler {@code handler descriptor}: its injection moves from right after its call to right before it. */
+    private record MovedBefore(String handler, String descriptor) {}
+
     private final Map<String, List<Conversion>> conversions;
+    private final Map<String, List<MovedBefore>> movedBefore;
 
     private HostCapturedLocals(Map<String, List<Conversion>> conversions) {
+        this(conversions, Map.of());
+    }
+
+    private HostCapturedLocals(Map<String, List<Conversion>> conversions, Map<String, List<MovedBefore>> movedBefore) {
         this.conversions = conversions;
+        this.movedBefore = movedBefore;
     }
 
     /** Collects the conversions while {@link HostPatchAdjustments#plan} goes through the mixins. Not thread-safe. */
@@ -73,6 +83,7 @@ final class HostCapturedLocals {
         private final HostedLaunch host;
         private final HostPatchAdjustments.Classes classes;
         private final Map<String, List<Conversion>> conversions = new HashMap<>();
+        private final Map<String, List<MovedBefore>> movedBefore = new HashMap<>();
 
         Planner(HostedLaunch host, HostPatchAdjustments.Classes classes) {
             this.host = host;
@@ -84,6 +95,7 @@ final class HostCapturedLocals {
             String mixinName = mixin.thisClass().asInternalName();
             List<Finding> findings = new ArrayList<>();
             Set<Conversion> own = new LinkedHashSet<>();
+            Set<MovedBefore> ownMoved = new LinkedHashSet<>();
             for (String targetName : HostPatchAdjustments.mixinTargets(mixin)) {
                 Optional<ClassModel> vanilla = classes.vanilla(targetName);
                 Optional<ClassModel> patched = classes.patched(targetName);
@@ -96,23 +108,71 @@ final class HostCapturedLocals {
                         continue;
                     }
                     Optional<Integer> firstLocal = firstCapturedLocal(handler);
-                    if (firstLocal.isEmpty() || hasParameterAnnotations(handler)) {
+                    if (firstLocal.isEmpty()) {
                         continue;
                     }
+                    // Capture by type writes the parameters' annotations; moving before the call keeps them.
+                    boolean annotatedParameters = hasParameterAnnotations(handler);
                     List<ClassDesc> captured = handler.methodTypeSymbol()
                             .parameterList()
                             .subList(
                                     firstLocal.get(), handler.methodTypeSymbol().parameterCount());
-                    if (new HashSet<>(captured).size() != captured.size()) {
-                        continue;
-                    }
+                    // Capture by type needs one captured local of each type; moving before the call does not.
+                    boolean distinctTypes = new HashSet<>(captured).size() == captured.size();
                     for (String selector : selectors(inject.get())) {
                         String name = selector.replaceFirst("^L[^;]+;", "");
                         String descriptor = name.contains("(") ? name.substring(name.indexOf('(')) : null;
                         name = descriptor == null ? name : name.substring(0, name.indexOf('('));
                         List<MethodModel> before = HostPatchAdjustments.methods(vanilla.get(), name, descriptor);
                         List<MethodModel> after = HostPatchAdjustments.methods(patched.get(), name, descriptor);
-                        if (before.size() != 1
+                        Optional<InjectionPointReplacement> rule = beforeCallRule(mixinName, handler, targetName, name);
+                        String mismatch = rule.isEmpty()
+                                ? null
+                                : after.size() != 1
+                                        ? after.size() + " methods of that name in the patched class"
+                                        : beforeCallMismatch(
+                                                after.getFirst(),
+                                                captured,
+                                                inject.get(),
+                                                rule.get().replacement());
+                        if (rule.isPresent() && mismatch != null) {
+                            // A rule written for this handler that does not fit: the injection stays, and says why.
+                            findings.add(new Finding(
+                                    modId,
+                                    config,
+                                    mixinName,
+                                    "@Inject " + handler.methodName().stringValue() + " into " + targetName + "."
+                                            + name + ": " + host.hostName() + "'s rule moves it to right before "
+                                            + rule.get().replacement() + ", but " + mismatch
+                                            + "; the injection is left as it is",
+                                    false,
+                                    "PLEXUS-COMPAT-212",
+                                    false));
+                        }
+                        if (rule.isPresent() && mismatch == null) {
+                            MovedBefore moved = new MovedBefore(
+                                    handler.methodName().stringValue(),
+                                    handler.methodType().stringValue());
+                            if (ownMoved.add(moved)) {
+                                findings.add(new Finding(
+                                        modId,
+                                        config,
+                                        mixinName,
+                                        "@Inject " + handler.methodName().stringValue() + " into " + targetName + "."
+                                                + name + ": " + host.hostName() + "'s patch ends the scope of a local"
+                                                + " it captures at "
+                                                + rule.get().replacement() + "; the injection"
+                                                + " moves from right after that call to right before it, where the "
+                                                + captured.size() + " locals it captures are in scope",
+                                        false,
+                                        "PLEXUS-COMPAT-212",
+                                        false));
+                            }
+                            continue;
+                        }
+                        if (!distinctTypes
+                                || annotatedParameters
+                                || before.size() != 1
                                 || after.size() != 1
                                 || !convertible(
                                         before.getFirst(),
@@ -146,12 +206,101 @@ final class HostCapturedLocals {
             if (!own.isEmpty()) {
                 conversions.put(mixinName, List.copyOf(own));
             }
+            if (!ownMoved.isEmpty()) {
+                movedBefore.put(mixinName, List.copyOf(ownMoved));
+            }
             return findings;
         }
 
-        HostCapturedLocals build() {
-            return conversions.isEmpty() ? NONE : new HostCapturedLocals(Map.copyOf(conversions));
+        /** The host's {@code BEFORE_CALL} rule for {@code handler} of {@code mixinName} into {@code method}. */
+        private Optional<InjectionPointReplacement> beforeCallRule(
+                String mixinName, MethodModel handler, String targetName, String method) {
+            String key = mixinName + "#" + handler.methodName().stringValue();
+            String keyWithDescriptor = key + handler.methodType().stringValue();
+            return host.injectionPointReplacements().stream()
+                    .filter(rule -> rule.placement() == InjectionPointReplacement.Placement.BEFORE_CALL
+                            && rule.targetClass().equals(targetName)
+                            && rule.method().equals(method)
+                            && (rule.replaced().equals(key) || rule.replaced().equals(keyWithDescriptor)))
+                    .findFirst();
         }
+
+        HostCapturedLocals build() {
+            return conversions.isEmpty() && movedBefore.isEmpty()
+                    ? NONE
+                    : new HostCapturedLocals(Map.copyOf(conversions), Map.copyOf(movedBefore));
+        }
+    }
+
+    /**
+     * Whether an injection right after the call {@code call} ({@code Lowner;name(descriptor)}) capturing {@code
+     * captured} by position moves to right before it in {@code patched}: the injection is at that call with {@code
+     * shift = AFTER}, the method makes the call once, and in its local variable table the locals after the parameters
+     * are {@code captured}, in slot order, at the call and are not right after it.
+     */
+    static boolean movesBeforeCall(MethodModel patched, List<ClassDesc> captured, Annotation inject, String call) {
+        return beforeCallMismatch(patched, captured, inject, call) == null;
+    }
+
+    /** Why the injection does not move ({@link #movesBeforeCall}), or null when it does. */
+    static String beforeCallMismatch(MethodModel patched, List<ClassDesc> captured, Annotation inject, String call) {
+        if (!call.equals(invokeTarget(inject))) {
+            return "it injects at " + invokeTarget(inject);
+        }
+        if (!shiftsAfter(inject)) {
+            return "it is not shifted after the call";
+        }
+        Optional<CodeAttribute> code = patched.findAttribute(Attributes.code());
+        if (code.isEmpty()) {
+            return "the patched method has no code";
+        }
+        List<int[]> spans = invokeSpans(code.get(), call);
+        if (spans.size() != 1) {
+            return "the patched method makes that call " + spans.size() + " times";
+        }
+        List<LocalVariableInfo> table = code.get().findAttributes(Attributes.localVariableTable()).stream()
+                .flatMap(attribute -> attribute.localVariables().stream())
+                .toList();
+        if (table.isEmpty()) {
+            return "the patched method has no local variable table";
+        }
+        int firstLocal = patched.flags().has(java.lang.reflect.AccessFlag.STATIC) ? 0 : 1;
+        for (ClassDesc parameter : patched.methodTypeSymbol().parameterList()) {
+            firstLocal += parameter.equals(java.lang.constant.ConstantDescs.CD_long)
+                            || parameter.equals(java.lang.constant.ConstantDescs.CD_double)
+                    ? 2
+                    : 1;
+        }
+        int offset = spans.getFirst()[0];
+        int next = offset + spans.getFirst()[1];
+        List<ClassDesc> atCall = localsAt(table, firstLocal, offset);
+        if (!captured.equals(atCall)) {
+            return "its locals at the call are " + atCall;
+        }
+        if (captured.equals(localsAt(table, firstLocal, next))) {
+            return "they are in scope right after the call too";
+        }
+        return null;
+    }
+
+    /** The types of the locals from slot {@code firstLocal} on in scope at {@code offset}, in slot order. */
+    private static List<ClassDesc> localsAt(List<LocalVariableInfo> table, int firstLocal, int offset) {
+        return table.stream()
+                .filter(local -> local.slot() >= firstLocal
+                        && local.startPc() <= offset
+                        && offset < local.startPc() + local.length())
+                .sorted(java.util.Comparator.comparingInt(LocalVariableInfo::slot))
+                .map(LocalVariableInfo::typeSymbol)
+                .toList();
+    }
+
+    /** Whether the injector's one {@code @At} has {@code shift = AFTER}. */
+    private static boolean shiftsAfter(Annotation inject) {
+        return points(inject).stream()
+                .flatMap(point -> point.elements().stream())
+                .anyMatch(element -> element.name().equalsString("shift")
+                        && element.value() instanceof AnnotationValue.OfEnum shift
+                        && shift.constantName().equalsString("AFTER"));
     }
 
     /**
@@ -201,10 +350,15 @@ final class HostCapturedLocals {
 
     /** The offsets of the calls {@code target} ({@code Lowner;name(descriptor)}) in {@code code}; empty for null. */
     private static List<Integer> invokeOffsets(CodeAttribute code, String target) {
+        return invokeSpans(code, target).stream().map(span -> span[0]).toList();
+    }
+
+    /** The offset and size of each call {@code target} ({@code Lowner;name(descriptor)}) in {@code code}. */
+    private static List<int[]> invokeSpans(CodeAttribute code, String target) {
         if (target == null) {
             return List.of();
         }
-        List<Integer> offsets = new ArrayList<>();
+        List<int[]> spans = new ArrayList<>();
         int offset = 0;
         for (CodeElement element : code.elementList()) {
             if (!(element instanceof Instruction instruction)) {
@@ -213,15 +367,15 @@ final class HostCapturedLocals {
             if (instruction instanceof InvokeInstruction invoke
                     && target.equals("L" + invoke.owner().asInternalName() + ";"
                             + invoke.name().stringValue() + invoke.type().stringValue())) {
-                offsets.add(offset);
+                spans.add(new int[] {offset, instruction.sizeInBytes()});
             }
             offset += instruction.sizeInBytes();
         }
-        return offsets;
+        return spans;
     }
 
-    /** The {@code target} of the injector's {@code @At("INVOKE")}, when it has exactly one point and it is a call. */
-    private static String invokeTarget(Annotation inject) {
+    /** The injector's {@code @At} annotations. */
+    private static List<Annotation> points(Annotation inject) {
         List<Annotation> points = new ArrayList<>();
         for (AnnotationElement element : inject.elements()) {
             if (!element.name().equalsString("at")) {
@@ -237,6 +391,12 @@ final class HostCapturedLocals {
                 }
             }
         }
+        return points;
+    }
+
+    /** The {@code target} of the injector's {@code @At("INVOKE")}, when it has exactly one point and it is a call. */
+    private static String invokeTarget(Annotation inject) {
+        List<Annotation> points = points(inject);
         if (points.size() != 1) {
             return null;
         }
@@ -316,14 +476,18 @@ final class HostCapturedLocals {
         return selectors;
     }
 
-    /** {@code bytes} of mixin {@code mixin} with the planned handlers capturing their locals by type. */
+    /**
+     * {@code bytes} of mixin {@code mixin} with the planned handlers capturing their locals by type, and the planned
+     * injections moved to right before their calls.
+     */
     byte[] apply(String mixin, byte[] bytes) {
+        byte[] moved = moveBefore(mixin, bytes);
         List<Conversion> own = conversions.get(mixin);
         if (own == null) {
-            return bytes;
+            return moved;
         }
         ClassFile classFile = ClassFile.of();
-        return classFile.transformClass(classFile.parse(bytes), (builder, element) -> {
+        return classFile.transformClass(classFile.parse(moved), (builder, element) -> {
             if (!(element instanceof MethodModel method)) {
                 builder.with(element);
                 return;
@@ -367,6 +531,63 @@ final class HostCapturedLocals {
                         methodBuilder.with(RuntimeInvisibleParameterAnnotationsAttribute.of(annotations));
                     });
         });
+    }
+
+    /** {@code bytes} with the {@code @At} of each planned {@link MovedBefore} handler of {@code mixin} without shift. */
+    private byte[] moveBefore(String mixin, byte[] bytes) {
+        List<MovedBefore> own = movedBefore.get(mixin);
+        if (own == null) {
+            return bytes;
+        }
+        ClassFile classFile = ClassFile.of();
+        return classFile.transformClass(classFile.parse(bytes), (builder, element) -> {
+            if (element instanceof MethodModel method
+                    && own.stream()
+                            .anyMatch(candidate -> method.methodName().equalsString(candidate.handler())
+                                    && method.methodType().equalsString(candidate.descriptor()))) {
+                builder.transformMethod(method, (methodBuilder, methodElement) -> {
+                    if (methodElement instanceof RuntimeVisibleAnnotationsAttribute visible) {
+                        methodBuilder.with(RuntimeVisibleAnnotationsAttribute.of(visible.annotations().stream()
+                                .map(annotation -> annotation.className().equalsString(INJECT)
+                                        ? withoutShift(annotation)
+                                        : annotation)
+                                .toList()));
+                    } else {
+                        methodBuilder.with(methodElement);
+                    }
+                });
+            } else {
+                builder.with(element);
+            }
+        });
+    }
+
+    /** {@code inject} with its {@code @At} points at the call itself (no {@code shift} or {@code by}). */
+    private static Annotation withoutShift(Annotation inject) {
+        return Annotation.of(
+                inject.classSymbol(),
+                inject.elements().stream()
+                        .map(element -> element.name().equalsString("at")
+                                ? AnnotationElement.of("at", withoutShift(element.value()))
+                                : element)
+                        .toList());
+    }
+
+    private static AnnotationValue withoutShift(AnnotationValue value) {
+        if (value instanceof AnnotationValue.OfAnnotation point) {
+            return AnnotationValue.ofAnnotation(Annotation.of(
+                    point.annotation().classSymbol(),
+                    point.annotation().elements().stream()
+                            .filter(element -> !element.name().equalsString("shift")
+                                    && !element.name().equalsString("by"))
+                            .toList()));
+        }
+        if (value instanceof AnnotationValue.OfArray array) {
+            return AnnotationValue.ofArray(array.values().stream()
+                    .map(HostCapturedLocals::withoutShift)
+                    .toList());
+        }
+        return value;
     }
 
     private static Annotation withoutLocals(Annotation inject) {

@@ -38,6 +38,10 @@ import java.util.zip.ZipEntry;
  * string the map does not know stays as it is. {@code remap = false} (on the mixin, the injector or the {@code @At}) means
  * no lookup, and none is made.
  *
+ * <p>{@code @Mixin}'s {@code targets} strings (a class the mod cannot name in code, such as a private inner class) are
+ * looked up the same way: unresolved, the check found no game class of that yarn name and checked none of the mixin's
+ * injectors (Fabric API's {@code ModelLoaderBakerImplMixin} beside NeoForge 21.1, 2026-11-12).
+ *
  * <p>The resolved strings are written into the mixin class both when the mixin is checked and when it is loaded ({@link
  * #apply}), so the rules of {@link HostPatchAdjustments} compare with, and rewrite, the same strings; Mixin finds none of
  * them in the reference map and uses them as they are. A mod without a reference map, or a mixin without an entry in it,
@@ -172,11 +176,39 @@ final class HostRefmapNames {
                         methodBuilder.with(methodElement);
                     }
                 });
+            } else if (element instanceof RuntimeInvisibleAnnotationsAttribute invisible) {
+                builder.with(RuntimeInvisibleAnnotationsAttribute.of(targets(invisible.annotations(), names, changed)));
+            } else if (element instanceof RuntimeVisibleAnnotationsAttribute visible) {
+                builder.with(RuntimeVisibleAnnotationsAttribute.of(targets(visible.annotations(), names, changed)));
             } else {
                 builder.with(element);
             }
         });
         return changed[0] ? result : bytes;
+    }
+
+    /**
+     * {@code annotations} of the mixin class with the {@code targets} strings of {@code @Mixin} replaced where {@code
+     * names} knows them: Mixin looks them up in the mixin's own entry of the reference map, as the injectors' strings.
+     */
+    private static List<Annotation> targets(
+            List<Annotation> annotations, Map<String, String> names, boolean[] changed) {
+        List<Annotation> result = new ArrayList<>(annotations.size());
+        for (Annotation annotation : annotations) {
+            if (!annotation.className().equalsString(MIXIN)) {
+                result.add(annotation);
+                continue;
+            }
+            List<AnnotationElement> elements =
+                    new ArrayList<>(annotation.elements().size());
+            for (AnnotationElement element : annotation.elements()) {
+                elements.add(AnnotationElement.of(
+                        element.name().stringValue(),
+                        resolved(element.value(), element.name().equalsString("targets"), names, changed)));
+            }
+            result.add(Annotation.of(annotation.classSymbol(), elements));
+        }
+        return result;
     }
 
     /** Whether the mixin looks names up in the reference map: {@code @Mixin(remap = false)} says it does not. */

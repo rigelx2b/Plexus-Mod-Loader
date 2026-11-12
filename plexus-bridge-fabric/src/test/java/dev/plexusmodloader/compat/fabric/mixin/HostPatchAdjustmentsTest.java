@@ -200,6 +200,55 @@ class HostPatchAdjustmentsTest {
         assertFalse(annotations.contains("yarnRun"), annotations);
     }
 
+    /**
+     * A mixin of a class it cannot name in code (a private inner class) gives it as a string, {@code @Mixin(targets =
+     * ...)}, in the names the mod was developed with, and Mixin looks that string up in the mixin's reference map as it
+     * does the injectors'. Unresolved, the check found no such game class and checked none of the mixin's injectors.
+     */
+    @Test
+    void aMixinTargetGivenAsAStringIsComparedAsTheModsReferenceMapNamesIt() throws Exception {
+        String refmap = "{\"mappings\":{\"m/InjectMixin\":{\"yarn/Target\":\"t/Target\","
+                + "\"yarnRun\":\"run\",\"yarnOld\":\"Lt/Target;old()V\",\"yarnMoved\":\"Lt/Target;moved()V\"}}}";
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.InjectMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(Annotation.of(
+                    ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/Mixin;"),
+                    AnnotationElement.of(
+                            "targets", AnnotationValue.ofArray(AnnotationValue.ofString("yarn/Target"))))));
+            for (Handler handler :
+                    List.of(inject("first", "yarnRun", "yarnOld"), inject("second", "yarnRun", "yarnMoved"))) {
+                builder.withMethod(handler.name(), MethodTypeDesc.of(CD_void), ClassFile.ACC_PRIVATE, method -> {
+                    method.with(RuntimeVisibleAnnotationsAttribute.of(handler.annotation()));
+                    method.withCode(code -> code.return_());
+                });
+            }
+        });
+
+        HostPatchAdjustments adjustments = planYarn(
+                CONFIG,
+                Map.of(CONFIG, REFMAP_CONFIG_TEXT, "example.refmap.json", refmap, "m/InjectMixin.class", mixin));
+
+        assertEquals(2, adjustments.findings().size(), adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().stream()
+                        .anyMatch(finding -> finding.incompatible()
+                                && finding.reason().contains("old()V")
+                                && finding.reason().endsWith("this injection does not run")),
+                adjustments.findings().toString());
+        assertTrue(
+                adjustments.findings().stream()
+                        .anyMatch(finding -> !finding.incompatible()
+                                && finding.code().equals("PLEXUS-COMPAT-226")
+                                && finding.reason().contains("replacement()V")),
+                adjustments.findings().toString());
+        ClassModel applied = ClassFile.of().parse(adjustments.apply("m.InjectMixin", mixin));
+        String targets = applied.findAttribute(java.lang.classfile.Attributes.runtimeInvisibleAnnotations()).stream()
+                .flatMap(attribute -> attribute.annotations().stream())
+                .map(Annotation::toString)
+                .toList()
+                .toString();
+        assertTrue(targets.contains("t/Target") && !targets.contains("yarn/Target"), targets);
+    }
+
     /** A mod without a reference map, or whose map does not know a string, is compared as it is written. */
     @Test
     void injectorStringsWithoutAReferenceMapStayAsWritten() throws Exception {
@@ -4625,6 +4674,139 @@ class HostPatchAdjustmentsTest {
         byte[] applied = assertCapturedLocals(List.of(CD_String, CD_String), null);
         MethodModel handler = method(ClassFile.of().parse(applied), "afterOld", capturedHandler());
         assertTrue(annotationsOf(handler).contains("locals"), annotationsOf(handler));
+    }
+
+    /**
+     * Fabric API's lifecycle events capture, right after {@code setRemoved()}, the block entity that Forge 1.20.1's
+     * recompiled {@code LevelChunk.setBlockEntity} scopes up to that call only. With the host's {@code BEFORE_CALL} rule
+     * the injection moves to right before the call, where the captured locals are in scope.
+     */
+    @Test
+    void anInjectAfterACallWhereACapturedLocalEndsMovesBeforeItByRule() throws Exception {
+        byte[] applied = assertMovedBefore(true, false, "moves from right after that call to right before it");
+        assertFalse(annotationsOf(method(ClassFile.of().parse(applied), "afterOld", movedHandler()))
+                .contains("shift"));
+    }
+
+    /** Without the host's rule, or where the local is still in scope after the call, the injection stays as it is. */
+    @Test
+    void anInjectAfterACallStaysWithoutRuleOrWhenItsLocalsAreThere() throws Exception {
+        for (boolean[] variant : new boolean[][] {{false, false}, {true, true}}) {
+            byte[] applied = assertMovedBefore(variant[0], variant[1], null);
+            assertTrue(annotationsOf(method(ClassFile.of().parse(applied), "afterOld", movedHandler()))
+                    .contains("shift"));
+        }
+    }
+
+    private static MethodTypeDesc movedHandler() {
+        return MethodTypeDesc.of(
+                CD_void,
+                CD_int,
+                ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.CallbackInfo"),
+                CD_String,
+                CD_Object);
+    }
+
+    /**
+     * Plans an {@code @Inject} right after {@code old()} capturing a {@code String} and an {@code Object} in a patched
+     * method whose {@code Object} local ends at that call ({@code localAfterCall}: or goes on after it), with or without
+     * the host's {@code BEFORE_CALL} rule ({@code withRule}).
+     */
+    private byte[] assertMovedBefore(boolean withRule, boolean localAfterCall, String finding) throws Exception {
+        Annotation inject = Annotation.of(
+                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/Inject;"),
+                AnnotationElement.of("method", AnnotationValue.ofArray(AnnotationValue.ofString("tick"))),
+                AnnotationElement.of(
+                        "at",
+                        AnnotationValue.ofArray(AnnotationValue.ofAnnotation(Annotation.of(
+                                ClassDesc.ofDescriptor("Lorg/spongepowered/asm/mixin/injection/At;"),
+                                AnnotationElement.ofString("value", "INVOKE"),
+                                AnnotationElement.ofString("target", "Lt/Target;old()V"),
+                                AnnotationElement.of(
+                                        "shift",
+                                        AnnotationValue.ofEnum(
+                                                ClassDesc.of("org.spongepowered.asm.mixin.injection.At$Shift"),
+                                                "AFTER")))))),
+                AnnotationElement.of(
+                        "locals",
+                        AnnotationValue.ofEnum(
+                                ClassDesc.of("org.spongepowered.asm.mixin.injection.callback.LocalCapture"),
+                                "CAPTURE_FAILEXCEPTION")));
+        byte[] mixin = ClassFile.of().build(ClassDesc.of("m.MoveMixin"), builder -> {
+            builder.with(RuntimeInvisibleAnnotationsAttribute.of(mixinAnnotation()));
+            builder.withMethod("afterOld", movedHandler(), ClassFile.ACC_PRIVATE, method -> {
+                method.with(RuntimeVisibleAnnotationsAttribute.of(inject));
+                // Fabric API's handler marks the replaced block entity @Nullable.
+                method.with(java.lang.classfile.attribute.RuntimeInvisibleParameterAnnotationsAttribute.of(List.of(
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(Annotation.of(ClassDesc.of("org.jetbrains.annotations.Nullable"))))));
+                method.withCode(code -> code.return_());
+            });
+        });
+        Path jar = jar(Map.of(CONFIG, "{\"package\":\"m\",\"mixins\":[\"MoveMixin\"]}", "m/MoveMixin.class", mixin));
+        MethodTypeDesc tick = MethodTypeDesc.of(CD_void, CD_int);
+        MethodTypeDesc old = MethodTypeDesc.of(CD_void);
+        byte[] vanilla = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody(
+                                "tick",
+                                tick,
+                                0,
+                                code -> code.invokestatic(TARGET, "old", old).return_()));
+        byte[] patched = ClassFile.of()
+                .build(
+                        TARGET,
+                        builder -> builder.withMethodBody("tick", tick, 0, code -> {
+                            java.lang.classfile.Label first = code.newLabel();
+                            java.lang.classfile.Label second = code.newLabel();
+                            java.lang.classfile.Label afterCall = code.newLabel();
+                            java.lang.classfile.Label end = code.newLabel();
+                            code.ldc("a")
+                                    .astore(2)
+                                    .labelBinding(first)
+                                    .ldc("b")
+                                    .astore(3)
+                                    .labelBinding(second)
+                                    .invokestatic(TARGET, "old", old)
+                                    .labelBinding(afterCall)
+                                    .nop()
+                                    .labelBinding(end)
+                                    .return_();
+                            code.localVariable(2, "text", CD_String, first, end);
+                            code.localVariable(3, "replaced", CD_Object, second, localAfterCall ? end : afterCall);
+                        }));
+        HostedLaunch host = new HostedLaunch(
+                "Host 1",
+                List.of(),
+                withRule
+                        ? List.of(new InjectionPointReplacement(
+                                "t/Target",
+                                "tick",
+                                "m/MoveMixin#afterOld",
+                                "Lt/Target;old()V",
+                                InjectionPointReplacement.Placement.BEFORE_CALL))
+                        : List.of(),
+                directory);
+
+        HostPatchAdjustments adjustments = HostPatchAdjustments.plan(
+                host,
+                GameSide.DEDICATED_SERVER,
+                Map.of(CONFIG, "example"),
+                Map.of("example", jar),
+                vanillaOf("t/Target", vanilla),
+                classes(patched));
+
+        String findings = adjustments.findings().toString();
+        if (finding == null) {
+            assertFalse(findings.contains("right before it"), findings);
+        } else {
+            assertTrue(findings.contains(finding) && findings.contains("PLEXUS-COMPAT-212"), findings);
+            assertFalse(adjustments.findings().stream().anyMatch(HostPatchAdjustments.Finding::incompatible), findings);
+        }
+        return adjustments.apply("m.MoveMixin", mixin);
     }
 
     private static MethodTypeDesc capturedHandler() {

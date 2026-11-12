@@ -306,6 +306,27 @@ class ModLinkVerifierTest {
         assertEquals(List.of("PLEXUS-COMPAT-111"), blockingCodes(verify(mod, GameSide.CLIENT, List.of(), List.of())));
     }
 
+    /**
+     * Fabric API's client API ({@code net.fabricmc.fabric.api.client}) is in client-only modules, which a dedicated
+     * server does not load, as under Fabric Loader. A mod that uses it only from client code runs there: owo-lib 0.12.6
+     * was left out of the 1.20.4 Quilt corpus server with PLEXUS-COMPAT-111 for HudRenderCallback and
+     * TooltipComponentCallback (corpusQuiltServer 1.20.4, 2026-11-09). On the client, and for the rest of Fabric API, a
+     * missing class still blocks.
+     */
+    @Test
+    void fabricApiClientClassesOnAServerOnlyNote() throws IOException {
+        Path mod = mod("hud_user", code -> {
+            code.ldc(ClassDesc.of("net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback"));
+            code.ldc(ClassDesc.of("net.fabricmc.fabric.api.client.rendering.v1.TooltipComponentCallback"));
+        });
+
+        List<CompatibilityFinding> server = verify(mod, GameSide.DEDICATED_SERVER, List.of(), List.of());
+
+        assertEquals(List.of(), blockingCodes(server), server::toString);
+        assertTrue(server.toString().contains("PLEXUS-COMPAT-113"), server::toString);
+        assertEquals(List.of("PLEXUS-COMPAT-111"), blockingCodes(verify(mod, GameSide.CLIENT, List.of(), List.of())));
+    }
+
     @Test
     void optionalIntegrationsAndClientClassesOnAServerOnlyNote() throws IOException {
         Path mod = mod("integrations", code -> {

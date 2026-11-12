@@ -46,8 +46,8 @@ import java.util.jar.JarFile;
  *       internal classes)
  *   <li>{@code PLEXUS-COMPAT-112} (blocking): a Minecraft class, method or field this game version does not have
  *   <li>{@code PLEXUS-COMPAT-113} (not blocking): classes no installed mod has, usually an optional integration
- *       with a mod that is not installed; also client classes referenced on a dedicated server, which Fabric
- *       mods keep in client-only code; and Minecraft members this game lacks when their type is such a class or the
+ *       with a mod that is not installed; also client classes referenced on a dedicated server (the game's, and Fabric
+ *       API's client API {@code net.fabricmc.fabric.api.client}), which Fabric mods keep in client-only code; and Minecraft members this game lacks when their type is such a class or the
  *       class using them is another loader's code path (it uses NeoForge's or Forge's API, which nothing installed has)
  *   <li>{@code PLEXUS-COMPAT-118} (blocking): class files newer than this Java runtime reads
  *   <li>{@code PLEXUS-COMPAT-119} (blocking): a declared entrypoint class that is not in any installed jar
@@ -89,6 +89,13 @@ public final class ModLinkVerifier implements AutoCloseable {
             "com/mojang/blaze3d/",
             "com/mojang/renderpearl/",
             "com/mojang/realmsclient/");
+
+    /**
+     * Fabric API's client API, in modules whose {@code environment} is {@code client}: a dedicated server does not load
+     * them, under Fabric Loader either, so mods use them from client code only. Missing there, they note
+     * ({@code PLEXUS-COMPAT-113}) like the game's client classes instead of blocking as the loader's runtime does.
+     */
+    private static final List<String> FABRIC_API_CLIENT_PACKAGES = List.of("net/fabricmc/fabric/api/client/");
 
     private static final List<String> JDK_PACKAGES = List.of("java/", "javax/", "jdk/");
     /**
@@ -472,12 +479,16 @@ public final class ModLinkVerifier implements AutoCloseable {
         boolean provided = bridge.providedPackages().stream().anyMatch(referenced::startsWith);
         // A loader runtime class must be both provided and actually present; otherwise it fails when used.
         if (runtimePackage && !(provided && platformHas(referenced))) {
-            problems.computeIfAbsent(
-                            absentOnThisSide.contains(referenced)
-                                    ? "PLEXUS-COMPAT-113|other-side"
-                                    : "PLEXUS-COMPAT-111|runtime",
-                            key -> new TreeSet<>())
-                    .add(referenced.replace('/', '.'));
+            String problem;
+            if (absentOnThisSide.contains(referenced)) {
+                problem = "PLEXUS-COMPAT-113|other-side";
+            } else if (side == GameSide.DEDICATED_SERVER
+                    && FABRIC_API_CLIENT_PACKAGES.stream().anyMatch(referenced::startsWith)) {
+                problem = "PLEXUS-COMPAT-113|client";
+            } else {
+                problem = "PLEXUS-COMPAT-111|runtime";
+            }
+            problems.computeIfAbsent(problem, key -> new TreeSet<>()).add(referenced.replace('/', '.'));
             return;
         }
         if (gameClasses.containsKey(referenced) || platformHas(referenced)) {
