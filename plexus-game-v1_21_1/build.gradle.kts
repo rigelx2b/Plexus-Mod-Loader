@@ -7,6 +7,8 @@ description = "Game layer for Minecraft 1.21.1: implements the Native API with g
 
 dependencies {
     implementation(project(":plexus-version-adapter-api"))
+    // ForeignPayloads: a host loader's view of its own custom payloads (ADR-0026 40).
+    implementation(project(":plexus-bridge-api"))
     implementation(libs.slf4j.api)
     // BuiltInRulesTest plans and applies the adapter's rules to the real game classes on the test class
     // path, so client-only rules are checked without starting a client.

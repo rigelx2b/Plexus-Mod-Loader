@@ -125,7 +125,9 @@ val transformationPlanLines =
     when (minecraftModules) {
         // 2026-11-07: counted again after the 2.1.0 Native API hooks (all accepted, none rejected).
         "1.20.1" -> listOf("[Plexus Mod Loader] Transformation plan: 68 rule(s) accepted, 0 rejected (2 from mods)")
-        "1.20.4", "1.21.1" -> listOf("[Plexus Mod Loader] Transformation plan: 70 rule(s) accepted, 0 rejected (2 from mods)")
+        "1.20.4" -> listOf("[Plexus Mod Loader] Transformation plan: 70 rule(s) accepted, 0 rejected (2 from mods)")
+        // 1.21.1: plexus:custom_payload_encoding (ADR-0026 40) since 2.1.10.
+        "1.21.1" -> listOf("[Plexus Mod Loader] Transformation plan: 71 rule(s) accepted, 0 rejected (2 from mods)")
         "1.21.11", "26.3" -> listOf("[Plexus Mod Loader] Transformation plan: 69 rule(s) accepted, 0 rejected (2 from mods)")
         else -> listOf("[Plexus Mod Loader] Transformation plan: 70 rule(s) accepted, 0 rejected (2 from mods)")
     }
@@ -2126,9 +2128,14 @@ val quiltCorpusScenarios = listOf(
         }
         unexpectedOutput.addAll(quiltCorpusUnexpected + "PLEXUS-COMPAT-216")
         expectedFiles.add("universe/gametestworld/level.dat")
-        // Fabric API's resource loader, which turns the Quilt mods into data packs (corpusQuilt), does not fit NeoForge's
-        // patch and is not loaded (PLEXUS-COMPAT-224, ADR-0030), so most Quilt mods' data packs are not enabled (on 26.2
-        // all but mr_magic_items, 2026-10-25). The saved world still enables NeoForge's mod data.
+        // Fabric API's resource loader, which turns the Quilt mods into data packs (corpusQuilt), runs next to NeoForge
+        // 26.x (2026-11-13: fabric-resource-loader-v0 loaded on 26.1, 26.2 and 26.3; on 2026-10-25 it was left out with
+        // PLEXUS-COMPAT-224 and only mr_magic_items' pack was enabled on 26.2). The saved world enables NeoForge's mod
+        // data and the data pack of every Quilt mod of quiltDataPacks that loads; the ones not enabled next to NeoForge
+        // belong to mods that do not load there: Dwarfs and Giants 2.0.0 (its mixins meet NeoForge's patch, 224) and,
+        // on 26.1 and 26.1.x, Gateway of Doom 2.1.0 (Fabric API's entity events are left out next to NeoForge 26.1, 111).
+        val quiltDataPacksNotLoadedBesideNeoForge =
+            listOf("dwarfsandgiants") + listOf("gateway_of_doom").filter { minecraft.startsWith("26.1") }
         val world = runDirectory.file("universe/gametestworld/level.dat")
         doLast {
             val level = GZIPInputStream(world.get().asFile.inputStream()).use { it.readBytes() }
@@ -2136,6 +2143,10 @@ val quiltCorpusScenarios = listOf(
             fun enabled(pack: String) = "\u0000${pack.length.toChar()}$pack" in level
             if (!enabled("mod_data")) {
                 throw GradleException("corpusQuiltNeoForge: the saved world does not enable NeoForge's mod data")
+            }
+            val missing = quiltDataPacks.filter { !enabled(it) && it !in quiltDataPacksNotLoadedBesideNeoForge }
+            if (missing.isNotEmpty()) {
+                throw GradleException("corpusQuiltNeoForge: the saved world does not enable the data packs of $missing")
             }
             println("corpusQuiltNeoForge: the saved world enables NeoForge's mod data and the data packs of " +
                 "${quiltDataPacks.filter(::enabled)} of the Quilt mods ${quiltDataPacks}")
@@ -3045,6 +3056,46 @@ clientWorldReload("corpusFabricNeoForgeClient") {
         // One build of Cloth Config, NeoForge's: with both, its example config was registered twice and the client
         // stopped (ADR-0026 37).
         expectedOutput.add("loads its own build of it as cloth_config (the same ID as NeoForge spells it)")
+    }
+}
+
+// The same client on 1.21.1 without the NeoForge corpus's Forgified Fabric API, so the Fabric corpus's Fabric API (its own
+// build) runs next to NeoForge 21.1.265, as when a player adds Fabric mods and Fabric API to NeoForge. Its networking
+// registers minecraft:register and minecraft:unregister with its codec; NeoForge's MinecraftUnregisterPayload met it
+// (ClassCastException to Fabric API's RegistrationPayload) and the integrated server dropped the connection (2026-11-12,
+// 2026-11-14) until the NeoForge 21.1 host wrote NeoForge's own payloads with NeoForge's codec and left Fabric API's to
+// it (plexus:custom_payload_encoding, NeoForgeForeignPayloads, ADR-0026 40). Client mod initialization stays at
+// Minecraft's point here (Fabric API's own key binding API).
+if (minecraft == "1.21.1") {
+    clientWorldReload("corpusFabricApiNeoForgeClient") {
+        description = "Opens the saved world in a NeoForge 21.1 client with the real-mod corpus's Fabric mods and Fabric API's own build next to its NeoForge mods (opens a window)."
+        dependsOn(modCorpus)
+        javaAgents.from(plexusAgentJar)
+        devModJars.from(modJars(clientSession("neoforge")))
+        devModJars.from(corpusRoot.map {
+            it.dir("fabric").asFileTree.matching { include("*.jar"); exclude(brokenUnderNeoForge); exclude(brokenOnNeoForgeClient) }
+        })
+        devModJars.from(corpusRoot.map {
+            it.dir("neoforge").asFileTree.matching {
+                include("*.jar"); exclude(brokenUnderNeoForge); exclude(brokenOnNeoForgeClient)
+                exclude("forgified-fabric-api-*.jar")
+            }
+        })
+        worldName.set("plexus_fabric_neoforge_corpus")
+        runDirectory.set(layout.buildDirectory.dir("plexus/corpus-fabric-api-neoforge-client-$minecraft"))
+        timeoutSeconds.set(500)
+        expectedOutput.addAll(
+            "Fabric or Quilt mod(s) run together; one Mixin serves both (ADR-0026 30)",
+            "for the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0043)",
+            "Transformed net/neoforged/neoforge/network/registration/NetworkRegistry with [plexus:neoforge_send_check_clientbound",
+            "with [plexus:custom_payload_encoding]",
+            "joined the game",
+        )
+        expectedOutput.addAll(clientSessionLines("neoforge"))
+        unexpectedOutput.addAll(
+            "Failed to encode packet",
+            "Other loaders' mods initialise after NeoForge's registration on this client",
+        )
     }
 }
 

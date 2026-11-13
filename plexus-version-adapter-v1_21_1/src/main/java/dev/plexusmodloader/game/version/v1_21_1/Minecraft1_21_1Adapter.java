@@ -131,7 +131,38 @@ public final class Minecraft1_21_1Adapter implements GameVersionAdapter {
         rules.addAll(nativeApiRules());
         rules.addAll(modInitializationRules());
         rules.add(titleScreenModCountsRule());
+        rules.add(customPayloadEncodingRule());
         return List.copyOf(rules);
+    }
+
+    /**
+     * Custom payloads are written with the codec {@code ForeignPayloads} picks (ADR-0026 40): {@code
+     * CustomPacketPayload}'s codec ({@code CustomPacketPayload$1.writeCap}) makes one {@code StreamCodec.encode} call,
+     * after the payload's codec was looked up by id (javap; the same in vanilla 1.21.1 and in NeoForge 21.1.265's patched
+     * jar). With a host loader and another loader in one game, the other loader's codec can own an id the host's own
+     * payloads use too (Fabric API's {@code minecraft:register} next to NeoForge's {@code MinecraftRegisterPayload}).
+     * Without a host the hook is the plain call. A redirect, so it applies after the bridges' stage (Mixin), which wraps
+     * the codec lookup in that method.
+     */
+    private static TransformRuleDefinition customPayloadEncodingRule() {
+        return new TransformRuleDefinition(
+                "plexus:custom_payload_encoding",
+                "plexus",
+                GAME_VERSION,
+                ALL_SIDES,
+                new MethodTarget(
+                        "net/minecraft/network/protocol/common/custom/CustomPacketPayload$1",
+                        "writeCap",
+                        "(Lnet/minecraft/network/FriendlyByteBuf;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload$Type;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V"),
+                new RedirectCall(
+                        new MethodTarget(
+                                "net/minecraft/network/codec/StreamCodec",
+                                "encode",
+                                "(Ljava/lang/Object;Ljava/lang/Object;)V"),
+                        0,
+                        "dev/plexusmodloader/game/layer/v1_21_1/HostPayloadHooks",
+                        "encode"),
+                TransformFailurePolicy.DISABLE_RULE);
     }
 
     private static TransformRuleDefinition titleScreenModCountsRule() {

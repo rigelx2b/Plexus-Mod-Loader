@@ -4,11 +4,11 @@
 
 # Plexus Mod Loader
 
-Plexus Mod Loader is a mod loader for Minecraft: Java Edition (version 2.1.9, stable). It installs as a profile in the official Minecraft Launcher without external launcher wrappers, starts the unmodified vanilla game files through itself, and loads Fabric, Quilt, Forge, and NeoForge mods alongside its own Plexus Mods written against its Native API. Forge and NeoForge run as themselves: Plexus Mod Loader starts the real Forge and FML, or the real NeoForge and FML 11, downloading their files automatically the first time such mods are present. Before the game starts, it checks every mod; any mod that cannot run is left out with a `PLEXUS-*` error code in `logs/latest.log` and a notice on the title screen rather than crashing later. Download the installer from [plexusmc.net/download](https://www.plexusmc.net/download/) or [GitHub Releases](https://github.com/rigelx2b/Plexus-Mod-Loader/releases).
+Plexus Mod Loader is a mod loader for Minecraft: Java Edition (version 2.1.10, stable). It installs as a profile in the official Minecraft Launcher without external launcher wrappers, starts the unmodified vanilla game files through itself, and loads Fabric, Quilt, Forge, and NeoForge mods alongside its own Plexus Mods written against its Native API. Forge and NeoForge run as themselves: Plexus Mod Loader starts the real Forge and FML, or the real NeoForge and FML 11, downloading their files automatically the first time such mods are present. Before the game starts, it checks every mod; any mod that cannot run is left out with a `PLEXUS-*` error code in `logs/latest.log` and a notice on the title screen rather than crashing later. Download the installer from [plexusmc.net/download](https://www.plexusmc.net/download/) or [GitHub Releases](https://github.com/rigelx2b/Plexus-Mod-Loader/releases).
 
 ## Status
 
-Current version: **2.1.9** (stable). Supported Minecraft versions: **1.20.1**, **1.20.4**, **1.21.1**, **1.21.11**, **26.1**, **26.1.1**, **26.1.2**, **26.2**, and **26.3** (default **26.3**). The game uses **Java 25**. Pre-26.1 obfuscated versions remap vanilla game jars on demand on the player's machine using official Mojang mappings without redistributing mappings or jars.
+Current version: **2.1.10** (stable). Supported Minecraft versions: **1.20.1**, **1.20.4**, **1.21.1**, **1.21.11**, **26.1**, **26.1.1**, **26.1.2**, **26.2**, and **26.3** (default **26.3**). The game uses **Java 25**. Pre-26.1 obfuscated versions remap vanilla game jars on demand on the player's machine using official Mojang mappings without redistributing mappings or jars.
 
 | Mod type / combination | Status | Details and limits |
 | :--- | :--- | :--- |

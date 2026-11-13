@@ -51,6 +51,15 @@ final class NeoForgeForeignPayloads {
 
     /** The rules for {@code gameVersion}, with hooks in {@code gameLayerPackage}'s {@code HostPayloadHooks}. */
     static List<TransformRuleDefinition> rules(String gameVersion, String gameLayerPackage) {
+        return rules(gameVersion, gameLayerPackage, CLIENT_NETWORK_REGISTRY);
+    }
+
+    /**
+     * As {@link #rules(String, String)}, with the client's {@code handleModdedPayload} in {@code clientRegistry}:
+     * NeoForge 21.1 (FML 4, {@link NeoForgeFml4GameHost}) has it in {@code NetworkRegistry} itself, with the same
+     * members otherwise (javap on NeoForge 21.1.265's universal jar).
+     */
+    static List<TransformRuleDefinition> rules(String gameVersion, String gameLayerPackage, String clientRegistry) {
         String hooks = gameLayerPackage + "/HostPayloadHooks";
         return List.of(
                 rule(
@@ -80,9 +89,7 @@ final class NeoForgeForeignPayloads {
                         gameVersion,
                         Set.of(GameSide.CLIENT),
                         new MethodTarget(
-                                CLIENT_NETWORK_REGISTRY,
-                                "handleModdedPayload",
-                                "(" + CLIENT_LISTENER + CLIENTBOUND + ")V"),
+                                clientRegistry, "handleModdedPayload", "(" + CLIENT_LISTENER + CLIENTBOUND + ")V"),
                         hooks,
                         "dropOtherLoadersPayload"),
                 new TransformRuleDefinition(
