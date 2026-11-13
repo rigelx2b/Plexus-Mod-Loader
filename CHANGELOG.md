@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.10 — 2026-11-14
+
+### Summary
+
+Plexus Mod Loader 2.1.10 ports foreign custom payload handling to NeoForge 21.1 on Minecraft 1.21.1 to resolve packet encoding disconnects when running Fabric API beside NeoForge without Forgified Fabric API, enforces loaded Quilt data pack validation beside NeoForge in corpus runs, and introduces client window verification for Fabric API on NeoForge 21.1.
+
+### Improvements & Fixes
+
+- Port foreign payload handling from NeoForge 26.x (ADR-0026 §40) to NeoForge 21.1.265 on Minecraft 1.21.1 (FML 4 on ModLauncher) to prevent integrated server disconnects and `ClassCastException` errors in `CustomPacketPayload$1.writeCap` (`MinecraftUnregisterPayload` to Fabric API's `RegistrationPayload`) when Fabric API's networking registers `minecraft:register` and `minecraft:unregister` alongside NeoForge without Forgified Fabric API, adding adapter rule `plexus:custom_payload_encoding` to redirect `StreamCodec.encode` to `HostPayloadHooks.encode` via `ForeignPayloads.encoderFor`, adding `HostPayloadHooks` in `plexus-game-v1_21_1` with a dependency on `plexus-bridge-api`, and configuring `NeoForgeFml4GameHost` to apply `NeoForgeForeignPayloads` rules and register payload handlers (`NetworkRegistry.BUILTIN_PAYLOADS`, `PAYLOAD_REGISTRATIONS`) when no host mod provides `fabric-networking-api-v1`.
+- Require loaded Quilt data pack mods to have their data packs enabled in `corpusQuiltNeoForge` saved worlds, failing the test when packs are omitted rather than logging the list and correcting the stale 2.1.9 limitation regarding Fabric API's resource loader and Quilt data packs on NeoForge 26.x.
+- Add the `corpusFabricApiNeoForgeClient` client window task on Minecraft 1.21.1 to verify NeoForge 21.1.265 running the Fabric corpus alongside Fabric API's own build without Forgified Fabric API (joined world, ran for 200 client ticks, saved, and quit over 128 s), while keeping loaded and unloaded foreign mod counts identical across all 9 versions in `compatibilityCorpus`.
+- Validate the release on Java 25 and Windows 11 with `check` (401 s), `build-logic` `check` (30 s), the headless test suite across all 9 supported Minecraft versions (1.20.1 in 164 s, 1.20.4 in 193 s, 1.21.1 in 150 s after updating the expected transformation plan to 71 rules for `plexus:custom_payload_encoding`, 1.21.11 in 157 s, 26.1 in 142 s, 26.1.1 in 205 s, 26.1.2 in 186 s, 26.2 in 191 s, 26.3 in 158 s), `compatibilityCorpus` across all 9 versions (1.20.1 in 348 s, 1.20.4 in 209 s, 1.21.1 in 216 s, 1.21.11 in 187 s, 26.1 in 391 s, 26.1.1 in 396 s, 26.1.2 in 412 s, 26.2 in 735 s, 26.3 in 745 s with the strengthened Quilt data pack assertion passing on 26.x), and 33 sequential client window tasks spaced 20 s apart with 32 passing on the first run and `launcherProfileForgeTest` 1.21.1 passing on isolated rerun (89 s) following an intermittent Balm `BalmClientRuntimeSpi` `NoSuchElementException`.
+
+### Known Limitations
+
+- Client mod initialization stays at Minecraft's initialization point when using Fabric API's own build beside NeoForge 21.1 (`KeyBindingRegistryImpl.registerKeyBinding` throws `"GameOptions has already been initialised"` once options exist), halting Fabric mods whose client entrypoints call a NeoForge build that reads FML's `ModList`.
+- Quilt Standard Libraries (QSL) remains omitted from Minecraft 1.20.1 Quilt corpus runs (due to server crashes such as mixins into `Blocks` loading unmapped client class `euq`) and beside Forge or NeoForge in corpus runs.
+- Quilt Loader 0.31.0 final is not released; bundled `0.31.0-beta.4` rejects mods requiring `quilt_loader >=0.31.0`.
+- Manual verification checklists (`MANUAL_QA_CHECKLIST`) and installer window validation require a human operator.
+
 ## 2.1.9 — 2026-11-14
 
 ### Summary

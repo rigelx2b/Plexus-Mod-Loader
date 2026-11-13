@@ -53,6 +53,8 @@ final class NeoForgeFml4GameHost implements GameHost {
     /** The ID of Fabric API's key binding module, which a host build such as Forgified Fabric API provides. */
     private static final String KEY_BINDING_MODULE = "fabric-key-binding-api-v1";
 
+    private static final String NETWORKING_MODULE = "fabric-networking-api-v1";
+
     private static final String HOST_JAR = "/META-INF/plexusmodloader/neoforge-fml4-host.jar";
     private static final String HOST_JAR_FML2 = "/META-INF/plexusmodloader/neoforge-fml2-host.jar";
     /** NeoForge versions before 21.2 run FML 4 on ModLauncher ({@code 20.4.x}, {@code 21.0.x}, {@code 21.1.x}). */
@@ -390,6 +392,10 @@ final class NeoForgeFml4GameHost implements GameHost {
             // Other loaders' custom payloads next to NeoForge 20.4's (ADR-0026 40).
             NeoForgeFml2ForeignPayloads.install(
                     launch.gameLayer().modules().iterator().next().getClassLoader());
+        } else if (fml4ForeignPayloadRules()) {
+            // Fabric API's own networking next to NeoForge 21.1's (ADR-0026 40), as on NeoForge 26.x.
+            NeoForgeForeignPayloads.install(
+                    launch.gameLayer().modules().iterator().next().getClassLoader());
         }
     }
 
@@ -426,6 +432,21 @@ final class NeoForgeFml4GameHost implements GameHost {
     /** NeoForge 20.4 with other loaders' mods: its channel checks would refuse their payloads. */
     private boolean foreignPayloadRules() {
         return request.sharedMixin() && fml2();
+    }
+
+    /**
+     * NeoForge 21.1 with other loaders' mods and no NeoForge build of Fabric API's networking: Fabric API's own
+     * networking registers {@code minecraft:register} and {@code minecraft:unregister} with its codec, and NeoForge's
+     * {@code MinecraftUnregisterPayload} met it ({@code ClassCastException} to Fabric API's {@code RegistrationPayload},
+     * the integrated server's connection dropped, corpusFabricNeoForgeClient without Forgified Fabric API, 2026-11-14).
+     * Forgified Fabric API's networking speaks NeoForge's payloads; with it, none of these rules.
+     */
+    private boolean fml4ForeignPayloadRules() {
+        return request.sharedMixin()
+                && !fml2()
+                && hostMods.stream()
+                        .noneMatch(mod -> mod.modId().equals(NETWORKING_MODULE)
+                                || mod.providedIds().contains(NETWORKING_MODULE));
     }
 
     /**
@@ -472,15 +493,25 @@ final class NeoForgeFml4GameHost implements GameHost {
 
     /**
      * With other loaders' mods next to NeoForge 20.4, the rules that leave their custom payloads to their own networking
-     * ({@link NeoForgeFml2ForeignPayloads}, ADR-0026 40). NeoForge 21.1's channel checks did not refuse them in the
-     * client window check ({@code corpusFabricNeoForgeClient}), so it has none.
+     * ({@link NeoForgeFml2ForeignPayloads}, ADR-0026 40). Next to NeoForge 21.1 with Fabric API's own networking, those of
+     * the NeoForge releases without ModLauncher ({@link NeoForgeForeignPayloads}, {@link #fml4ForeignPayloadRules}); with
+     * Forgified Fabric API's networking, which speaks NeoForge's payloads, only the client initialization rule.
      */
     @Override
     public List<TransformRuleDefinition> transformRules(String gameLayerPackage) {
-        if (!foreignPayloadRules() || gameLayerPackage.isEmpty()) {
+        if (gameLayerPackage.isEmpty()) {
             return transformRules();
         }
-        return NeoForgeFml2ForeignPayloads.rules(request.gameVersion(), gameLayerPackage);
+        if (foreignPayloadRules()) {
+            return NeoForgeFml2ForeignPayloads.rules(request.gameVersion(), gameLayerPackage);
+        }
+        if (fml4ForeignPayloadRules()) {
+            List<TransformRuleDefinition> rules = new ArrayList<>(transformRules());
+            rules.addAll(NeoForgeForeignPayloads.rules(
+                    request.gameVersion(), gameLayerPackage, NeoForgeForeignPayloads.NETWORK_REGISTRY));
+            return List.copyOf(rules);
+        }
+        return transformRules();
     }
 
     /**
@@ -489,7 +520,9 @@ final class NeoForgeFml4GameHost implements GameHost {
      */
     @Override
     public List<Path> transformTargetJars() {
-        return foreignPayloadRules() || defersClientModInitialization() ? List.of(files.universal()) : List.of();
+        return foreignPayloadRules() || fml4ForeignPayloadRules() || defersClientModInitialization()
+                ? List.of(files.universal())
+                : List.of();
     }
 
     /**
