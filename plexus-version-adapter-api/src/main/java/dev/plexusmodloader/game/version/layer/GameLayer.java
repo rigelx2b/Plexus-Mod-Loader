@@ -32,4 +32,16 @@ public interface GameLayer {
     default List<String> brandingLines() {
         return List.of();
     }
+
+    /**
+     * Runs {@code modInitialization} with the game in the state it has at Minecraft's mod initialization point, for a
+     * host that runs the initialization later (NeoForge 21.1's client, after its own mod loading in {@code Minecraft}'s
+     * constructor). Called on the game's main thread, after {@link #start}, at most once.
+     *
+     * @param modInitialization Plexus Mod Loader's mod initialization (other loaders' entrypoints, then {@code
+     *     MODS_INITIALIZED})
+     */
+    default void runAsAtModInitializationPoint(Runnable modInitialization) {
+        modInitialization.run();
+    }
 }

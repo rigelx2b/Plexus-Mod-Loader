@@ -1,5 +1,6 @@
 package dev.plexusmodloader.compat.forge;
 
+import dev.plexusmodloader.api.runtime.GameSide;
 import dev.plexusmodloader.compat.bridge.BridgeClassTransformer;
 import dev.plexusmodloader.compat.bridge.BridgeLaunchContext;
 import dev.plexusmodloader.compat.bridge.GameClassBytes;
@@ -48,6 +49,9 @@ import java.util.stream.Collectors;
  * <p>Thread: created and used by the launching thread only.
  */
 final class NeoForgeFml4GameHost implements GameHost {
+
+    /** The ID of Fabric API's key binding module, which a host build such as Forgified Fabric API provides. */
+    private static final String KEY_BINDING_MODULE = "fabric-key-binding-api-v1";
 
     private static final String HOST_JAR = "/META-INF/plexusmodloader/neoforge-fml4-host.jar";
     private static final String HOST_JAR_FML2 = "/META-INF/plexusmodloader/neoforge-fml2-host.jar";
@@ -425,6 +429,48 @@ final class NeoForgeFml4GameHost implements GameHost {
     }
 
     /**
+     * NeoForge 21.1's client with other loaders' mods and a NeoForge build of Fabric API's key binding module: FML's
+     * {@code ModList} is made after Minecraft's mod initialization point ({@link NeoForgeFml4ClientModInitialization}).
+     * Not with Fabric API's own build: its {@code KeyBindingRegistryImpl.registerKeyBinding} throws once {@code
+     * Minecraft.options} exists ("GameOptions has already been initialised", fabric-key-binding-api-v1 0.116.17, checked
+     * with {@code javap}), and NeoForge 21.1 makes the options before its mod loading. Forgified Fabric API's build
+     * (fabric_key_binding_api_v1 1.0.47+62cc7ce119) registers through NeoForge's {@code RegisterKeyMappingsEvent}, which
+     * NeoForge 21.1 posts later in the constructor ({@code ClientHooks.initClientHooks}).
+     */
+    private boolean defersClientModInitialization() {
+        return request.sharedMixin()
+                && !fml2()
+                && request.side() == GameSide.CLIENT
+                && hostMods.stream()
+                        .anyMatch(mod -> mod.modId().equals(KEY_BINDING_MODULE)
+                                || mod.providedIds().contains(KEY_BINDING_MODULE));
+    }
+
+    /**
+     * On NeoForge 21.1's client with other loaders' mods, Plexus Mod Loader's mod initialization runs after NeoForge's
+     * registration ({@link NeoForgeFml4ClientModInitialization}), as on NeoForge's servers.
+     */
+    @Override
+    public void atModInitializationPoint(Runnable modInitialization) {
+        if (!defersClientModInitialization()) {
+            modInitialization.run();
+            return;
+        }
+        NeoForgeFml4ClientModInitialization.defer(modInitialization);
+        request.log()
+                .accept(
+                        "Other loaders' mods initialise after NeoForge's registration on this client (ClientModLoader.begin, ADR-0043)");
+    }
+
+    /** On NeoForge 21.1's client with other loaders' mods, the rule that runs their deferred initialization. */
+    @Override
+    public List<TransformRuleDefinition> transformRules() {
+        return defersClientModInitialization()
+                ? List.of(NeoForgeFml4ClientModInitialization.rule(request.gameVersion()))
+                : List.of();
+    }
+
+    /**
      * With other loaders' mods next to NeoForge 20.4, the rules that leave their custom payloads to their own networking
      * ({@link NeoForgeFml2ForeignPayloads}, ADR-0026 40). NeoForge 21.1's channel checks did not refuse them in the
      * client window check ({@code corpusFabricNeoForgeClient}), so it has none.
@@ -437,10 +483,13 @@ final class NeoForgeFml4GameHost implements GameHost {
         return NeoForgeFml2ForeignPayloads.rules(request.gameVersion(), gameLayerPackage);
     }
 
-    /** NeoForge's universal jar, which has the class {@link NeoForgeFml2ForeignPayloads}' rules target. */
+    /**
+     * NeoForge's universal jar, which has the classes {@link NeoForgeFml2ForeignPayloads}' and {@link
+     * NeoForgeFml4ClientModInitialization}'s rules target.
+     */
     @Override
     public List<Path> transformTargetJars() {
-        return foreignPayloadRules() ? List.of(files.universal()) : List.of();
+        return foreignPayloadRules() || defersClientModInitialization() ? List.of(files.universal()) : List.of();
     }
 
     /**

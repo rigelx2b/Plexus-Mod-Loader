@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.9 — 2026-11-14
+
+### Summary
+
+Plexus Mod Loader 2.1.9 exposes bridged Fabric and Quilt mod resource and data packs alongside NeoForge 21.1 when using Forgified Fabric API, defers client mod initialization on NeoForge 21.1 to permit safe access to FML's `ModList` from foreign entrypoints, and introduces a dedicated client window task for Quilt mods running beside NeoForge 21.1.
+
+### Improvements & Fixes
+
+- Expose Fabric and Quilt mod resource and data packs via the new runtime class `ForeignModPacks` (`GameLayerContext.foreignResourcePacks` and `modPacks()`) when a host mod provides `fabric-resource-loader-v0` on NeoForge 21.1 without an active bridged resource loader, registering a synthetic `plexus/<mod id>` pack for each mod so title screens and servers no longer stop on missing assets or data such as JourneyMap core shaders (`journeymap:shaders/core/sepia_3.json`) or Road Architect and Pearlanium worldgen keys.
+- Defer Fabric and Quilt client mod initialization on NeoForge 21.1 until after `ClientModLoader.begin` using the new startup rule `plexus:neoforge_fml4_client_mod_initialization` (`NeoForgeFml4ClientModInitialization`) when a host mod provides `fabric-key-binding-api-v1`, clearing `Minecraft.gameThread` during deferred execution via `GameLayer.runAsAtModInitializationPoint` (`PLEXUS-BOOTSTRAP-008` on reflection failure) so client entrypoints calling NeoForge library builds can access FML's `ModList` without throwing `NullPointerException`.
+- Add the `corpusQuiltNeoForgeClient` window task on Minecraft 1.21.1, retain Forgified Fabric API in `corpusQuiltNeoForge` 1.21.1, and exclude `XDLib` 3.1.0 from the 1.21.1 Quilt and NeoForge client run due to conflicting screen render mixins in `ReceivingLevelScreen.render` and `ProgressScreen.render` with FancyMenu's `@WrapWithCondition`.
+- Omit `Life Series` 1.5.10, `Advanced Graves` 1.0.0, and `Lucky Break` 3.0.0 from `corpusQuiltClient` 1.21.11 because interactive confirmation screens—specifically a custom `WorldWarningScreen` and experimental world settings prompts triggered by added dimensions and data packs lacking `KnownPack` metadata—blocked unattended automated client testing.
+- Verify all nine supported Minecraft versions on Java 25 with `check` (30 s), `build-logic` `check` (27 s), headless suites (`serverBootSmokeTest`, `worldCreateSaveTest`, `gameTests` with 97 required tests, `compatibilityMatrix`) in 138-176 s per version, `compatibilityCorpus` on all nine versions with loaded and not loaded counts identical to 2.1.8, `examples/crystal-garden` (4 game tests), and 32 client window tasks run one at a time 20 s apart, 31 passed on the first run including new `corpusQuiltNeoForgeClient` 1.21.1 (56 loaded / 93 not loaded); `corpusQuiltClient` 1.21.11 stopped at the mods' confirmation screens and passed after the exclusion with nobody at the window (140 loaded / 124 not loaded, 64 s).
+
+### Known Limitations
+
+- Running Fabric API's standalone build alongside NeoForge 21.1 without Forgified Fabric API causes the integrated server connection to fail with a `ClassCastException` (`MinecraftUnregisterPayload` to `RegistrationPayload`) because Fabric API misinterprets NeoForge's `minecraft:unregister` payload, and client initialization remains at Minecraft's initialization point where Fabric mods calling NeoForge builds that read FML's `ModList` still stop.
+- QSL remains excluded from Minecraft 1.20.1 Quilt corpus runs (where QSL causes server startup crashes, such as a mixin into `Blocks` loading the unmapped client class `euq`) and when running alongside Forge or NeoForge in corpus test runs.
+- On NeoForge 26.x, Fabric API's resource loader is excluded (`PLEXUS-COMPAT-224`, `ADR-0030`), leaving most Quilt mods' data packs disabled in `corpusQuiltNeoForge`.
+- Quilt Loader 0.31.0 final is not released; the bundled `0.31.0-beta.4` build continues to reject mods requiring `quilt_loader` `>=0.31.0`.
+- Same-session alternating startup and memory measurements were not performed, and manual verification items (`MANUAL_QA_CHECKLIST` and the installer window) still require human testing.
+
 ## 2.1.8 — 2026-11-13
 
 ### Summary

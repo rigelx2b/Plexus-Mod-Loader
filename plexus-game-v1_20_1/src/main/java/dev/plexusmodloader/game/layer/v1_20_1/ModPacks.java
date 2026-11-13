@@ -59,7 +59,7 @@ final class ModPacks {
             PackType type = packType(source);
             String root = type == PackType.CLIENT_RESOURCES ? "assets/" : "data/";
             int format = SharedConstants.getCurrentVersion().getPackVersion(type);
-            for (ModResourcePack mod : context.resourcePacks()) {
+            for (ModResourcePack mod : context.modPacks()) {
                 if (hasEntry(mod.jar(), name -> name.startsWith(root))) {
                     String id = "plexus/" + mod.modId();
                     List<String> overlays = overlays(id, mod.jar(), format);
