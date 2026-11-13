@@ -43,7 +43,7 @@ final class ModPacks {
         LayerState.context().ifPresent(context -> {
             PackType type = packType(source);
             String root = type == PackType.CLIENT_RESOURCES ? "assets/" : "data/";
-            for (ModResourcePack mod : context.resourcePacks()) {
+            for (ModResourcePack mod : context.modPacks()) {
                 if (hasEntry(mod.jar(), name -> name.startsWith(root))) {
                     PackLocationInfo location = location(
                             "plexus/" + mod.modId(), mod.name(), new KnownPack("plexus", mod.modId(), mod.version()));

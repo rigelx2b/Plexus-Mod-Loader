@@ -31,6 +31,7 @@ import dev.plexusmodloader.runtime.classloading.GameClassLoader;
 import dev.plexusmodloader.runtime.compat.CrossLoaderLoadOrder;
 import dev.plexusmodloader.runtime.compat.CrossLoaderModResolver;
 import dev.plexusmodloader.runtime.compat.ForeignAccessWidenings;
+import dev.plexusmodloader.runtime.compat.ForeignModPacks;
 import dev.plexusmodloader.runtime.compat.HostBuildMatcher;
 import dev.plexusmodloader.runtime.compat.HostPatchCheck;
 import dev.plexusmodloader.runtime.compat.ModLinkVerifier;
@@ -85,6 +86,8 @@ import java.util.Properties;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
@@ -848,9 +851,23 @@ public final class PlexusRuntime {
             }
             events.publish(LifecycleEvents.MODS_INITIALIZED, ModsInitializedListener::onModsInitialized);
         };
-        // A host whose mods register after Minecraft's mod initialization point on this side may run it later.
-        Runnable atModInitializationPoint = () ->
-                host.ifPresentOrElse(found -> found.atModInitializationPoint(modInitialization), modInitialization);
+        // A host whose mods register after Minecraft's mod initialization point on this side may run it later; then the
+        // game layer runs it with the game as at that point (GameLayer.runAsAtModInitializationPoint).
+        AtomicReference<GameLayer> startedLayer = new AtomicReference<>();
+        Runnable atModInitializationPoint = () -> host.ifPresentOrElse(
+                found -> {
+                    AtomicBoolean atPoint = new AtomicBoolean(true);
+                    found.atModInitializationPoint(() -> {
+                        GameLayer layer = startedLayer.get();
+                        if (atPoint.get() || layer == null) {
+                            modInitialization.run();
+                        } else {
+                            layer.runAsAtModInitializationPoint(modInitialization);
+                        }
+                    });
+                    atPoint.set(false);
+                },
+                modInitialization);
         if (adapter.bindModInitialization(configuration.target(), atModInitializationPoint)) {
             if (!foreignInOrder.isEmpty()) {
                 LOGGER.info(
@@ -870,6 +887,15 @@ public final class PlexusRuntime {
                             mod.version().toString(),
                             modJars.get(mod.id().value())))
                     .toList();
+            // A host build of Fabric API's resource loader that makes no packs for other loaders' mods (ADR-0043).
+            List<ModResourcePack> foreignPacks = ForeignModPacks.needed(hostStandIns, plexusRunMods);
+            if (!foreignPacks.isEmpty()) {
+                LOGGER.info(
+                        "[Plexus Mod Loader] Adding resource and data packs for {} Fabric and Quilt mods not made by {}'s {} (ADR-0043)",
+                        foreignPacks.size(),
+                        host.map(GameHost::name).orElseThrow(),
+                        ForeignModPacks.FABRIC_RESOURCE_LOADER);
+            }
             GameLayer layer = startGameLayer(
                     adapter.gameLayerClass().get(),
                     gameClassLoader,
@@ -880,7 +906,9 @@ public final class PlexusRuntime {
                             packs,
                             registrations,
                             modCounts,
-                            startup));
+                            startup,
+                            foreignPacks));
+            startedLayer.set(layer);
             // A host that draws the title screen's branding itself shows the game layer's lines there too.
             host.ifPresent(found -> found.addBrandingLines(layer::brandingLines));
         } else {
