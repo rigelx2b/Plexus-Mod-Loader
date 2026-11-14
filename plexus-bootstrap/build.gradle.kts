@@ -581,6 +581,91 @@ if (minecraft == "26.2") {
         )
         expectedFiles.add("universe/gametestworld/level.dat")
     }
+    // Forge on NeoForge, F-N1 (docs/plans/FORGE_ON_NEOFORGE.md, experimental, off by default): with
+    // -Dplexus.forgeOnNeoForge=on and Forge and NeoForge mods together, NeoForge hosts the game, its mod runs, and the
+    // Forge mod is left out with PLEXUS-COMPAT-229 (Forge mods do not run on NeoForge yet) instead of Forge hosting it.
+    scenarios.gameTest(
+        "forgeOnNeoForgeDiagnosed",
+        modJars(":test-mods:neoforge-hello", ":test-mods:neoforge-gametest-harness", ":test-mods:forge-hello", native),
+    ) {
+        description = "Forge on NeoForge (F-N1): with -Dplexus.forgeOnNeoForge=on, NeoForge hosts a game with a Forge mod and a NeoForge mod; the Forge mod is diagnosed (PLEXUS-COMPAT-229) and left out."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "PLEXUS-COMPAT-229 [blocking] Forge on NeoForge: NeoForge hosts the game, and this MinecraftForge mod is not loaded due to: ",
+            "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge 26.2.0.93 starts the game",
+            "[neoforge_hello] Constructed by FML in module neoforge_hello (neoforge_hello)",
+            nativeHello,
+            "All 1 required tests passed",
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-221", "[forge_hello] Constructed by FML", "loads 1 Forge mod(s) itself")
+        expectedFiles.add("universe/gametestworld/level.dat")
+    }
+    // Forge on NeoForge, F-N2: a Forge mod that uses only @Mod, FMLJavaModLoadingContext, its mod bus group and
+    // FMLCommonSetupEvent runs on NeoForge: FML reads its mods.toml through Plexus Mod Loader's reader, constructs it with
+    // Forge's own FMLModContainer (Forge's API jars among NeoForge's loader libraries) and passes FMLCommonSetupEvent on.
+    // forge-hello uses more of Forge (DeferredRegister, ModList) and stays left out (229).
+    scenarios.gameTest(
+        "forgeOnNeoForgeHello",
+        modJars(
+            ":test-mods:neoforge-hello",
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-on-neoforge-hello",
+            ":test-mods:forge-hello",
+            native,
+        ),
+    ) {
+        description = "Forge on NeoForge (F-N2): with -Dplexus.forgeOnNeoForge=on, NeoForge's FML constructs a Forge mod that uses only @Mod, its mod bus and FMLCommonSetupEvent with Forge's own FMLModContainer; forge-hello, which uses more, is left out (PLEXUS-COMPAT-229)."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Forge on NeoForge: ",
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "net/minecraftforge/fml/ModList",
+            "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge 26.2.0.93 starts the game",
+            "[neoforge_hello] Constructed by FML in module neoforge_hello (neoforge_hello)",
+            "[forge_on_neoforge_hello] constructed in module ",
+            "[forge_on_neoforge_hello] FMLCommonSetupEvent received",
+            nativeHello,
+            "All 1 required tests passed",
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-221", "[forge_hello] Constructed by FML")
+        expectedFiles.add("universe/gametestworld/level.dat")
+    }
+    // With the setting but NeoForge turned off (as when NeoForge cannot host the game): MinecraftForge hosts it as without
+    // the setting, so the Forge mod still runs and the NeoForge mod is left out (221).
+    scenarios.gameTest(
+        "forgeOnNeoForgeFallback",
+        modJars(":test-mods:neoforge-hello", ":test-mods:forge-hello", native),
+    ) {
+        classpath(forgeClassPath)
+        description = "Forge on NeoForge (F-N1): with -Dplexus.forgeOnNeoForge=on and NeoForge turned off, MinecraftForge hosts the game as without the setting."
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        systemProperty("plexus.neoforge", "off")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] NeoForge cannot host this game with -Dplexus.forgeOnNeoForge=on, so MinecraftForge runs the game as it does without the setting.",
+            "[Plexus Mod Loader] PLEXUS-COMPAT-221 1 NeoForge mod file(s) are NOT loaded",
+            "[forge_hello] Constructed by FML in module ",
+            nativeHello,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "[neoforge_hello] Constructed by FML")
+    }
+    // The same mods without the setting: Forge hosts the game as before, and the NeoForge mod is left out (221).
+    scenarios.gameTest(
+        "forgeBesideNeoForge",
+        modJars(":test-mods:neoforge-hello", ":test-mods:forge-hello", native),
+    ) {
+        classpath(forgeClassPath)
+        description = "Without -Dplexus.forgeOnNeoForge, MinecraftForge hosts a game with a Forge mod and a NeoForge mod as before; the NeoForge mod is left out (PLEXUS-COMPAT-221)."
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-221 1 NeoForge mod file(s) are NOT loaded",
+            "Forge mod loading, version 65.1.5",
+            "[forge_hello] Constructed by FML in module ",
+            nativeHello,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "[neoforge_hello] Constructed by FML")
+    }
     // NeoForge mods, Fabric mods and Plexus Mods in one game (ADR-0026 30, 31): one Mixin (Fabric's) serves NeoForge's and
     // Fabric's mods, FML does not start its own, Fabric mods register from onInitialize with NeoForge's registries open,
     // and each loader's mod list answers for the others' mods.
@@ -726,6 +811,132 @@ scenarios.gameTest("neoForgeWorldTest", if (neoForgeOnModLauncher) modJars(":tes
             "[neoforge_gametest_harness] NeoForge runs in production and does not tick game tests; the harness ticks them",
             "All 1 required tests passed",
             worldsSavedLine,
+        )
+    }
+}
+
+// Forge on NeoForge, F-N2 on each 26.x version (ADR-0051): with -Dplexus.forgeOnNeoForge=on, NeoForge's FML constructs the Forge
+// mod forge-on-neoforge-hello (Forge's API only, no game classes) with Forge's own FMLModContainer, next to the NeoForge game
+// test harness, and passes FMLCommonSetupEvent on.
+if (minecraft.startsWith("26.")) {
+    scenarios.gameTest(
+        "forgeOnNeoForgeWorldTest",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-hello"),
+    ) {
+        description = "Forge on NeoForge (F-N2): with -Dplexus.forgeOnNeoForge=on, NeoForge constructs a Forge mod that uses only @Mod, its mod bus and FMLCommonSetupEvent on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Forge on NeoForge: ",
+            "[forge_on_neoforge_hello] constructed in module forge_on_neoforge_hello",
+            "[forge_on_neoforge_hello] FMLCommonSetupEvent received",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // The same on the dedicated server: FML finds the Forge mod through Plexus Mod Loader's reader and lists it with the
+    // NeoForge mod; NeoForge 26.x checks the EULA before it constructs mods, so the server stops there, and the construction
+    // is what forgeOnNeoForgeWorldTest shows. Plexus Mod Loader does not accept the EULA.
+    scenarios.gameTest(
+        "forgeOnNeoForgeServerBoot",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-hello"),
+    ) {
+        description = "Forge on NeoForge (F-N2): with -Dplexus.forgeOnNeoForge=on, NeoForge's FML finds and lists a Forge mod on the dedicated server, up to the EULA check."
+        launchTarget = "dedicated_server"
+        gameArgumentOverrides.set(listOf<String>())
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.set(listOf(
+            "[Plexus Mod Loader] Forge on NeoForge: ",
+            "Forge on NeoForge Hello 1.0.0 (forge_on_neoforge_hello)",
+            "NeoForge GameTest Harness 1.0.0 (neoforge_gametest_harness)",
+            "You need to agree to the EULA in order to run the server",
+        ))
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge, F-N3: the Forge events NeoForge's are passed on as (ForgeEventPairs), through each event's own
+    // bus: lifecycle events on the mod bus, server lifecycle, tick and command events, and a cancelled EntityJoinLevelEvent
+    // that keeps the entity out of NeoForge's level while an untagged one joins.
+    scenarios.gameTest(
+        "forgeOnNeoForgeEvents",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-events"),
+    ) {
+        description = "Forge on NeoForge (F-N3): with -Dplexus.forgeOnNeoForge=on, a Forge mod gets the Forge lifecycle, server, tick, command and entity join events NeoForge's are passed on as, and cancels an entity's join, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "Forge on NeoForge: 10 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
+            "[forge_on_neoforge_events] constructed",
+            "[forge_on_neoforge_events] FMLDedicatedServerSetupEvent received",
+            "[forge_on_neoforge_events] FMLLoadCompleteEvent received",
+            "[forge_on_neoforge_events] RegisterCommandsEvent received",
+            "[forge_on_neoforge_events] ServerStartingEvent received",
+            "[forge_on_neoforge_events] ServerStartedEvent received",
+            "[forge_on_neoforge_events] command /forge_on_neoforge_events registered: true",
+            "[forge_on_neoforge_events] EntityJoinLevelEvent: tagged entity joined false, untagged entity joined true",
+            "[forge_on_neoforge_events] ServerTickEvent.Pre received",
+            "[forge_on_neoforge_events] ServerTickEvent.Post received",
+            "[forge_on_neoforge_events] LevelTickEvent.Pre on SERVER received",
+            "[forge_on_neoforge_events] LevelTickEvent.Post on SERVER received",
+            "All 1 required tests passed",
+            worldsSavedLine,
+            "[forge_on_neoforge_events] ServerStoppingEvent received",
+            "[forge_on_neoforge_events] ServerStoppedEvent received",
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "on CLIENT received")
+    }
+    // Forge on NeoForge, link check: forge-on-neoforge-patch-member calls Entity.canUpdate(), which only MinecraftForge's
+    // patches add, on the game's class and through its own Entity subclass. It is left out (229, naming both references)
+    // before it runs, and the events mod next to it still runs with the game events.
+    scenarios.gameTest(
+        "forgeOnNeoForgeLinkCheck",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-on-neoforge-events",
+            ":test-mods:forge-on-neoforge-patch-member",
+        ),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod that calls a member only MinecraftForge's patches add is left out by the link check (PLEXUS-COMPAT-229) while another Forge mod runs, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "NeoForge hosts the game, and this MinecraftForge mod is not loaded due to: 2 Minecraft method(s) or field(s) this game version does not have (added by MinecraftForge patches absent from NeoForge, or the mod was built for another Minecraft version): com.example.forgeonneoforgepatchmember.PatchMemberEntity#canUpdate()Z, net.minecraft.world.entity.Entity#canUpdate()Z",
+            "Forge on NeoForge: 10 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
+            "[forge_on_neoforge_events] constructed",
+            "[forge_on_neoforge_events] EntityJoinLevelEvent: tagged entity joined false, untagged entity joined true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("[forge_on_neoforge_patch_member] constructed")
+    }
+    // The same mod with only a Forge mod that requires it: the link check leaves it out, the host leaves out the mod that
+    // requires it (FML would refuse it and stop the game), and with no Forge mod left NeoForge starts without Forge's API
+    // jars and passes no Forge events on.
+    scenarios.gameTest(
+        "forgeOnNeoForgeLinkCheckAlone",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-on-neoforge-patch-member",
+            ":test-mods:forge-on-neoforge-needs-patch-member",
+        ),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod that calls a member only MinecraftForge's patches add is left out by the link check (PLEXUS-COMPAT-229), the Forge mod that requires it is left out with it, and NeoForge runs the game without Forge's API jars."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 2 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "net.minecraft.world.entity.Entity#canUpdate()Z",
+            "PLEXUS-COMPAT-229 Forge mod forge_on_neoforge_needs_patch_member (",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll(
+            "[forge_on_neoforge_patch_member] constructed",
+            "[forge_on_neoforge_needs_patch_member] constructed",
+            "NeoForge game event(s) passed on to Forge mods",
+            "NeoForge's FML runs",
         )
     }
 }
@@ -2877,6 +3088,40 @@ if (minecraft == "26.2") {
             "patched the target of Plexus Mod Loader's optional rule plexus:client_title_mod_counts; that rule is off",
             "[Plexus Mod Loader] Title screen: 2 line(s) of mod counts drawn above NeoForge's branding: Plexus mods: 2 | NeoForge mods: 2",
         )
+    }
+    // Forge on NeoForge, F-N2 and F-N3 in the client (ADR-0051): with -Dplexus.forgeOnNeoForge=on, NeoForge's FML constructs
+    // the Forge mods forge-on-neoforge-hello and forge-on-neoforge-events with Forge's own FMLModContainer and passes
+    // FMLCommonSetupEvent, FMLClientSetupEvent and the game events on (the client level's ticks on the client side, the
+    // integrated server's on the server side), then the NeoForge mod neoforge-client-session plays 200 ticks in the saved
+    // world, saves, quits and stops the client.
+    clientWorldReload("forgeOnNeoForgeClient") {
+        description = "Opens the saved world in a NeoForge client with Forge mods that run on NeoForge and get Forge's lifecycle and game events (Forge on NeoForge, F-N2 and F-N3; opens a window)."
+        javaAgents.from(plexusAgentJar)
+        devModJars.from(modJars(
+            ":test-mods:neoforge-client-session",
+            ":test-mods:forge-on-neoforge-hello",
+            ":test-mods:forge-on-neoforge-events",
+        ))
+        systemProperties.add("plexus.forgeOnNeoForge=on")
+        worldName.set("plexus_forge_on_neoforge_client")
+        runDirectory.set(layout.buildDirectory.dir("plexus/forge-on-neoforge-client-$minecraft"))
+        timeoutSeconds.set(300)
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] Forge on NeoForge: ",
+            "[forge_on_neoforge_hello] constructed in module forge_on_neoforge_hello",
+            "[forge_on_neoforge_hello] FMLCommonSetupEvent received",
+            "[forge_on_neoforge_events] FMLClientSetupEvent received",
+            "[forge_on_neoforge_events] FMLLoadCompleteEvent received",
+            "[forge_on_neoforge_events] ServerStartingEvent received",
+            "[forge_on_neoforge_events] EntityJoinLevelEvent: tagged entity joined false, untagged entity joined true",
+            "[forge_on_neoforge_events] LevelTickEvent.Pre on SERVER received",
+            "[forge_on_neoforge_events] LevelTickEvent.Pre on CLIENT received",
+            "[forge_on_neoforge_events] ServerTickEvent.Pre received",
+            "joined the game",
+            "[neoforge_client_session] 200 client ticks in the world; save and quit",
+            "[neoforge_client_session] left the saved world; stopping the client",
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "FMLDedicatedServerSetupEvent received")
     }
 }
 

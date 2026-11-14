@@ -2,6 +2,7 @@ package dev.plexusmodloader.runtime.compat;
 
 import static java.lang.constant.ConstantDescs.CD_Object;
 import static java.lang.constant.ConstantDescs.CD_String;
+import static java.lang.constant.ConstantDescs.CD_boolean;
 import static java.lang.constant.ConstantDescs.CD_int;
 import static java.lang.constant.ConstantDescs.CD_void;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -215,6 +216,69 @@ class ModLinkVerifierTest {
         assertEquals(List.of(), blockingCodes(findings));
         assertTrue(findings.toString().contains("net.minecraft.world.Child#removed()V"), findings::toString);
         assertEquals(List.of("PLEXUS-COMPAT-112"), blockingCodes(verify(plain, GameSide.CLIENT, List.of(), List.of())));
+    }
+
+    /**
+     * Forge on NeoForge (ADR-0051): a Forge mod's class uses Forge's API, and Forge's API jars are among the installed
+     * jars, so it is not another loader's code path; a member only Forge's patches add, missing from this game, blocks.
+     * Without Forge's jars the same class only notes.
+     */
+    @Test
+    void withTheOtherLoadersApiInstalledItsMissingMembersBlock() throws IOException {
+        ClassDesc busGroup = ClassDesc.of("net.minecraftforge.eventbus.api.bus.BusGroup");
+        Path forgeMod = mod("forge_mod", code -> {
+            code.ldc(busGroup);
+            code.invokevirtual(CHILD, "removed", MethodTypeDesc.of(CD_void));
+        });
+        Path forgeApi = jar(
+                "eventbus.jar",
+                Map.of(
+                        "net/minecraftforge/eventbus/api/bus/BusGroup",
+                        ClassFile.of()
+                                .build(busGroup, cb -> cb.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_INTERFACE))));
+
+        assertEquals(List.of(), blockingCodes(verify(forgeMod, GameSide.CLIENT, List.of(), List.of())));
+        assertEquals(
+                List.of("PLEXUS-COMPAT-112"),
+                blockingCodes(verify(forgeMod, GameSide.CLIENT, List.of(forgeApi), List.of())));
+    }
+
+    /**
+     * A call such as {@code this.canUpdate()} in a mod's subclass of a game class names the mod's class: checked only for
+     * mods built for another loader's patch ({@link ModLinkVerifier#builtForAnotherPatch}), reported with its note.
+     */
+    @Test
+    void aMemberReachedThroughAModSubclassBlocksWhenBuiltForAnotherPatch() throws IOException {
+        ClassDesc sub = ClassDesc.of("com.example.sub.Sub");
+        byte[] bytes = ClassFile.of(ClassFile.StackMapsOption.DROP_STACK_MAPS)
+                .build(
+                        sub,
+                        cb -> cb.withSuperclass(BASE)
+                                .withMethodBody(
+                                        "updates", MethodTypeDesc.of(CD_boolean), ClassFile.ACC_PUBLIC, code -> {
+                                            code.aload(0);
+                                            code.invokevirtual(sub, "canUpdate", MethodTypeDesc.of(CD_boolean));
+                                            code.ireturn();
+                                        })
+                                .withMethodBody("ticks", MethodTypeDesc.of(CD_void), ClassFile.ACC_PUBLIC, code -> {
+                                    code.aload(0);
+                                    code.invokevirtual(sub, "tick", MethodTypeDesc.of(CD_void));
+                                    code.return_();
+                                }));
+        Path mod = jar("sub.jar", Map.of("com/example/sub/Sub", bytes));
+
+        assertEquals(List.of(), blockingCodes(verify(mod, GameSide.CLIENT, List.of(), List.of())));
+        try (ModLinkVerifier verifier =
+                new ModLinkVerifier(List.of(gameJar), getClass().getClassLoader(), GameSide.CLIENT)) {
+            verifier.builtForAnotherPatch("only the other loader's patches add them");
+            List<CompatibilityFinding> findings = verifier.verify(mod, List.of(), FABRIC_LIKE, List.of());
+            assertEquals(List.of("PLEXUS-COMPAT-112"), blockingCodes(findings));
+            String all = findings.toString();
+            // The inherited tick() resolves in the game class; only canUpdate() is missing.
+            assertTrue(
+                    all.contains("(only the other loader's patches add them): com.example.sub.Sub#canUpdate()Z"), all);
+            assertTrue(!all.contains("tick"), all);
+        }
     }
 
     /**

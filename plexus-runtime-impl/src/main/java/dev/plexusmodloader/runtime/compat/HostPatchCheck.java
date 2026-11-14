@@ -133,12 +133,7 @@ public final class HostPatchCheck {
                                 .add(found);
                     } else {
                         reasons.computeIfAbsent(candidate.jar(), key -> new ArrayList<>())
-                                .add(String.format(
-                                        Locale.ROOT,
-                                        "%s: it overrides %s, which the patch of %s made final (the vanilla one is not), and the JVM refuses to load such a class",
-                                        simpleName(found.modClass()),
-                                        found.method(),
-                                        host.hostName()));
+                                .add(finalOverrideReason(found, host.hostName()));
                     }
                 }
             }
@@ -215,6 +210,41 @@ public final class HostPatchCheck {
                 mod.containerJar(),
                 mod.nestedEntry());
         return widened.withFindings(List.of(finding));
+    }
+
+    /**
+     * The jars of {@code jars} with classes that override a method {@code host}'s patch made {@code final} while vanilla
+     * does not ({@link HostFinalOverrides}), each with one reason per such class; jars without any are absent. Unlike
+     * {@link #apply}, no method is opened: for mods that do not run through a bridge's access widenings (MinecraftForge
+     * mods on NeoForge, ADR-0051), which the JVM would refuse to load.
+     *
+     * @param hostJars the jars that hold the host's patched game and its loader's classes
+     * @param fallback where the JDK's and the libraries' classes are read from
+     * @throws java.io.UncheckedIOException when a mod jar, the host's jars, or the vanilla game jar cannot be read
+     */
+    public static Map<Path, List<String>> finalOverrides(
+            HostedLaunch host, List<Path> hostJars, ClassLoader fallback, List<Path> jars) {
+        Map<Path, List<String>> reasons = new LinkedHashMap<>();
+        try (JarClasses classes = new JarClasses(hostJars, fallback);
+                VanillaClasses vanilla = new VanillaClasses(host.vanillaGameJar())) {
+            HostFinalOverrides finals = new HostFinalOverrides(classes, vanilla::classBytes);
+            for (Path jar : jars) {
+                for (HostFinalOverrides.FinalOverride found : finals.find(jar)) {
+                    reasons.computeIfAbsent(jar, key -> new ArrayList<>())
+                            .add(finalOverrideReason(found, host.hostName()));
+                }
+            }
+        }
+        return reasons;
+    }
+
+    private static String finalOverrideReason(HostFinalOverrides.FinalOverride found, String hostName) {
+        return String.format(
+                Locale.ROOT,
+                "%s: it overrides %s, which the patch of %s made final (the vanilla one is not), and the JVM refuses to load such a class",
+                simpleName(found.modClass()),
+                found.method(),
+                hostName);
     }
 
     private static String simpleName(String internalName) {

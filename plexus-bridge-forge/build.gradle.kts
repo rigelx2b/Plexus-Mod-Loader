@@ -15,6 +15,8 @@ dependencies {
     // At run time ForgeModRequirements uses the copy in Forge's own libraries.
     testImplementation(libs.maven.artifact)
     testImplementation(libs.night.config.core)
+    // ForgeModsTomlTest parses a Forge mods.toml with NightConfig's TOML format, as FML does.
+    testImplementation(libs.night.config.toml)
     // ForgeTitleBrandingTest plans its rule against Forge's patched client classes.
     testImplementation(project(":plexus-transform-engine"))
     testImplementation(libs.asm)
@@ -79,6 +81,18 @@ dependencies {
     "neoForgeHostCompileOnly"(libs.neoforge.fml.loader) { isTransitive = false }
     "neoForgeHostCompileOnly"(variantOf(libs.neoforge.mergetool.api) { classifier("api") }) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.maven.artifact)
+    // Forge on NeoForge (ADR-0051, F-N2): FML's reader and language loader for Forge mods parse mods.toml with FML's
+    // NightConfig and construct mods with Forge's own FMLModContainer, from Forge's jars among the loader libraries.
+    "neoForgeHostCompileOnly"(libs.night.config.core)
+    "neoForgeHostCompileOnly"(libs.night.config.toml)
+    "neoForgeHostCompileOnly"(libs.asm)
+    "neoForgeHostCompileOnly"(libs.neoforge.bus) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.fmlcore) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.javafmllanguage) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.forgespi) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.eventbus) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.securemodules) { isTransitive = false }
+    "neoForgeHostCompileOnly"(variantOf(libs.forge.universal) { classifier("universal") }) { isTransitive = false }
     // NeoForgeLoaderPatchTest checks the patch against FML's own FMLLoader, and the patched class against the verifier.
     testImplementation(libs.neoforge.fml.loader) { isTransitive = false }
     testImplementation(variantOf(libs.neoforge.mergetool.api) { classifier("api") }) { isTransitive = false }
@@ -102,6 +116,31 @@ tasks.test {
     inputs.files(fml12).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("neoForgeFml12")
     jvmArgumentProviders.add(CommandLineArgumentProvider {
         listOf("-Dplexus.fml12Loader=" + fml12.singleFile.absolutePath)
+    })
+}
+// ForgeEventPairCheckTest checks the Forge on NeoForge event pairs (F-N3) against the NeoForge and Forge universal jars
+// pinned for Minecraft 26.2 and 26.3 (plexus.forgeEventJars), and that the runtime's scope check allows their Forge events.
+// One configuration per version: in one, Gradle would resolve the two releases of each module to the newer one.
+val forgeEventJars262 = configurations.create("forgeEventJars262") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val forgeEventJars263 = configurations.create("forgeEventJars263") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    forgeEventJars262(variantOf(libs.neoforge.universal) { classifier("universal") })
+    forgeEventJars262(variantOf(libs.forge.universal) { classifier("universal") })
+    forgeEventJars263(variantOf(libs.neoforge263.universal) { classifier("universal") })
+    forgeEventJars263(variantOf(libs.forge263.universal) { classifier("universal") })
+    testImplementation(project(":plexus-runtime-impl"))
+}
+tasks.test {
+    val jars = forgeEventJars262.incoming.files + forgeEventJars263.incoming.files
+    inputs.files(jars).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("forgeEventJars")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf("-Dplexus.forgeEventJars=" + jars.files.joinToString(File.pathSeparator) { it.absolutePath })
     })
 }
 // Fml4SharedMixinPatchTest checks the patch against FML 4 (NeoForge 21.1) and FML 2 (NeoForge 20.4), whose classes share

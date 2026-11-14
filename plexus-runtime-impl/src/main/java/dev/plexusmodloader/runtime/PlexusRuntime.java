@@ -11,6 +11,7 @@ import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
 import dev.plexusmodloader.compat.bridge.GameHost;
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
 import dev.plexusmodloader.compat.bridge.InjectionPointReplacement;
+import dev.plexusmodloader.compat.bridge.ModLoaderBridge;
 import dev.plexusmodloader.game.version.GameVersionAdapter;
 import dev.plexusmodloader.game.version.ModInitializationCall;
 import dev.plexusmodloader.game.version.layer.GameLayer;
@@ -32,6 +33,8 @@ import dev.plexusmodloader.runtime.compat.CrossLoaderLoadOrder;
 import dev.plexusmodloader.runtime.compat.CrossLoaderModResolver;
 import dev.plexusmodloader.runtime.compat.ForeignAccessWidenings;
 import dev.plexusmodloader.runtime.compat.ForeignModPacks;
+import dev.plexusmodloader.runtime.compat.ForgeOnNeoForgeLinks;
+import dev.plexusmodloader.runtime.compat.ForgeOnNeoForgeScope;
 import dev.plexusmodloader.runtime.compat.HostBuildMatcher;
 import dev.plexusmodloader.runtime.compat.HostPatchCheck;
 import dev.plexusmodloader.runtime.compat.ModLinkVerifier;
@@ -172,23 +175,86 @@ public final class PlexusRuntime {
         // Forge
         // mods, NeoForge through FML 11 (ADR-0026).
         List<Path> forgeJars = forgeJars(files);
-        boolean forge = !forgeJars.isEmpty()
-                || System.getProperty("plexus.forge", "auto").equals("always");
+        boolean forgeAlways = System.getProperty("plexus.forge", "auto").equals("always");
+        // Forge on NeoForge (experimental, off by default): with Forge and NeoForge mods together, NeoForge hosts the
+        // game and the Forge mods are diagnosed and left out (PLEXUS-COMPAT-229), instead of Forge hosting it (221).
+        boolean neoForgeHostsForge = !forgeAlways && forgeOnNeoForge(files, forgeJars);
+        boolean forge = (!forgeJars.isEmpty() && !neoForgeHostsForge) || forgeAlways;
         List<Path> neoForgeJars = forge ? List.of() : neoForgeJars(files);
+        // F-N2: the Forge mods that use only the Forge API NeoForge's host runs are handed to it; the others stay left
+        // out (229) with what they use beyond it.
+        ForgeOnNeoForgeScope.Split forgeOnNeoForge = neoForgeHostsForge
+                ? ForgeOnNeoForgeScope.split(onlyForgeJars(files), gameVersion)
+                : new ForgeOnNeoForgeScope.Split(List.of(), List.of());
         if (forge) {
             reportNeoForgeBesideForge(files);
         }
-        List<Path> hostJars = forge ? forgeJars : neoForgeJars;
         if (forge) {
             startup.hostStarting("Forge");
         } else if (!neoForgeJars.isEmpty()) {
             startup.hostStarting("NeoForge");
         }
         // With Plexus Mod Loader's early window, the host's FML opens none.
-        Optional<GameHost> host = forge
+        Optional<GameHost> chosenHost = forge
                 ? gameHost(configuration, gameVersion, gameArguments, files, forgeJars, foreignMods, startup.shows())
                 : neoForgeHost(
-                        configuration, gameVersion, gameArguments, files, neoForgeJars, foreignMods, startup.shows());
+                        configuration,
+                        gameVersion,
+                        gameArguments,
+                        files,
+                        neoForgeJars,
+                        forgeOnNeoForge.runnable(),
+                        foreignMods,
+                        startup.shows());
+        if (neoForgeHostsForge && chosenHost.isEmpty()) {
+            // NeoForge cannot host this game (no release for this version, -Dplexus.neoforge=off, or its files could
+            // not be prepared): MinecraftForge runs it as without the setting, so not both loaders' mods are lost.
+            LOGGER.warn(
+                    "[Plexus Mod Loader] NeoForge cannot host this game with -Dplexus.forgeOnNeoForge=on, so MinecraftForge runs the game as it does without the setting.");
+            neoForgeHostsForge = false;
+            forge = true;
+            neoForgeJars = List.of();
+            forgeOnNeoForge = new ForgeOnNeoForgeScope.Split(List.of(), List.of());
+            reportNeoForgeBesideForge(files);
+            startup.hostStarting("Forge");
+            chosenHost =
+                    gameHost(configuration, gameVersion, gameArguments, files, forgeJars, foreignMods, startup.shows());
+        }
+        if (neoForgeHostsForge) {
+            // The host leaves out the Forge mods whose mods.toml FML would refuse (logged there with why).
+            forgeOnNeoForge = forgeOnNeoForge.without(
+                    chosenHost.map(GameHost::declinedJars).orElse(List.of()), ForgeOnNeoForgeScope.DECLINED_BY_HOST);
+            // The Forge mods that call what NeoForge's game lacks (members only Forge's patches add) are left out
+            // before they run, as other loaders' mods are by the link check (ADR-0014).
+            if (!forgeOnNeoForge.runnable().isEmpty()) {
+                GameHost neoForgeHost = chosenHost.orElseThrow();
+                ModLoaderBridge forgeBridge = foreignMods.bridges().stream()
+                        .filter(bridge -> bridge.loaderName().equals("MinecraftForge"))
+                        .findFirst()
+                        .orElseThrow(
+                                () -> new IllegalStateException("Forge on NeoForge without the MinecraftForge bridge"));
+                Map<Path, List<String>> unlinked = ForgeOnNeoForgeLinks.check(
+                        neoForgeHost,
+                        hostedLaunch(neoForgeHost, configuration.gameJar()),
+                        configuration.gameJar(),
+                        configuration.side(),
+                        forgeOnNeoForge.runnable(),
+                        neoForgeJars,
+                        forgeBridge,
+                        PlexusRuntime.class.getClassLoader());
+                // A Forge mod that requires one left out is left out too (the host checks its mods.toml again).
+                Map<Path, List<String>> leftOut = new LinkedHashMap<>(unlinked);
+                leftOut.putAll(neoForgeHost.leaveOutForgeMods(List.copyOf(unlinked.keySet())));
+                forgeOnNeoForge = forgeOnNeoForge.without(leftOut);
+            }
+            reportForgeBesideNeoForge(forgeOnNeoForge);
+        }
+        boolean forgeModsBesideNeoForge = neoForgeHostsForge;
+        Map<Path, List<String>> forgeLeftOut = new HashMap<>();
+        forgeOnNeoForge.leftOut().forEach(left -> forgeLeftOut.put(left.jar(), left.unsupported()));
+        Optional<GameHost> host = chosenHost;
+        List<Path> hostJars = new ArrayList<>(forge ? forgeJars : neoForgeJars);
+        hostJars.addAll(forgeOnNeoForge.runnable());
         List<ForeignModResolver.ForeignMod> assessedForeignMods = new ArrayList<>();
         List<StartupReport.ForeignMod> foreignReport = new ArrayList<>();
         for (DiscoveredModFile file : files) {
@@ -249,6 +315,10 @@ public final class PlexusRuntime {
                 continue;
             }
             Optional<ForeignModResolver.ForeignMod> foreign = foreignMods.assess(file, configuration.side());
+            if (forgeModsBesideNeoForge && file.kind() == ModFileKind.FORGE) {
+                List<String> unsupported = forgeLeftOut.getOrDefault(file.path(), List.of());
+                foreign = foreign.map(mod -> mod.withFindings(List.of(forgeOnNeoForgeFinding(unsupported))));
+            }
             if (foreign.isEmpty()) {
                 blockedFiles.add(new StartupReport.BlockedFile(
                         file.path().getFileName().toString(), file.kind().name(), "Blocked", "PLEXUS-COMPAT-001"));
@@ -1130,6 +1200,7 @@ public final class PlexusRuntime {
             String[] gameArguments,
             List<DiscoveredModFile> files,
             List<Path> neoForgeJars,
+            List<Path> forgeModJars,
             ForeignModResolver foreignMods,
             boolean plexusEarlyWindow) {
         if (System.getProperty("plexus.neoforge", "on").equals("off")
@@ -1151,7 +1222,8 @@ public final class PlexusRuntime {
                 fabricMods > 0,
                 configuration.systemClassPath(),
                 configuration.jdkModuleAccess(),
-                plexusEarlyWindow);
+                plexusEarlyWindow,
+                forgeModJars);
         for (dev.plexusmodloader.compat.bridge.ModLoaderBridge bridge : foreignMods.bridges()) {
             if (!bridge.metadataPath().equals(ModFileKind.NEOFORGE.metadataPath())) {
                 continue;
@@ -1465,6 +1537,60 @@ public final class PlexusRuntime {
     static boolean onlyFabric(DiscoveredModFile file) {
         return (file.kind() == ModFileKind.FABRIC || file.kind() == ModFileKind.QUILT)
                 && !file.isFor(ModFileKind.FORGE);
+    }
+
+    /**
+     * Whether Forge on NeoForge is asked for ({@code -Dplexus.forgeOnNeoForge=on}, experimental, off by default) and
+     * applies: there are Forge mods ({@code forgeJars}) and NeoForge mods together. NeoForge then hosts the game and the
+     * Forge mods are left out with {@code PLEXUS-COMPAT-229} ({@code docs/plans/FORGE_ON_NEOFORGE.md}, F-N1).
+     */
+    static boolean forgeOnNeoForge(List<DiscoveredModFile> files, List<Path> forgeJars) {
+        return System.getProperty("plexus.forgeOnNeoForge", "off").equals("on")
+                && !forgeJars.isEmpty()
+                && files.stream().anyMatch(file -> file.kind() == ModFileKind.NEOFORGE);
+    }
+
+    /**
+     * The finding each Forge mod left out gets when NeoForge hosts the game ({@link #forgeOnNeoForge}): with what it uses
+     * beyond the Forge API NeoForge's host runs ({@link ForgeOnNeoForgeScope}, F-N2).
+     */
+    static CompatibilityFinding forgeOnNeoForgeFinding(List<String> unsupported) {
+        return new CompatibilityFinding(
+                "PLEXUS-COMPAT-229",
+                true,
+                "Forge on NeoForge",
+                "NeoForge hosts the game, and this MinecraftForge mod is not loaded due to: "
+                        + String.join(", ", unsupported));
+    }
+
+    /** The jars with only Forge's metadata ({@link ModFileKind#FORGE}, not built for NeoForge too). */
+    static List<Path> onlyForgeJars(List<DiscoveredModFile> files) {
+        return files.stream()
+                .filter(file -> file.kind() == ModFileKind.FORGE && !file.isFor(ModFileKind.NEOFORGE))
+                .map(DiscoveredModFile::path)
+                .toList();
+    }
+
+    /** With Forge on NeoForge ({@link #forgeOnNeoForge}): one line about the Forge mods it runs, one about those left out. */
+    private static void reportForgeBesideNeoForge(ForgeOnNeoForgeScope.Split split) {
+        if (!split.runnable().isEmpty()) {
+            LOGGER.info(
+                    "[Plexus Mod Loader] Forge on NeoForge: NeoForge's FML runs {} MinecraftForge mod file(s) with Forge's own mod container (experimental, F-N2): {}",
+                    split.runnable().size(),
+                    split.runnable().stream()
+                            .map(jar -> jar.getFileName().toString())
+                            .toList());
+        }
+        if (split.leftOut().isEmpty()) {
+            return;
+        }
+        LOGGER.warn(
+                "[Plexus Mod Loader] PLEXUS-COMPAT-229 {} Forge mod file(s) are NOT loaded: NeoForge hosts the game and "
+                        + "these MinecraftForge mods use Forge API or Forge-patched Minecraft members that do not run on NeoForge yet. Remove -Dplexus.forgeOnNeoForge=on to let MinecraftForge run them, but then the NeoForge mods are left out: {}",
+                split.leftOut().size(),
+                split.leftOut().stream()
+                        .map(left -> left.jar().getFileName().toString())
+                        .toList());
     }
 
     /**

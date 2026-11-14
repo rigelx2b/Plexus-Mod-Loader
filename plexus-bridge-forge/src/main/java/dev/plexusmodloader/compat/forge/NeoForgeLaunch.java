@@ -43,6 +43,8 @@ public interface NeoForgeLaunch {
      *     Mod Loader's patch of it applied (ADR-0025)
      * @param sharedMixin whether Fabric's Mixin serves NeoForge's mods too ({@code NeoForgeSharedMixinPatch}): FML does
      *     not start its own, and the game layer leaves out the MixinExtras that Plexus Mod Loader's class path has
+     * @param forgeModJars the MinecraftForge mods among {@code modJars} (Forge on NeoForge, ADR-0051): FML reads them
+     *     through the host's reader of Forge's {@code mods.toml} and constructs them with Forge's own mod container
      */
     record Request(
             String dist,
@@ -59,11 +61,13 @@ public interface NeoForgeLaunch {
             Consumer<Set<Module>> openJdk,
             ForeignModIndex otherMods,
             boolean sharedMixin,
-            Consumer<String> log) {
+            Consumer<String> log,
+            List<Path> forgeModJars) {
         public Request {
             programArguments = List.copyOf(programArguments);
             claimedFiles = Set.copyOf(claimedFiles);
             modJars = List.copyOf(modJars);
+            forgeModJars = List.copyOf(forgeModJars);
             Objects.requireNonNull(libraryLayer, "libraryLayer");
             Objects.requireNonNull(gameClassLoader, "gameClassLoader");
             Objects.requireNonNull(openJdk, "openJdk");

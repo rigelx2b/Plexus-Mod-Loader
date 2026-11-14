@@ -290,4 +290,31 @@ class HostPatchCheckTest {
                         && finding.detail().contains("MinecraftForge 1.20.1-47.4.28"),
                 finding.detail());
     }
+
+    /**
+     * For mods that do not run through a bridge (MinecraftForge mods on NeoForge, ADR-0051): the same override is a
+     * reason, and no method is opened; a jar without such a class has none.
+     */
+    @Test
+    void finalOverridesNamesTheClassOverridingAMethodTheHostMadeFinal() throws Exception {
+        overridingMod(List.of(), new QuietBridge());
+        Path other = jar(
+                "plain.jar",
+                "mod/Plain",
+                ClassFile.of().build(ClassDesc.of("mod.Plain"), builder -> builder.withFlags(ClassFile.ACC_PUBLIC)));
+
+        Map<Path, List<String>> reasons = HostPatchCheck.finalOverrides(
+                new HostedLaunch("NeoForge 26.2.0.93", List.of(), List.of(), directory.resolve("vanilla-game.jar")),
+                List.of(directory.resolve("patched-game.jar")),
+                HostPatchCheckTest.class.getClassLoader(),
+                List.of(directory.resolve("recipes.jar"), other));
+
+        assertEquals(List.of(directory.resolve("recipes.jar")), List.copyOf(reasons.keySet()));
+        String reason = reasons.get(directory.resolve("recipes.jar")).getFirst();
+        assertTrue(
+                reason.contains("CustomIngredientImpl")
+                        && reason.contains(TO_NETWORK.toString())
+                        && reason.contains("NeoForge 26.2.0.93"),
+                reason);
+    }
 }

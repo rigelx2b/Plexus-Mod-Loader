@@ -232,6 +232,28 @@ public final class PlexusFml implements NeoForgeLaunch {
         return new PlexusModsLocator(current.modJars());
     }
 
+    /** Writes {@code line} to the launch's log; nothing before the launch started. */
+    static void log(String line) {
+        Request current = request;
+        if (current != null) {
+            current.log().accept(line);
+        }
+    }
+
+    /**
+     * Whether {@code jar} is a MinecraftForge mod Plexus Mod Loader handed to FML (Forge on NeoForge, ADR-0051): {@link
+     * ForgeModsTomlReader} reads only these, so that no other jar's {@code mods.toml} is taken for a Forge mod.
+     */
+    static boolean isForgeMod(Path jar) {
+        Request current = request;
+        if (current == null) {
+            return false;
+        }
+        Path path = jar.toAbsolutePath().normalize();
+        return current.forgeModJars().stream()
+                .anyMatch(forge -> forge.toAbsolutePath().normalize().equals(path));
+    }
+
     private static void set(FMLLoader loader, String name, Object value) throws ReflectiveOperationException {
         Field field = FMLLoader.class.getDeclaredField(name);
         field.setAccessible(true);

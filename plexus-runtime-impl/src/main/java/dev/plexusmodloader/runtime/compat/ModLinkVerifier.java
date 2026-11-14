@@ -132,6 +132,12 @@ public final class ModLinkVerifier implements AutoCloseable {
     private final Map<String, JarFile> hostClasses = new HashMap<>();
     private final Set<String> hostPackages = new HashSet<>();
 
+    /** Why a Minecraft class or member is missing, in the findings ({@link #builtForAnotherPatch}). */
+    private String missingGameNote = "the mod was built for another version";
+
+    /** Whether members reached through a mod class that extends a game class are checked ({@link #builtForAnotherPatch}). */
+    private boolean inheritedGameMembers;
+
     /**
      * @param gameJarPaths the Minecraft jar (and any jar with game classes) of this launch
      * @param platform the class loader with the JDK, the game's libraries and Plexus Mod Loader's own classes
@@ -255,6 +261,18 @@ public final class ModLinkVerifier implements AutoCloseable {
             throw new UncheckedIOException("Cannot read the host loader's jars for link checks", e);
         }
         shapes.clear();
+    }
+
+    /**
+     * Checks the mods as built for another loader's patch of this game version (Forge on NeoForge, ADR-0051): such a mod
+     * calls members that loader's patches add to Minecraft classes, which this game may not have. A missing Minecraft
+     * class or member is reported with {@code note} in place of "the mod was built for another version", and a member a
+     * mod class reaches through its own superclasses is checked too: a call such as {@code this.canUpdate()} in a mod's
+     * entity names the mod's class, not the game's, and is otherwise not checked. Call before {@link #verify}.
+     */
+    public void builtForAnotherPatch(String note) {
+        this.missingGameNote = note;
+        this.inheritedGameMembers = true;
     }
 
     /** Whether {@code className} is in a package the host loader's own classes hold ({@link #hostLoaderJars}). */
@@ -419,6 +437,23 @@ public final class ModLinkVerifier implements AutoCloseable {
                                         + member.name().stringValue()
                                         + member.type().stringValue());
                     }
+                    if (inheritedGameMembers
+                            && owner != null
+                            && modClasses.contains(owner)
+                            && !hostClasses.containsKey(owner)
+                            && extendsGameClass(owner)
+                            && !hasMember(
+                                    owner,
+                                    member.name().stringValue(),
+                                    member.type().stringValue(),
+                                    member instanceof FieldRefEntry)) {
+                        // A member of the game class the mod's class extends, missing from this game.
+                        problems.computeIfAbsent("PLEXUS-COMPAT-112|member", key -> new TreeSet<>())
+                                .add(owner.replace('/', '.')
+                                        + (member instanceof FieldRefEntry ? "." : "#")
+                                        + member.name().stringValue()
+                                        + member.type().stringValue());
+                    }
                     if (owner != null && gameClasses.containsKey(owner) && !modClasses.contains(owner)) {
                         boolean field = member instanceof FieldRefEntry;
                         String name = member.name().stringValue();
@@ -447,6 +482,23 @@ public final class ModLinkVerifier implements AutoCloseable {
             problems.computeIfAbsent("PLEXUS-COMPAT-118|classfile", key -> new TreeSet<>())
                     .add(className + " (" + e.getMessage() + ")");
         }
+    }
+
+    /** Whether a superclass of the mod class {@code className} is a game class. */
+    private boolean extendsGameClass(String className) {
+        Set<String> visited = new HashSet<>();
+        Optional<ClassShape> shape = shape(className);
+        while (shape.isPresent() && shape.get().superclass().isPresent()) {
+            String superclass = shape.get().superclass().get();
+            if (gameClasses.containsKey(superclass)) {
+                return true;
+            }
+            if (!visited.add(superclass)) {
+                return false;
+            }
+            shape = shape(superclass);
+        }
+        return false;
     }
 
     /** Whether {@code model} uses a class of {@link #OTHER_LOADER_PACKAGES} that nothing installed has. */
@@ -519,7 +571,7 @@ public final class ModLinkVerifier implements AutoCloseable {
         }
     }
 
-    private static List<CompatibilityFinding> findings(Map<String, Set<String>> problems) {
+    private List<CompatibilityFinding> findings(Map<String, Set<String>> problems) {
         List<CompatibilityFinding> findings = new ArrayList<>();
         for (Map.Entry<String, Set<String>> problem : problems.entrySet()) {
             String[] key = problem.getKey().split("\\|");
@@ -539,11 +591,11 @@ public final class ModLinkVerifier implements AutoCloseable {
                     items.size() + " class(es) of the loader's runtime that Plexus Mod Loader does not" + " provide: "
                             + examples;
                 case "class" ->
-                    items.size() + " Minecraft class(es) this game version does not have (the mod"
-                            + " was built for another version): " + examples;
+                    items.size() + " Minecraft class(es) this game version does not have (" + missingGameNote + "): "
+                            + examples;
                 case "member" ->
-                    items.size() + " Minecraft method(s) or field(s) this game version does not"
-                            + " have (the mod was built for another version): " + examples;
+                    items.size() + " Minecraft method(s) or field(s) this game version does not" + " have ("
+                            + missingGameNote + "): " + examples;
                 case "optional-member" ->
                     items.size() + " Minecraft method(s) or field(s) whose types no installed jar has, usually another"
                             + " loader's code path; fine if it never runs: " + examples;

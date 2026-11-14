@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.2.0 — 2026-11-14
+
+### Summary
+
+Plexus Mod Loader 2.2.0 adds experimental, opt-in Forge on NeoForge support (`-Dplexus.forgeOnNeoForge=on`, off by default) so NeoForge can host the game and run eligible MinecraftForge mods alongside NeoForge mods on Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3, and extends `ModLinkVerifier` to inspect member references through mod subclasses of game classes.
+
+### What's New
+
+- Add experimental "Forge on NeoForge" support (`ADR-0051`), off by default and enabled with the JVM property `-Dplexus.forgeOnNeoForge=on`: when both MinecraftForge and NeoForge mods are installed on Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3, NeoForge hosts the game and runs in-scope MinecraftForge mods inside it instead of letting MinecraftForge host and omitting NeoForge mods with `PLEXUS-COMPAT-221` (which remains the unchanged default behavior when the property is omitted).
+- Download Forge's own API jars (`eventbus`, `forgespi`, `fmlcore`, `javafmllanguage`, `securemodules`, `unsafe`, and the Forge universal jar) on the player's PC from Forge's pinned installer libraries, verify them with SHA-1, and load them as NeoForge loader libraries without copying any Forge code into Plexus Mod Loader.
+- Run `@Mod` constructors for in-scope Forge-only mods (Java `@Mod` classes using the `javafml` language loader without Mixin configurations, access transformers, coremods, or disallowed Forge APIs), and pass on 4 NeoForge-bridged Forge mod lifecycle events (`FMLCommonSetupEvent`, `FMLClientSetupEvent` or `FMLDedicatedServerSetupEvent`, and `FMLLoadCompleteEvent`) and 10 NeoForge game events bridged to Forge's event buses (server tick Pre/Post, level tick Pre/Post, `RegisterCommandsEvent`, `ServerStartingEvent`, `ServerStartedEvent`, `ServerStoppingEvent`, `ServerStoppedEvent`, and `EntityJoinLevelEvent` including cancellation).
+- Fall back to MinecraftForge hosting the game as before with one log line when NeoForge cannot host (such as on Minecraft 1.20.1 where no NeoForge release exists, when `-Dplexus.neoforge=off` is set, or when NeoForge files cannot be prepared), with `-Dplexus.forge=always` overriding `-Dplexus.forgeOnNeoForge=on`.
+
+### Improvements & Fixes
+
+- Check all NeoForge-to-Forge event pairs against the launched release's actual NeoForge and Forge jars before startup via `ForgeEventPairCheck`, omitting every Forge mod with blocking finding `PLEXUS-COMPAT-229` if any pair does not hold, and omit out-of-scope Forge mods before game start with `PLEXUS-COMPAT-229` naming what the mod uses beyond the allowed Forge API.
+- Link-check handed-over Forge mods against NeoForge's patched game before start—like Fabric and Quilt mods—so any Forge mod calling Minecraft members added only by MinecraftForge's patches (e.g. `Entity.canUpdate()`), including members reached through the mod's own subclasses of game classes, or overriding methods made final by NeoForge's patch is omitted with `PLEXUS-COMPAT-229` instead of crashing during play while NeoForge mods continue running, and repeat the omission check until no Forge mod requiring an omitted Forge mod remains so FML no longer stops the whole game over a missing dependency.
+- Add a new mode to the shared link checker (`ModLinkVerifier`), used only by the Forge on NeoForge check, that also inspects members called on a mod's own classes extending game classes, leaving Fabric and Quilt link check results unchanged (Minecraft 26.2 `compatibilityMatrix` unchanged).
+- Validate the release on Java 25 and Windows 11 with `check` (3 s; `:plexus-bridge-forge:test` and `:plexus-runtime-impl:test` rerun without cache in 26 s), `build-logic` `check` (11 s), the headless test suite across all 9 supported Minecraft versions (`1.20.1` in 168 s, `1.20.4` in 142 s, `1.21.1` in 120 s, `1.21.11` in 142 s, `26.1` in 311 s, `26.1.1` in 170 s, `26.1.2` in 159 s, `26.2` in 168 s, `26.3` in 155 s), `compatibilityCorpus` across all 9 versions (`1.20.1` in 442 s, `1.20.4` in 232 s, `1.21.1` in 244 s, `1.21.11` in 273 s, `26.1` in 632 s, `26.1.1` in 678 s, `26.1.2` in 616 s, `26.2` in 931 s, `26.3` in 874 s), the Forge on NeoForge scenario tasks across all 5 `26.x` versions (`26.1` in 159 s, `26.1.1` in 190 s, `26.1.2` in 1740 s, `26.2` in 292 s, `26.3` in 159 s), and all 34 sequential client window tasks spaced 20 s apart passing on the first run (`exit=0`), including `forgeOnNeoForgeClient` on `26.2` (77 s).
+
+### Known Limitations
+
+- Forge on NeoForge is experimental and off by default; it has only been verified with test mods, and no real corpus Forge mods have been run yet.
+- Only 10 game events and 4 lifecycle events are passed on; player events (`PlayerEvent$PlayerLoggedInEvent`), client tick and render events, `RegisterKeyMappingsEvent` and other client mod bus events, `BlockEvent$BreakEvent`, `AddReloadListenerEvent`, network payload events, registry events, and all other Forge events are not bridged, nor are `enqueueWork`, registries, config, networking, client rendering, Mixin, access transformers, coremods, or `@Mod.EventBusSubscriber`; mods that need them are left out with `PLEXUS-COMPAT-229`.
+- Forge listener priorities order Forge listeners only; all bridged Forge listeners run inside one NeoForge listener at normal priority.
+- Client window execution for Forge on NeoForge is verified on Minecraft 26.2 only; on dedicated servers, runs were checked up to the EULA check (Forge mods are discovered and listed, while mod construction happens after EULA).
+- Fabric or Quilt mods in the same game as Forge on NeoForge are not supported yet.
+- Forge mods are not counted in Plexus Mod Loader's own mod list, other loaders' mods cannot depend on them, and Forge's `ModList` and `ModLoadingContext.get()` are not set up.
+- The link check inspects constant-pool references only: overrides of Forge extension methods (which NeoForge never calls) and members with the same name and descriptor but a different meaning on NeoForge are not detected.
+- Client mod initialization stays at Minecraft's initialization point when using Fabric API's own build beside NeoForge 21.1 (`KeyBindingRegistryImpl.registerKeyBinding` throws `"GameOptions has already been initialised"`).
+- Quilt Standard Libraries (QSL) remains omitted from Minecraft 1.20.1 Quilt corpus runs and beside Forge or NeoForge in corpus runs.
+- Quilt Loader 0.31.0 final is not released; bundled `0.31.0-beta.4` rejects mods requiring `quilt_loader >=0.31.0`.
+- Manual verification checklists (`MANUAL_QA_CHECKLIST`) and installer window validation require a human operator.
+
 ## 2.1.10 — 2026-11-14
 
 ### Summary
