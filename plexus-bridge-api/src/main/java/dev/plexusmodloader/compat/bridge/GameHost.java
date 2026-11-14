@@ -7,6 +7,7 @@ import dev.plexusmodloader.internal.transform.MethodTarget;
 import dev.plexusmodloader.internal.transform.TransformRuleDefinition;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -40,6 +41,8 @@ public interface GameHost {
      *     its Java agent (ADR-0026)
      * @param plexusEarlyWindow whether Plexus Mod Loader shows its own early loading window over this launch: the host's
      *     loader then opens none (FML's early window stays closed), so that every loader starts with the same window
+     * @param forgeModJars MinecraftForge mod jars a NeoForge host runs besides its own mods (Forge on NeoForge, ADR-0051,
+     *     experimental): the runtime gives only those whose Forge API the host supports; empty for every other host
      */
     record Request(
             GameSide side,
@@ -53,11 +56,43 @@ public interface GameHost {
             boolean sharedMixin,
             Optional<SystemClassPath> systemClassPath,
             Optional<JdkModuleAccess> jdkModuleAccess,
-            boolean plexusEarlyWindow) {
+            boolean plexusEarlyWindow,
+            List<Path> forgeModJars) {
         public Request {
             gameArguments = List.copyOf(gameArguments);
             Objects.requireNonNull(systemClassPath, "systemClassPath");
             Objects.requireNonNull(jdkModuleAccess, "jdkModuleAccess");
+            forgeModJars = List.copyOf(forgeModJars);
+        }
+
+        /** A launch without MinecraftForge mods for a NeoForge host. */
+        public Request(
+                GameSide side,
+                String launchTarget,
+                String gameVersion,
+                Path vanillaGameJar,
+                Path gameDirectory,
+                Path cacheDirectory,
+                List<String> gameArguments,
+                Consumer<String> log,
+                boolean sharedMixin,
+                Optional<SystemClassPath> systemClassPath,
+                Optional<JdkModuleAccess> jdkModuleAccess,
+                boolean plexusEarlyWindow) {
+            this(
+                    side,
+                    launchTarget,
+                    gameVersion,
+                    vanillaGameJar,
+                    gameDirectory,
+                    cacheDirectory,
+                    gameArguments,
+                    log,
+                    sharedMixin,
+                    systemClassPath,
+                    jdkModuleAccess,
+                    plexusEarlyWindow,
+                    List.of());
         }
 
         /** A launch without Plexus Mod Loader's early loading window: the host's loader opens its own. */
@@ -263,6 +298,23 @@ public interface GameHost {
      */
     default List<String> leftOutMods() {
         return List.of();
+    }
+
+    /**
+     * Leaves out {@code jars}, MinecraftForge mods of {@link Request#forgeModJars()} that the runtime found cannot run on
+     * this host (Forge on NeoForge, ADR-0051, a link check against the host's game), once, before {@link #prepare}: the
+     * host does not hand them to its loader. The runtime reports them.
+     *
+     * @return the other handed-over Forge mods the host leaves out because of them (a mod that requires one of {@code
+     *     jars}, which its loader would refuse), each with why; the runtime reports these too
+     * @throws UnsupportedOperationException when {@code jars} is not empty and this host does not run Forge mods, so that
+     *     no mod reported as left out runs
+     */
+    default Map<Path, List<String>> leaveOutForgeMods(List<Path> jars) {
+        if (!jars.isEmpty()) {
+            throw new UnsupportedOperationException(name() + " does not run MinecraftForge mods to leave out: " + jars);
+        }
+        return Map.of();
     }
 
     /**

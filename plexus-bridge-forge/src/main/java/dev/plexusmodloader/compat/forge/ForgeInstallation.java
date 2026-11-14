@@ -132,60 +132,7 @@ final class ForgeInstallation {
             JsonObject version = json(jar, "version.json");
             fileSystemJars = fileSystemJars(version, directory.resolve("libraries"));
             fmlArguments = fmlArguments(version);
-            for (JsonElement element : version.getAsJsonArray("libraries")) {
-                JsonObject library = element.getAsJsonObject();
-                String name = library.get("name").getAsString();
-                if (name.startsWith("net.minecraftforge:forge:")
-                        && (name.endsWith(":client") || name.endsWith(":server"))) {
-                    // The patched game jar, which Plexus Mod Loader builds itself below.
-                    continue;
-                }
-                JsonObject artifact = library.getAsJsonObject("downloads").getAsJsonObject("artifact");
-                String path = artifact.get("path").getAsString();
-                String sha1 = artifact.get("sha1").getAsString();
-                String url = artifact.has("url") ? artifact.get("url").getAsString() : "";
-                Path target = directory.resolve("libraries").resolve(path).normalize();
-                if (!target.startsWith(directory.resolve("libraries"))) {
-                    throw new IOException("Forge library path " + path + " leaves the libraries folder");
-                }
-                ZipEntry bundled = jar.getEntry("maven/" + path);
-                if (url.isEmpty() && bundled == null) {
-                    throw new IOException("Forge's installer names " + name + " but has neither a URL nor a copy");
-                }
-                ensure(
-                        target,
-                        sha1,
-                        bundled != null
-                                ? file -> copy(jar, bundled, file)
-                                : file -> downloader.download(URI.create(url), file),
-                        log);
-                libraries.add(target);
-            }
-            // Forge 47 (Minecraft 1.20.1) lists FML's own jars and the universal jar only in install_profile.json,
-            // bundled in
-            // the installer; later builds list them in version.json too (added above).
-            JsonObject installProfile = json(jar, "install_profile.json");
-            if (installProfile.has("libraries")) {
-                for (JsonElement element : installProfile.getAsJsonArray("libraries")) {
-                    JsonObject library = element.getAsJsonObject();
-                    String name = library.get("name").getAsString();
-                    if (!name.startsWith("net.minecraftforge:") || !library.has("downloads")) {
-                        continue;
-                    }
-                    JsonObject artifact = library.getAsJsonObject("downloads").getAsJsonObject("artifact");
-                    String path = artifact.get("path").getAsString();
-                    ZipEntry bundled = jar.getEntry("maven/" + path);
-                    Path target = directory.resolve("libraries").resolve(path).normalize();
-                    if (bundled == null || libraries.contains(target)) {
-                        continue;
-                    }
-                    if (!target.startsWith(directory.resolve("libraries"))) {
-                        throw new IOException("Forge library path " + path + " leaves the libraries folder");
-                    }
-                    ensure(target, artifact.get("sha1").getAsString(), file -> copy(jar, bundled, file), log);
-                    libraries.add(target);
-                }
-            }
+            libraries.addAll(libraries(jar, version, directory, downloader, log));
 
             ZipEntry patches = jar.getEntry("data/" + sideName + ".lzma");
             if (patches == null) {
@@ -237,6 +184,85 @@ final class ForgeInstallation {
         }
         Path game = translated(translator, patched, renamed.resolve(patched.getFileName()), namesKey, log);
         return new Prepared(release, directory, game, List.copyOf(translated), fileSystemJars, srgNames, fmlArguments);
+    }
+
+    /**
+     * Forge's runtime libraries without the patched game jar: those {@code version.json} lists and, for Forge 47, FML's own
+     * jars that only {@code install_profile.json} names, each checked against its SHA-1. Forge on NeoForge (ADR-0051)
+     * takes Forge's API jars from these.
+     *
+     * @throws IOException when a download fails or a file does not have the expected SHA-1
+     */
+    static List<Path> runtimeLibraries(Release release, Path cacheRoot, Downloader downloader, Consumer<String> log)
+            throws IOException {
+        Path directory = cacheRoot.resolve(release.forgeVersion());
+        Files.createDirectories(directory);
+        Path installer = directory.resolve("forge-" + release.forgeVersion() + "-installer.jar");
+        ensure(installer, release.installerSha1(), file -> downloader.download(release.installerUri(), file), log);
+        try (JarFile jar = new JarFile(installer.toFile())) {
+            return libraries(jar, json(jar, "version.json"), directory, downloader, log);
+        }
+    }
+
+    private static List<Path> libraries(
+            JarFile jar, JsonObject version, Path directory, Downloader downloader, Consumer<String> log)
+            throws IOException {
+        List<Path> libraries = new ArrayList<>();
+        for (JsonElement element : version.getAsJsonArray("libraries")) {
+            JsonObject library = element.getAsJsonObject();
+            String name = library.get("name").getAsString();
+            if (name.startsWith("net.minecraftforge:forge:")
+                    && (name.endsWith(":client") || name.endsWith(":server"))) {
+                // The patched game jar, which prepare builds itself.
+                continue;
+            }
+            JsonObject artifact = library.getAsJsonObject("downloads").getAsJsonObject("artifact");
+            String path = artifact.get("path").getAsString();
+            String sha1 = artifact.get("sha1").getAsString();
+            String url = artifact.has("url") ? artifact.get("url").getAsString() : "";
+            Path target = directory.resolve("libraries").resolve(path).normalize();
+            if (!target.startsWith(directory.resolve("libraries"))) {
+                throw new IOException("Forge library path " + path + " leaves the libraries folder");
+            }
+            ZipEntry bundled = jar.getEntry("maven/" + path);
+            if (url.isEmpty() && bundled == null) {
+                throw new IOException("Forge's installer names " + name + " but has neither a URL nor a copy");
+            }
+            ensure(
+                    target,
+                    sha1,
+                    bundled != null
+                            ? file -> copy(jar, bundled, file)
+                            : file -> downloader.download(URI.create(url), file),
+                    log);
+            libraries.add(target);
+        }
+        // Forge 47 (Minecraft 1.20.1) lists FML's own jars and the universal jar only in install_profile.json,
+        // bundled in
+        // the installer; later builds list them in version.json too (added above).
+        JsonObject installProfile = json(jar, "install_profile.json");
+        if (installProfile.has("libraries")) {
+            for (JsonElement element : installProfile.getAsJsonArray("libraries")) {
+                JsonObject library = element.getAsJsonObject();
+                String name = library.get("name").getAsString();
+                if (!name.startsWith("net.minecraftforge:") || !library.has("downloads")) {
+                    continue;
+                }
+                JsonObject artifact = library.getAsJsonObject("downloads").getAsJsonObject("artifact");
+                String path = artifact.get("path").getAsString();
+                ZipEntry bundled = jar.getEntry("maven/" + path);
+                Path target = directory.resolve("libraries").resolve(path).normalize();
+                if (bundled == null || libraries.contains(target)) {
+                    continue;
+                }
+                if (!target.startsWith(directory.resolve("libraries"))) {
+                    throw new IOException("Forge library path " + path + " leaves the libraries folder");
+                }
+                ensure(target, artifact.get("sha1").getAsString(), file -> copy(jar, bundled, file), log);
+                libraries.add(target);
+            }
+        }
+        return libraries;
     }
 
     /**

@@ -28,6 +28,14 @@ public final class NeoForgeBridge extends FmlModsTomlBridge {
         Optional<NeoForgeInstallation.Release> release = NeoForgeInstallation.release(request.gameVersion());
         if (release.isPresent()
                 && NeoForgeFml4GameHost.runsOnModLauncher(release.get().neoForgeVersion())) {
+            if (!request.forgeModJars().isEmpty()) {
+                // Forge on NeoForge (ADR-0051) needs FML 10 or later: on ModLauncher, Forge's and NeoForge's
+                // ModLauncher
+                // cannot share one game (docs/plans/FORGE_ON_NEOFORGE.md, F-N2 pre-checks).
+                throw new IOException(
+                        "MinecraftForge mods do not run on NeoForge releases that start on ModLauncher (NeoForge 21.1 and 20.4) because Forge's ModLauncher and NeoForge's cannot share one game: NeoForge "
+                                + release.get().neoForgeVersion());
+            }
             return Optional.of(NeoForgeFml4GameHost.create(request, release.get(), modJars));
         }
         return Optional.of(NeoForgeGameHost.create(request, modJars));

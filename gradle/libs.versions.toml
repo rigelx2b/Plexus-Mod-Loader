@@ -137,6 +137,7 @@ forge-roimfs = { module = "net.minecraftforge:roimfs", version.ref = "forgeRoimf
 forge-mergetool-api = { module = "net.minecraftforge:mergetool-api", version.ref = "forgeMergetoolApi" }
 maven-artifact = { module = "org.apache.maven:maven-artifact", version.ref = "mavenArtifact" }
 night-config-core = { module = "com.electronwill.night-config:core", version.ref = "nightConfig" }
+night-config-toml = { module = "com.electronwill.night-config:toml", version.ref = "nightConfig" }
 forge47-fmlloader = { module = "net.minecraftforge:fmlloader", version.ref = "forge47Fml" }
 forge47-modlauncher = { module = "cpw.mods:modlauncher", version.ref = "forge47Modlauncher" }
 forge47-securejarhandler = { module = "cpw.mods:securejarhandler", version.ref = "forge47Securejarhandler" }

@@ -28,6 +28,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,10 +61,16 @@ final class NeoForgeGameHost implements GameHost {
 
     private final GameHost.Request request;
     private final NeoForgeInstallation.Prepared files;
-    private final List<Path> modules;
+    private List<Path> modules;
     private final List<Path> onClassPath;
     private final Path hostJar;
-    private final List<Path> modJars;
+    private List<Path> modJars;
+    private List<Path> forgeModJars;
+    /** Forge's API jars among {@link #modules} (ADR-0051), dropped when no Forge mod is left. */
+    private final List<Path> forgeLibraries;
+    /** The Forge release whose API the Forge mods get, without the Minecraft version ({@code 65.1.5}). */
+    private final String forgeVersion;
+
     private final List<BridgeLaunchContext.LoadedMod> hostMods;
     private final List<String> leftOutMods;
     private final List<Path> declined;
@@ -77,6 +84,9 @@ final class NeoForgeGameHost implements GameHost {
             List<Path> onClassPath,
             Path hostJar,
             List<Path> modJars,
+            List<Path> forgeModJars,
+            List<Path> forgeLibraries,
+            String forgeVersion,
             List<BridgeLaunchContext.LoadedMod> hostMods,
             List<Path> declined,
             List<String> leftOutMods) {
@@ -86,6 +96,9 @@ final class NeoForgeGameHost implements GameHost {
         this.onClassPath = List.copyOf(onClassPath);
         this.hostJar = hostJar;
         this.modJars = List.copyOf(modJars);
+        this.forgeModJars = List.copyOf(forgeModJars);
+        this.forgeLibraries = List.copyOf(forgeLibraries);
+        this.forgeVersion = forgeVersion;
         this.hostMods = List.copyOf(hostMods);
         this.leftOutMods = List.copyOf(leftOutMods);
         this.declined = List.copyOf(declined);
@@ -133,15 +146,25 @@ final class NeoForgeGameHost implements GameHost {
             }
         }
         ForgeModRequirements.Result requirements = runnableMods(request, files, modJars);
-        List<Path> runnable = requirements.kept();
+        List<Path> runnable = new ArrayList<>(requirements.kept());
         List<String> leftOut = requirements.excluded().stream()
                 .map(ForgeModRequirements.Excluded::modId)
                 .toList();
         // With Fabric's Mixin shared, a jar built for several loaders that FML would refuse may run by its other
         // metadata instead (declinedJars).
-        List<Path> declined = request.sharedMixin()
-                ? modJars.stream().filter(jar -> !runnable.contains(jar)).toList()
-                : List.of();
+        List<Path> declined = new ArrayList<>(
+                request.sharedMixin()
+                        ? modJars.stream()
+                                .filter(jar -> !runnable.contains(jar))
+                                .toList()
+                        : List.of());
+        // Forge on NeoForge (ADR-0051, F-N2): Forge's own API jars join NeoForge's loader libraries, and FML gets the
+        // Forge mods the runtime handed over that meet their mods.toml requirements; the others are declined (229).
+        ForgeOnNeoForgeLibraries.Mods forgeMods =
+                ForgeOnNeoForgeLibraries.mods(request, library(files, "maven-artifact-"), files.universal());
+        modules.addAll(forgeMods.libraries());
+        runnable.addAll(forgeMods.kept());
+        declined.addAll(forgeMods.declined());
         return new NeoForgeGameHost(
                 request,
                 files,
@@ -149,7 +172,10 @@ final class NeoForgeGameHost implements GameHost {
                 onClassPath,
                 extractHostJar(files.directory()),
                 runnable,
-                NeoForgeModRequirements.hostMods(runnable),
+                forgeMods.kept(),
+                forgeMods.libraries(),
+                forgeMods.forgeVersion(),
+                NeoForgeModRequirements.hostMods(requirements.kept()),
                 declined,
                 leftOut);
     }
@@ -300,6 +326,48 @@ final class NeoForgeGameHost implements GameHost {
         return jars;
     }
 
+    /**
+     * Leaves the Forge mods out of what FML gets ({@link #modJars}, {@link #forgeModJars}), and the Forge mods left that
+     * no longer meet their {@code mods.toml} without them ({@link ForgeOnNeoForgeLibraries#check}); without any Forge
+     * mod left, Forge's API jars are not among the loader libraries either.
+     *
+     * @throws IllegalStateException when the remaining mods cannot be checked again; FML would not start them correctly
+     */
+    @Override
+    public Map<Path, List<String>> leaveOutForgeMods(List<Path> jars) {
+        if (jars.isEmpty()) {
+            return Map.of();
+        }
+        if (!forgeModJars.containsAll(jars)) {
+            throw new IllegalArgumentException("Not MinecraftForge mods this host runs: " + jars);
+        }
+        List<Path> remaining =
+                forgeModJars.stream().filter(jar -> !jars.contains(jar)).toList();
+        Map<Path, List<String>> dependents;
+        try {
+            dependents = ForgeOnNeoForgeLibraries.check(
+                            request.gameVersion(),
+                            request.side(),
+                            request.log(),
+                            library(files, "maven-artifact-"),
+                            forgeVersion,
+                            remaining)
+                    .declined();
+        } catch (IOException | ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot check the Forge mods left after " + jars + ": " + e, e);
+        }
+        Set<Path> out = new HashSet<>(jars);
+        out.addAll(dependents.keySet());
+        modJars = modJars.stream().filter(jar -> !out.contains(jar)).toList();
+        forgeModJars = forgeModJars.stream().filter(jar -> !out.contains(jar)).toList();
+        if (forgeModJars.isEmpty()) {
+            modules = modules.stream()
+                    .filter(jar -> !forgeLibraries.contains(jar))
+                    .toList();
+        }
+        return dependents;
+    }
+
     @Override
     public void prepare(GameModuleLayers layers, GameClassBytes classes) throws Exception {
         AtomicReference<NeoForgeLoaderPatch.Result> patch = new AtomicReference<>();
@@ -346,7 +414,8 @@ final class NeoForgeGameHost implements GameHost {
                                         this::openJdk,
                                         otherMods,
                                         request.sharedMixin(),
-                                        request.log()));
+                                        request.log(),
+                                        forgeModJars));
             } catch (InvocationTargetException e) {
                 NeoForgeLoaderPatch.Result result = patch.get();
                 if (result != null && !result.complete()) {
