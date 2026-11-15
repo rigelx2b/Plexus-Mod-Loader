@@ -34,6 +34,17 @@ final class ForgeEventPairCheck {
     private static final String CANCELLABLE_EVENT = "net/neoforged/bus/api/ICancellableEvent";
     private static final String BOOLEAN_SUPPLIER = "Ljava/util/function/BooleanSupplier;";
     private static final String LOGICAL_SIDE = "Lnet/minecraftforge/fml/LogicalSide;";
+    private static final String RESOURCE_KEY = "Lnet/minecraft/resources/ResourceKey;";
+    private static final String REGISTRY = "Lnet/minecraft/core/Registry;";
+    private static final String NEOFORGE_REGISTER_EVENT = "net/neoforged/neoforge/registries/RegisterEvent";
+    private static final String NEOFORGE_MOD_BUS_EVENT = "net/neoforged/fml/event/IModBusEvent";
+    private static final String FORGE_REGISTER_EVENT = "net/minecraftforge/registries/RegisterEvent";
+    private static final String FORGE_REGISTER_EVENT_CONSTRUCTOR =
+            "(" + RESOURCE_KEY + "Lnet/minecraftforge/registries/ForgeRegistry;" + REGISTRY + ")V";
+    private static final String FORGE_GET_BUS =
+            "(Lnet/minecraftforge/eventbus/api/bus/BusGroup;)Lnet/minecraftforge/eventbus/api/bus/EventBus;";
+    private static final String FORGE_REGISTER =
+            "(" + RESOURCE_KEY + "Lnet/minecraft/resources/Identifier;Ljava/util/function/Supplier;)V";
 
     private ForgeEventPairCheck() {}
 
@@ -60,6 +71,79 @@ final class ForgeEventPairCheck {
         } catch (IllegalArgumentException e) {
             throw new IOException(e.getMessage(), e);
         }
+    }
+
+    /**
+     * What registration (F-N4) needs of NeoForge's {@code neoForgeUniversal} and Forge's {@code forgeUniversal} jars and
+     * they lack; empty when it holds. NeoForge's {@code RegisterEvent} is a mod bus event with public {@code
+     * getRegistryKey()} and {@code getRegistry()}; Forge's {@code RegisterEvent} has the constructor taking the registry
+     * key, Forge's registry ({@code null} here) and the registry, the static {@code getBus(BusGroup)}, and {@code
+     * register(ResourceKey, Identifier, Supplier)}, which adds to the registry it was given when it has no Forge registry;
+     * and Forge's {@code RegistryObject} has the one {@code MappedRegistry.isIntrusive()} call the host redirects ({@link
+     * ForgeRegistryObjectPatch}).
+     *
+     * @throws IOException when a jar or one of the classes cannot be read
+     */
+    static List<String> missingRegistration(Path neoForgeUniversal, Path forgeUniversal) throws IOException {
+        try (JarFile neoForgeJar = new JarFile(neoForgeUniversal.toFile());
+                JarFile forgeJar = new JarFile(forgeUniversal.toFile())) {
+            Classes neoForge = new Classes(neoForgeJar);
+            Classes forge = new Classes(forgeJar);
+            List<String> missing = new ArrayList<>();
+            Optional<ClassModel> neoForgeEvent = neoForge.get(NEOFORGE_REGISTER_EVENT);
+            if (neoForgeEvent.isEmpty()) {
+                missing.add("no " + NEOFORGE_REGISTER_EVENT);
+            } else {
+                if (!getter(neoForge, NEOFORGE_REGISTER_EVENT, "getRegistryKey").equals(Optional.of(RESOURCE_KEY))) {
+                    missing.add(NEOFORGE_REGISTER_EVENT + ": no getRegistryKey()" + RESOURCE_KEY);
+                }
+                if (!getter(neoForge, NEOFORGE_REGISTER_EVENT, "getRegistry").equals(Optional.of(REGISTRY))) {
+                    missing.add(NEOFORGE_REGISTER_EVENT + ": no getRegistry()" + REGISTRY);
+                }
+                if (!implementsInterface(neoForge, NEOFORGE_REGISTER_EVENT, NEOFORGE_MOD_BUS_EVENT)) {
+                    missing.add(NEOFORGE_REGISTER_EVENT + ": not " + NEOFORGE_MOD_BUS_EVENT);
+                }
+            }
+            Optional<ClassModel> forgeEvent = forge.get(FORGE_REGISTER_EVENT);
+            if (forgeEvent.isEmpty()) {
+                missing.add("no " + FORGE_REGISTER_EVENT);
+            } else {
+                ClassModel model = forgeEvent.get();
+                if (!has(model, "<init>", FORGE_REGISTER_EVENT_CONSTRUCTOR, false)) {
+                    missing.add(FORGE_REGISTER_EVENT + ": no <init>" + FORGE_REGISTER_EVENT_CONSTRUCTOR);
+                }
+                if (!has(model, "getBus", FORGE_GET_BUS, true)) {
+                    missing.add(FORGE_REGISTER_EVENT + ": no public static getBus" + FORGE_GET_BUS);
+                }
+                if (!has(model, "register", FORGE_REGISTER, false)) {
+                    missing.add(FORGE_REGISTER_EVENT + ": no register" + FORGE_REGISTER);
+                }
+            }
+            JarEntry registryObject = forgeJar.getJarEntry(ForgeRegistryObjectPatch.CLASS_FILE);
+            int calls = 0;
+            if (registryObject != null) {
+                try (InputStream input = forgeJar.getInputStream(registryObject)) {
+                    calls = ForgeRegistryObjectPatch.calls(input.readAllBytes());
+                }
+            }
+            if (calls != 1) {
+                missing.add(
+                        ForgeRegistryObjectPatch.CLASS_FILE + ": " + calls + " MappedRegistry.isIntrusive() call(s)");
+            }
+            return List.copyOf(missing);
+        } catch (IllegalArgumentException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /** Whether {@code model} declares the method {@code name}{@code descriptor}, public and static when asked. */
+    private static boolean has(ClassModel model, String name, String descriptor, boolean publicStatic) {
+        return model.methods().stream()
+                .anyMatch(method -> method.methodName().equalsString(name)
+                        && method.methodType().equalsString(descriptor)
+                        && (!publicStatic
+                                || (method.flags().has(AccessFlag.PUBLIC)
+                                        && method.flags().has(AccessFlag.STATIC))));
     }
 
     private static List<String> check(ForgeEventPairs.Pair pair, Classes neoForge, Classes forge) throws IOException {

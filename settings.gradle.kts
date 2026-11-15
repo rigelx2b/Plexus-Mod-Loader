@@ -117,6 +117,7 @@ includeIfPresent(
     "test-mods:fml-library",
     "test-mods:forge-hello",
     "test-mods:forge-on-neoforge-hello",
+    "test-mods:forge-on-neoforge-content",
     "test-mods:forge-on-neoforge-events",
     "test-mods:forge-on-neoforge-patch-member",
     "test-mods:forge-on-neoforge-needs-patch-member",

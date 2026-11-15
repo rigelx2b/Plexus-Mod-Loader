@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.plexusmodloader.compat.bridge.IdleTimeoutDownload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -292,7 +293,7 @@ public final class FabricApiProvision {
         }
     }
 
-    /** The default downloader: HTTPS through the JDK's client, following redirects. */
+    /** The default downloader: HTTPS through the JDK's client, following redirects, with {@link IdleTimeoutDownload}. */
     public static Downloader httpDownloader() {
         HttpClient client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -305,7 +306,8 @@ public final class FabricApiProvision {
                     .header("User-Agent", "Plexus Mod Loader")
                     .build();
             try {
-                HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(target));
+                HttpResponse<Path> response =
+                        IdleTimeoutDownload.send(client, request, IdleTimeoutDownload.fileBody(target));
                 if (response.statusCode() != 200) {
                     Files.deleteIfExists(target);
                     throw new IOException("HTTP " + response.statusCode() + " for " + uri);

@@ -886,6 +886,26 @@ if (minecraft.startsWith("26.")) {
         )
         unexpectedOutput.addAll("PLEXUS-COMPAT-229", "on CLIENT received")
     }
+    // Forge on NeoForge, F-N4: a Forge mod registers a block (vanilla registry key) and its block item (a key of
+    // ForgeRegistries.Keys) with Forge's DeferredRegister, and a sound event (a registry without intrusive holders);
+    // NeoForge's RegisterEvent for each registry is passed on as Forge's, and once the server has started the mod finds them
+    // in the game's registries and places the block.
+    scenarios.gameTest(
+        "forgeOnNeoForgeContent",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-content"),
+    ) {
+        description = "Forge on NeoForge (F-N4): with -Dplexus.forgeOnNeoForge=on, a Forge mod registers a block and its block item with Forge's DeferredRegister through NeoForge's registry events, and finds and places them, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_content] constructed",
+            "[forge_on_neoforge_content] block registered: true, block item registered: true, block placed: true",
+            "[forge_on_neoforge_content] sound event registered: true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
     // Forge on NeoForge, link check: forge-on-neoforge-patch-member calls Entity.canUpdate(), which only MinecraftForge's
     // patches add, on the game's class and through its own Entity subclass. It is left out (229, naming both references)
     // before it runs, and the events mod next to it still runs with the game events.
@@ -2988,6 +3008,7 @@ if (!minecraft.startsWith("1.")) {
 clientWorldReload("corpusForgeClient") {
     description = "Opens the saved world in a MinecraftForge client with every Forge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
+    modCorpusForge?.let { dependsOn(it) }
     classpath.from(forgeClassPath)
     devModJars.from(modJars(clientSession("fabric")))
     // Crash Assistant starts its own crash-report program on the client, which outlives the game and keeps the run
@@ -3235,6 +3256,7 @@ scenarios.gameTest(
 clientWorldReload("corpusNeoForgeClient") {
     description = "Opens the saved world in a NeoForge client with every NeoForge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
+    modCorpusNeoForge?.let { dependsOn(it) }
     javaAgents.from(plexusAgentJar)
     devModJars.from(modJars(clientSession("neoforge")))
     if (!plexusDrivesClient) {
@@ -3272,6 +3294,7 @@ clientWorldReload("corpusNeoForgeClient") {
 clientWorldReload("corpusFabricNeoForgeClient") {
     description = "Opens the saved world in a NeoForge client with every Fabric and NeoForge mod of the real-mod corpus (opens a window)."
     dependsOn(modCorpus)
+    modCorpusNeoForge?.let { dependsOn(it) }
     javaAgents.from(plexusAgentJar)
     // 1.20.4 and 1.21.1 (NeoForge 20.4 and 21.1 on ModLauncher, ADR-0043 point 10): Plexus Mod Loader's client session.
     devModJars.from(modJars(clientSession("neoforge")))
@@ -3315,6 +3338,7 @@ if (minecraft == "1.21.1") {
     clientWorldReload("corpusFabricApiNeoForgeClient") {
         description = "Opens the saved world in a NeoForge 21.1 client with the real-mod corpus's Fabric mods and Fabric API's own build next to its NeoForge mods (opens a window)."
         dependsOn(modCorpus)
+        modCorpusNeoForge?.let { dependsOn(it) }
         javaAgents.from(plexusAgentJar)
         devModJars.from(modJars(clientSession("neoforge")))
         devModJars.from(corpusRoot.map {
@@ -3836,6 +3860,17 @@ tasks.register("compatibilityMatrix") {
     group = "verification"
     description = "Runs every mixed-loader and regression scenario on the game test server."
     dependsOn(matrix)
+    // Forge on NeoForge (ADR-0051, experimental): the scenarios above on every 26.x version, and on 26.2 the ones whose
+    // test mods are built for 26.2 only. Before 2.3.0 they ran only by hand at release.
+    if (minecraft.startsWith("26.")) {
+        dependsOn(
+            "forgeOnNeoForgeWorldTest", "forgeOnNeoForgeServerBoot", "forgeOnNeoForgeEvents", "forgeOnNeoForgeContent",
+            "forgeOnNeoForgeLinkCheck", "forgeOnNeoForgeLinkCheckAlone",
+        )
+    }
+    if (minecraft == "26.2") {
+        dependsOn("forgeOnNeoForgeHello", "forgeOnNeoForgeDiagnosed", "forgeOnNeoForgeFallback", "forgeBesideNeoForge")
+    }
 }
 
 // Performance with real Fabric mods (Fabric plan F7): the same startup and tick benchmarks as above, with the corpus's

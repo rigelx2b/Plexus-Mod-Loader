@@ -159,6 +159,17 @@ val neoForgeTestMods = configurations.create("serverInstallTestNeoForgeMods") {
         attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
     }
 }
+// NeoForge 20.4 and 21.1 (FML 2 and 4 on ModLauncher, ADR-0043) have no build of the test mods above: their own test mod.
+val neoForgeFml4TestMod = configurations.create("serverInstallTestNeoForgeFml4Mod") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+    }
+}
 // The public source has no test-mods/ (settings.gradle.kts); serverInstallTest then has no mods to run.
 val testModsPresent = findProject(":test-mods:forge-hello") != null
 if (testModsPresent) {
@@ -169,6 +180,7 @@ if (testModsPresent) {
         neoForgeTestMods(project(":test-mods:neoforge-gametest-harness"))
         // Laid out as Sodium's NeoForge build: an early service jar with the mod nested in it, from the mods folder.
         neoForgeTestMods(project(":test-mods:neoforge-early-service"))
+        neoForgeFml4TestMod(project(":test-mods:neoforge-fml4-hello"))
     }
 }
 // The NeoForge release Plexus Mod Loader runs for each Minecraft version: <minecraft>=<neoforge version> <installer SHA-1>.
@@ -222,6 +234,8 @@ tasks.register("serverInstallTest") {
     inputs.file(forgeReleases).withPropertyName("forgeReleases")
     val neoForgeMods = neoForgeTestMods.incoming.files
     inputs.files(neoForgeMods).withPropertyName("neoForgeTestMods")
+    val neoForgeFml4Mod = neoForgeFml4TestMod.incoming.files
+    inputs.files(neoForgeFml4Mod).withPropertyName("neoForgeFml4TestMod")
     inputs.file(neoForgeReleases).withPropertyName("neoForgeReleases")
     doLast {
         val server = folder.get().asFile
@@ -391,7 +405,6 @@ tasks.register("serverInstallTest") {
         } else {
         quiltMod.files.forEach { it.copyTo(server.resolve("mods").resolve(it.name)) }
         val quiltLines = listOf(
-            "[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 2 Fabric, 2 Quilt, 0 Forge",
             "[quilt_hello] entrypoint order: pre_launch -> preLaunch -> main",
             "[quilt_hello] MinecraftQuiltLoader.getEnvironmentType() = SERVER, QuiltLoader.getRawGameVersion() = $minecraft",
             "[quilt_hello] access wideners: OptionsAmbientOcclusionFix.updateValue public = true, Mth.SIN public = true",
@@ -399,22 +412,30 @@ tasks.register("serverInstallTest") {
         )
         val quiltAbsent = listOf("MinecraftForge", "PLEXUS-COMPAT-002", "[quilt_hello] client entrypoint ran")
         val quiltGameTestLog = server.resolve("phase4-quilt-game-test.log")
+        // quilt-hello nests a Fabric mod, so Fabric API is added (ADR-0046); its registry sync freezes the built-in
+        // registries from net.minecraft.server.Main, which the game test server does not run, under Fabric Loader too.
         val (quiltGameTest, quiltGameTestExit) = run(server, quiltGameTestLog, 600, java.get(), "-Xmx2G",
-            "-Dplexus.launchTarget=game_test_server", "-jar", "plexusmodloader-server.jar",
+            "-Dplexus.fabricApi=off", "-Dplexus.launchTarget=game_test_server", "-jar", "plexusmodloader-server.jar",
             "--universe", "universe", "--tests", "minecraft:always_pass")
         check("phase 4 (Quilt mod, game test server)", quiltGameTest, quiltGameTestExit, quiltGameTestLog,
             quiltLines + listOf(
+                "[Plexus Mod Loader] Loaded mods per loader: 0 Plexus, 2 Fabric, 2 Quilt, 0 Forge",
                 "[quilt_hello] Quilt mod's Mixin: tickServer @Inject ran",
                 "All 1 required tests passed",
             ),
-            quiltAbsent)
+            quiltAbsent + "PLEXUS-DISCOVERY-004")
 
         // 5. The same mod on the dedicated server, up to the EULA check (the mod's main entrypoint runs before it).
         val quiltDedicatedLog = server.resolve("phase5-quilt-server.log")
         val (quiltDedicated, quiltDedicatedExit) = run(server, quiltDedicatedLog, 600, java.get(), "-Xmx2G",
             "-jar", "plexusmodloader-server.jar", "nogui")
         check("phase 5 (Quilt mod, dedicated server)", quiltDedicated, quiltDedicatedExit, quiltDedicatedLog,
-            quiltLines + listOf("You need to agree to the EULA in order to run the server"),
+            // Fabric API is added here as for a player (ADR-0046); its module count differs per Minecraft version.
+            quiltLines + listOf(
+                "[Plexus Mod Loader] PLEXUS-DISCOVERY-004 Fabric API ",
+                "Fabric, 2 Quilt, 0 Forge",
+                "You need to agree to the EULA in order to run the server",
+            ),
             quiltAbsent)
         }
 
@@ -424,14 +445,21 @@ tasks.register("serverInstallTest") {
         if (neoForgeVersion == null) {
             skipped.add("phases 6-7 (NeoForge): Plexus Mod Loader runs NeoForge on 26.1 and later; there is no NeoForge release for $minecraft")
         } else {
-        val neoForgeJars = neoForgeMods.files.filter { withForgeMod || !it.name.startsWith("neoforge-hello") }
+        // As neoForgeWorldTest and neoForgeFml4ServerBoot run NeoForge 20.4 and 21.1 (plexus-bootstrap).
+        val neoForgeOnModLauncher = minecraft == "1.21.1" || minecraft == "1.20.4"
+        val neoForgeJars = if (neoForgeOnModLauncher) neoForgeFml4Mod.files.toList()
+            else neoForgeMods.files.filter { withForgeMod || !it.name.startsWith("neoforge-hello") }
         neoForgeJars.forEach { it.copyTo(server.resolve("mods").resolve(it.name)) }
         val neoForgeGameTestLog = server.resolve("phase6-neoforge-game-test.log")
         val (neoForgeGameTest, neoForgeGameTestExit) = run(server, neoForgeGameTestLog, 600, java.get(), "-Xmx2G",
             "-Dplexus.launchTarget=game_test_server", "-jar", "plexusmodloader-server.jar",
             "--universe", "universe", "--tests", "minecraft:always_pass")
         check("phase 6 (NeoForge mods, game test server)", neoForgeGameTest, neoForgeGameTestExit, neoForgeGameTestLog,
-            listOf(
+            if (neoForgeOnModLauncher) listOf(
+                "[Plexus Mod Loader] FML's game layer:",
+                "[neoforge_fml4_hello] constructed by FML",
+                "All 1 required tests passed",
+            ) else listOf(
                 "[Plexus Mod Loader] NeoForge $neoForgeVersion loads ${neoForgeJars.size} NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
                 "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge $neoForgeVersion starts the game",
                 "[neoforge_gametest_harness] NeoForge runs in production and does not tick game tests; the harness ticks them",
@@ -442,7 +470,7 @@ tasks.register("serverInstallTest") {
             ) + (if (minecraft.startsWith("26.1") || minecraft == "26.2") listOf(
                 // FML 11 runs graphics bootstrap plugins on a server too; FML 12 (NeoForge for 26.3) only with a window.
                 "Running graphics bootstrap plugin neoforge_early_service",
-            ) else listOf()) + (if (withForgeMod) listOf(
+            ) else listOf()) + (if (withForgeMod && !neoForgeOnModLauncher) listOf(
                 "[neoforge_hello] Constructed by FML in module neoforge_hello (neoforge_hello)",
                 "[neoforge_hello] Common setup: item neoforge_hello:hello_item is registered",
             ) else listOf()),
@@ -454,7 +482,13 @@ tasks.register("serverInstallTest") {
         val (neoForgeDedicated, neoForgeDedicatedExit) = run(server, neoForgeDedicatedLog, 600, java.get(), "-Xmx2G",
             "-jar", "plexusmodloader-server.jar", "nogui")
         check("phase 7 (NeoForge mods, dedicated server)", neoForgeDedicated, neoForgeDedicatedExit, neoForgeDedicatedLog,
-            listOf(
+            if (neoForgeOnModLauncher) listOf(
+                "[Plexus Mod Loader] FML's game layer:",
+                // FML 2 (NeoForge 20.4) names each mod file its discovery found; FML 4 lists the mods in a table.
+                if (minecraft == "1.20.4") "Found mod file \"neoforge-fml4-hello-" else "NeoForge FML 4 Hello 1.0.0 (neoforge_fml4_hello)",
+                "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge ",
+                "You need to agree to the EULA in order to run the server",
+            ) else listOf(
                 "[Plexus Mod Loader] NeoForge $neoForgeVersion loads ${neoForgeJars.size} NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
                 "[Plexus Mod Loader] Phase GAME_LAUNCH: NeoForge $neoForgeVersion starts the game",
                 "You need to agree to the EULA in order to run the server",
@@ -466,7 +500,8 @@ tasks.register("serverInstallTest") {
         }
 
         val forgeRun = if (withForgeMod) "forge_hello" else "Forge without mods"
-        val neoForgeRun = if (withForgeMod) "neoforge_hello" else "NeoForge with the game test harness"
+        val neoForgeRun = if (minecraft == "1.21.1" || minecraft == "1.20.4") "neoforge_fml4_hello"
+            else if (withForgeMod) "neoforge_hello" else "NeoForge with the game test harness"
         if (obfuscatedVersion) {
             println("serverInstallTest passed on Minecraft $minecraft: the installer remapped the server to Mojang names;" +
                 " no mods up to the EULA check with no rejected transformation rule; eula.txt left at eula=false." +

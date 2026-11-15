@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
+import dev.plexusmodloader.compat.bridge.IdleTimeoutDownload;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -582,20 +583,23 @@ public final class IntermediaryTranslations {
         String repository = System.getProperty("plexus.intermediaryUrl", MAVEN);
         String url = repository + "/net/fabricmc/intermediary/" + minecraft + "/intermediary-" + minecraft + "-v2.jar";
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(20))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         Path partial = target.resolveSibling(target.getFileName() + ".partial");
         try {
-            String expected = new String(send(client, url + ".sha1").readAllBytes(), StandardCharsets.US_ASCII).strip();
+            String expected = new String(
+                            send(client, url + ".sha1", HttpResponse.BodyHandlers.ofByteArray()),
+                            StandardCharsets.US_ASCII)
+                    .strip();
             if (expected.length() < 40) {
                 throw new IOException("the repository's checksum for " + url + " is not a SHA-1");
             }
             expected = expected.substring(0, 40).toLowerCase(java.util.Locale.ROOT);
             Files.createDirectories(target.getParent());
-            try (InputStream input = send(client, url)) {
-                Files.copy(input, partial, StandardCopyOption.REPLACE_EXISTING);
-            }
+            Files.deleteIfExists(partial);
+            send(client, url, IdleTimeoutDownload.fileBody(partial));
             String actual = sha1(partial);
             if (!actual.equals(expected)) {
                 throw new IOException("the download of " + url + " has SHA-1 " + actual + " instead of " + expected);
@@ -615,15 +619,16 @@ public final class IntermediaryTranslations {
         }
     }
 
-    private static InputStream send(HttpClient client, String url) throws IOException, InterruptedException {
-        HttpResponse<InputStream> response = client.send(
+    private static <T> T send(HttpClient client, String url, HttpResponse.BodyHandler<T> body)
+            throws IOException, InterruptedException {
+        HttpResponse<T> response = IdleTimeoutDownload.send(
+                client,
                 HttpRequest.newBuilder(URI.create(url))
                         .timeout(Duration.ofSeconds(120))
                         .GET()
                         .build(),
-                HttpResponse.BodyHandlers.ofInputStream());
+                body);
         if (response.statusCode() != 200) {
-            response.body().close();
             throw new IOException("HTTP " + response.statusCode() + " for " + url);
         }
         return response.body();

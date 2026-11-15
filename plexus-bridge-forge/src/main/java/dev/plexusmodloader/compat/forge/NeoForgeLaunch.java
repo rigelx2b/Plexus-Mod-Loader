@@ -38,7 +38,8 @@ public interface NeoForgeLaunch {
      * @param classes the game class loader's classes, for FML's class processors that read other classes
      * @param gameClassLoader the game class loader, to which FML's class loader hands every class and resource
      * @param openJdk opens the JDK packages NeoForge's launcher profile opens ({@code java.lang.invoke}) to modules;
-     *     for the game layer's modules, once defined
+     *     for the game layer's modules, once defined (the host also lets Forge's API modules read them then, Forge on
+     *     NeoForge)
      * @param otherMods the mods Plexus Mod Loader runs beside NeoForge, which FML's {@code ModList} answers for when Plexus
      *     Mod Loader's patch of it applied (ADR-0025)
      * @param sharedMixin whether Fabric's Mixin serves NeoForge's mods too ({@code NeoForgeSharedMixinPatch}): FML does
