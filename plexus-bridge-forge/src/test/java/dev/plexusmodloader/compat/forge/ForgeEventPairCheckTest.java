@@ -58,6 +58,46 @@ class ForgeEventPairCheckTest {
                 ForgeEventPairCheck.missing(List.of(wrong), jar("neoforge-26.2."), jar("forge-26.2-")));
     }
 
+    /** F-N4: NeoForge's registry event and Forge's registry event have what registration passes on. */
+    @ParameterizedTest
+    @ValueSource(strings = {"26.2", "26.3"})
+    void registrationHolds(String minecraft) throws IOException {
+        assertEquals(
+                List.of(),
+                ForgeEventPairCheck.missingRegistration(
+                        jar("neoforge-" + minecraft + "."), jar("forge-" + minecraft + "-")));
+    }
+
+    /**
+     * With Forge's jar in NeoForge's place, NeoForge's registry event is not found, and the other way round, where Forge's
+     * {@code RegistryObject} is missing too.
+     */
+    @Test
+    void registrationThatDoesNotHoldIsNamed() throws IOException {
+        Path neoForge = jar("neoforge-26.2.");
+        Path forge = jar("forge-26.2-");
+        assertEquals(
+                List.of("no net/neoforged/neoforge/registries/RegisterEvent"),
+                ForgeEventPairCheck.missingRegistration(forge, forge));
+        assertEquals(
+                List.of(
+                        "no net/minecraftforge/registries/RegisterEvent",
+                        "net/minecraftforge/registries/RegistryObject.class: 0 MappedRegistry.isIntrusive() call(s)"),
+                ForgeEventPairCheck.missingRegistration(neoForge, neoForge));
+    }
+
+    /** The runtime's scope check lets a Forge mod register with Forge's {@code DeferredRegister} and a registry key. */
+    @Test
+    void theScopeCheckAllowsRegistrationWithARegistryKey() {
+        for (String forge : List.of(
+                "net/minecraftforge/registries/DeferredRegister",
+                "net/minecraftforge/registries/RegistryObject",
+                "net/minecraftforge/registries/RegisterEvent",
+                "net/minecraftforge/registries/ForgeRegistries$Keys")) {
+            assertTrue(ForgeOnNeoForgeScope.allowed(forge), forge);
+        }
+    }
+
     /** The runtime's scope check lets a Forge mod name every Forge event the host passes on. */
     @Test
     void theScopeCheckAllowsEveryPassedOnEvent() {

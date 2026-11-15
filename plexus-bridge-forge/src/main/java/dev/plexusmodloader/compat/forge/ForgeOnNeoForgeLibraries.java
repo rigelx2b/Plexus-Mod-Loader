@@ -69,7 +69,8 @@ final class ForgeOnNeoForgeLibraries {
      * Loader pins and the Maven version ranges of {@code mavenArtifact}): its Minecraft and other mods, its language
      * loader and version, and ({@link #languageReasons}) {@code javafml} with an {@code @Mod} class for each of its mods.
      * A mod that fails, or every mod when Forge's jars cannot be prepared or a pair of {@link ForgeEventPairs} does not
-     * hold for NeoForge's {@code neoForgeUniversal} and Forge's universal jar ({@link ForgeEventPairCheck}), is declined
+     * hold for NeoForge's {@code neoForgeUniversal} and Forge's universal jar, or registration does not ({@link
+     * ForgeEventPairCheck}), is declined
      * rather than stopping NeoForge, so that the NeoForge mods still run.
      */
     static Mods mods(GameHost.Request request, Path mavenArtifact, Path neoForgeUniversal) {
@@ -97,6 +98,11 @@ final class ForgeOnNeoForgeLibraries {
                     ForgeEventPairCheck.missing(ForgeEventPairs.GAME_EVENTS, neoForgeUniversal, libraries.getLast());
             if (!unpaired.isEmpty()) {
                 return declineAll(request, jars, "game event pairs do not hold: " + String.join("; ", unpaired));
+            }
+            List<String> unregistered = ForgeEventPairCheck.missingRegistration(neoForgeUniversal, libraries.getLast());
+            if (!unregistered.isEmpty()) {
+                return declineAll(
+                        request, jars, "registry event forwarding hooks missing: " + String.join("; ", unregistered));
             }
         } catch (IOException e) {
             return declineAll(request, jars, e.getMessage());

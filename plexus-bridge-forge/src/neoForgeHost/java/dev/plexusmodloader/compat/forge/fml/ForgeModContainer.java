@@ -28,7 +28,8 @@ import net.neoforged.neoforgespi.language.IModInfo;
  * FMLJavaModLoadingContext} and mod bus group. When FML's mod bus has {@code FMLCommonSetupEvent}, {@code
  * FMLClientSetupEvent}, {@code FMLDedicatedServerSetupEvent} or {@code FMLLoadCompleteEvent}, the Forge mod's bus gets
  * Forge's event of the same name (F-N2, F-N3), and the first construction adds the game bus events of {@link
- * ForgeGameEvents} (F-N3).
+ * ForgeGameEvents} (F-N3). NeoForge's {@code RegisterEvent} for each registry is passed on as Forge's to the mod's bus
+ * group ({@link ForgeRegistration}, F-N4).
  *
  * <p>No other Forge event or loading stage is passed on yet, and work a mod queues with {@code enqueueWork} would not
  * run; the runtime hands over only mods that use none of that ({@code ForgeOnNeoForgeScope}).
@@ -93,12 +94,14 @@ final class ForgeModContainer extends ModContainer {
 
     /**
      * Runs Forge's construction of the mod: its private {@code constructMod}, as Forge's loading stage would. The first
-     * Forge mod constructed adds the game bus events Forge mods get ({@link ForgeGameEvents}).
+     * Forge mod constructed adds the game bus events Forge mods get ({@link ForgeGameEvents}); before construction, the
+     * mod's bus gets NeoForge's registry events passed on as Forge's ({@link ForgeRegistration}, F-N4).
      */
     @Override
     protected void constructMod() {
         try {
             ForgeGameEvents.install(gameClassLoader, PlexusFml::log);
+            ForgeRegistration.of(gameClassLoader).listen(eventBus, forge.getModBusGroup());
             Method construct = FMLModContainer.class.getDeclaredMethod("constructMod");
             construct.setAccessible(true);
             construct.invoke(forge);
@@ -110,6 +113,11 @@ final class ForgeModContainer extends ModContainer {
     }
 
     private ModLoadingException failed(Throwable cause) {
+        // Forge's ModLoadingException formats its message through Forge's FML bindings, which need Forge's FMLLoader
+        // (not loaded here): FML reports what it wraps instead.
+        while (cause instanceof net.minecraftforge.fml.ModLoadingException && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
         return new ModLoadingException(ModLoadingIssue.error("fml.modloadingissue.failedtoloadmod")
                 .withCause(cause)
                 .withAffectedMod(modInfo));

@@ -36,8 +36,12 @@ public final class ForgeOnNeoForgeScope {
 
     /**
      * The Forge classes that run: the mod annotation and loading context (F-N2), the lifecycle events passed on (F-N2,
-     * F-N3), and the game events of the Forge bridge's {@code ForgeEventPairs.GAME_EVENTS} with the interfaces and types
-     * their members use (F-N3).
+     * F-N3), the game events of the Forge bridge's {@code ForgeEventPairs.GAME_EVENTS} with the interfaces and types
+     * their members use (F-N3), and registration with a registry key (F-N4: {@code DeferredRegister}, its {@code
+     * RegistryObject}s, Forge's {@code RegisterEvent}, which NeoForge's is passed on as, and the keys of {@code
+     * ForgeRegistries.Keys}, whose outer class {@code ForgeRegistries} is named too, though none of its members may be).
+     * {@code IForgeRegistry} and the {@code RegisterEvent} helper (which needs Forge's {@code ModLoadingContext}) are
+     * not here: their names in a mod's descriptors leave it out.
      */
     private static final Set<String> CLASSES = Set.of(
             "net/minecraftforge/fml/common/Mod",
@@ -61,7 +65,19 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/event/server/ServerStoppingEvent",
             "net/minecraftforge/event/server/ServerStoppedEvent",
             "net/minecraftforge/event/entity/EntityEvent",
-            "net/minecraftforge/event/entity/EntityJoinLevelEvent");
+            "net/minecraftforge/event/entity/EntityJoinLevelEvent",
+            "net/minecraftforge/registries/DeferredRegister",
+            "net/minecraftforge/registries/RegistryObject",
+            "net/minecraftforge/registries/RegisterEvent",
+            "net/minecraftforge/registries/ForgeRegistries",
+            "net/minecraftforge/registries/ForgeRegistries$Keys");
+
+    /**
+     * {@code ForgeRegistries} is named by the {@code InnerClasses} attribute of every class that uses {@code
+     * ForgeRegistries.Keys}; its own members are Forge registries, which NeoForge's game does not have, so every member
+     * reference with this owner is left out.
+     */
+    private static final String FORGE_REGISTRIES = "net/minecraftforge/registries/ForgeRegistries";
 
     /** Forge's event bus 7 API, which runs as Forge's own library and needs nothing of Forge's patches. */
     private static final String EVENT_BUS_API = "net/minecraftforge/eventbus/api/";
@@ -69,7 +85,10 @@ public final class ForgeOnNeoForgeScope {
     /**
      * Members of allowed classes that need Forge's loader state, which NeoForge's game does not have, and the bus of an
      * event interface whose other events are not passed on ({@code ServerLifecycleEvent} has {@code
-     * ServerAboutToStartEvent} too).
+     * ServerAboutToStartEvent} too). For registration (F-N4): new registries and optional tag defaults (both need Forge's
+     * registries), a {@code RegistryObject} made outside a {@code DeferredRegister} (filled by Forge's object holders,
+     * which do not run), Forge's registry of the registry event ({@code null} here), and the keys of registries only
+     * Forge has, for which NeoForge sends no registry event.
      */
     private static final Set<String> MEMBERS = Set.of(
             "net/minecraftforge/event/server/ServerLifecycleEvent.BUS",
@@ -78,7 +97,24 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerConfig",
             "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerExtensionPoint",
             "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerDisplayTest",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.extension");
+            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.extension",
+            "net/minecraftforge/registries/DeferredRegister.makeRegistry",
+            "net/minecraftforge/registries/DeferredRegister.createOptionalTagKey",
+            "net/minecraftforge/registries/DeferredRegister.addOptionalTagDefaults",
+            "net/minecraftforge/registries/RegistryObject.create",
+            "net/minecraftforge/registries/RegistryObject.createOptional",
+            "net/minecraftforge/registries/RegisterEvent.getForgeRegistry",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.ENTITY_DATA_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.GLOBAL_LOOT_MODIFIER_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.BIOME_MODIFIER_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.STRUCTURE_MODIFIER_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.FLUID_TYPES",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.HOLDER_SET_TYPES",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.DISPLAY_CONTEXTS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.CONDITION_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.INGREDIENT_SERIALIZERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.BIOME_MODIFIERS",
+            "net/minecraftforge/registries/ForgeRegistries$Keys.STRUCTURE_MODIFIERS");
 
     /**
      * Forge's lifecycle events queue {@code enqueueWork} work for Forge's loading stages, which do not run: denied on
@@ -148,6 +184,7 @@ public final class ForgeOnNeoForgeScope {
                 String reference =
                         member.owner().asInternalName() + "." + member.name().stringValue();
                 if (MEMBERS.contains(reference)
+                        || member.owner().asInternalName().equals(FORGE_REGISTRIES)
                         || (reference.startsWith(LIFECYCLE_EVENTS) && reference.endsWith(".enqueueWork"))) {
                     found.add(reference);
                 }

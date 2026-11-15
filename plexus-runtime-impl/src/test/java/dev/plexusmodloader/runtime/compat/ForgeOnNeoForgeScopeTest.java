@@ -31,6 +31,15 @@ class ForgeOnNeoForgeScopeTest {
     private static final ClassDesc BUS_GROUP = ClassDesc.ofInternalName("net/minecraftforge/eventbus/api/bus/BusGroup");
     private static final ClassDesc EVENT_BUS = ClassDesc.ofInternalName("net/minecraftforge/eventbus/api/bus/EventBus");
     private static final ClassDesc MOD_LIST = ClassDesc.ofInternalName("net/minecraftforge/fml/ModList");
+    private static final ClassDesc DEFERRED_REGISTER =
+            ClassDesc.ofInternalName("net/minecraftforge/registries/DeferredRegister");
+    private static final ClassDesc REGISTRY_OBJECT =
+            ClassDesc.ofInternalName("net/minecraftforge/registries/RegistryObject");
+    private static final ClassDesc KEYS =
+            ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries$Keys");
+    private static final ClassDesc RESOURCE_KEY = ClassDesc.ofInternalName("net/minecraft/resources/ResourceKey");
+    private static final ClassDesc STRING = ConstantDescs.CD_String;
+    private static final ClassDesc SUPPLIER = ClassDesc.of("java.util.function.Supplier");
 
     @TempDir
     Path directory;
@@ -91,6 +100,56 @@ class ForgeOnNeoForgeScopeTest {
             code.pop();
         });
         assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * As test-mods/forge-on-neoforge-content: a {@code DeferredRegister} made with a registry key (a vanilla one or one
+     * of {@code ForgeRegistries.Keys}), its entries and its registration on the mod bus group (F-N4).
+     */
+    @Test
+    void aModRegisteringWithARegistryKeyRuns() throws IOException {
+        Path jar = jar("content.jar", Map.of(), null, code -> {
+            code.getstatic(KEYS, "ITEMS", RESOURCE_KEY);
+            code.ldc("example");
+            code.invokestatic(DEFERRED_REGISTER, "create", MethodTypeDesc.of(DEFERRED_REGISTER, RESOURCE_KEY, STRING));
+            code.dup();
+            code.ldc("thing");
+            code.aconst_null();
+            code.invokevirtual(DEFERRED_REGISTER, "register", MethodTypeDesc.of(REGISTRY_OBJECT, STRING, SUPPLIER));
+            code.invokevirtual(REGISTRY_OBJECT, "get", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+            code.aconst_null();
+            code.invokevirtual(DEFERRED_REGISTER, "register", MethodTypeDesc.of(ConstantDescs.CD_void, BUS_GROUP));
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * {@code ForgeRegistries.BLOCKS} is a Forge registry, which NeoForge's game does not have: a member of {@code
+     * ForgeRegistries} or naming {@code IForgeRegistry} leaves the mod out, as do a new registry and a key of a registry
+     * only Forge has.
+     */
+    @Test
+    void forgeRegistriesNewRegistriesAndForgeOnlyKeysAreNamed() throws IOException {
+        ClassDesc forgeRegistries = ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries");
+        ClassDesc forgeRegistry = ClassDesc.ofInternalName("net/minecraftforge/registries/IForgeRegistry");
+        Path jar = jar("forge-registries.jar", Map.of(), null, code -> {
+            code.getstatic(forgeRegistries, "BLOCKS", forgeRegistry);
+            code.ldc("example");
+            code.invokestatic(DEFERRED_REGISTER, "create", MethodTypeDesc.of(DEFERRED_REGISTER, forgeRegistry, STRING));
+            code.aconst_null();
+            code.invokevirtual(DEFERRED_REGISTER, "makeRegistry", MethodTypeDesc.of(ConstantDescs.CD_Object, SUPPLIER));
+            code.pop();
+            code.getstatic(KEYS, "FLUID_TYPES", RESOURCE_KEY);
+            code.pop();
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/registries/DeferredRegister.makeRegistry",
+                        "net/minecraftforge/registries/ForgeRegistries$Keys.FLUID_TYPES",
+                        "net/minecraftforge/registries/ForgeRegistries.BLOCKS",
+                        "net/minecraftforge/registries/IForgeRegistry"),
+                ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     /** Every lifecycle event queues {@code enqueueWork} work for Forge's stages, whichever class the call names. */

@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.3.0 — 2026-11-15
+
+### Summary
+
+Plexus Mod Loader 2.3.0 lets MinecraftForge mods register content through Forge's `DeferredRegister` with a registry key on Minecraft 26.1 to 26.3 under the experimental Forge on NeoForge opt-in (`-Dplexus.forgeOnNeoForge=on`, ADR-0051 F-N4), and adds a 60 s idle timeout with up to 3 attempts to player-facing downloads (Forge, NeoForge, Fabric API, intermediary mappings, and the installer) so transfers do not hang indefinitely when a server stops sending data mid-transfer.
+
+### What's New
+
+- Register content from MinecraftForge mods on NeoForge's game on Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3 when the experimental opt-in `-Dplexus.forgeOnNeoForge=on` flag is enabled (ADR-0051 F-N4), forwarding NeoForge's `RegisterEvent` per registry through `ForgeModContainer` and `ForgeRegistration` to the Forge mod's bus group so `DeferredRegister.create` with vanilla or `ForgeRegistries.Keys` registry keys populates NeoForge's registries and updates `RegistryObject.get()` / `getHolder()`, verified by `forgeOnNeoForgeContent` across all five 26.x releases while leaving out `ForgeRegistries` members, `IForgeRegistry`, `DeferredRegister.makeRegistry`, `createOptionalTagKey`, `addOptionalTagDefaults`, standalone `RegistryObject.create` / `createOptional`, `RegisterEvent.getForgeRegistry`, `RegisterEvent$RegisterHelper`, and the 11 Forge-only `ForgeRegistries.Keys` registries under `PLEXUS-COMPAT-229`.
+
+### Improvements & Fixes
+
+- Add `ForgeEventPairCheck.missingRegistration` to verify before launch that NeoForge's `RegisterEvent` (`getRegistryKey()`, `getRegistry()`, `IModBusEvent`), Forge's `RegisterEvent` (3-argument constructor, `getBus(BusGroup)`, `register(ResourceKey, Identifier, Supplier)`), and the single `MappedRegistry.isIntrusive()` call in Forge's `RegistryObject` are present on the universal jars, declining every Forge mod under `PLEXUS-COMPAT-229` with `registry event forwarding hooks missing: <list>` if any hook is missing.
+- Grant every Forge API module (`net.minecraftforge.*`) in NeoForge's library layer module read edges to FML's game layer via `NeoForgeGameHost` (`gameLayerDefined`) so Forge's `ForgeRegistries$Keys` can call Minecraft classes without `IllegalAccessError`, and rewrite the single `invokevirtual MappedRegistry.isIntrusive()Z` call in Forge's `RegistryObject.updateReference(Registry)` via `ForgeRegistryObjectPatch` to `invokestatic ForgeRegistryHooks.isIntrusive(Object)Z` (reading `unregisteredIntrusiveHolders` by reflection while keeping three-byte code offsets and stack map frames unchanged).
+- Report the underlying wrapped exception in `ForgeModContainer` when a Forge mod fails construction on NeoForge, avoiding FML's formatting through Forge bindings that threw `NoClassDefFoundError: net/minecraftforge/fml/loading/FMLLoader` and masked the original cause.
+- Prevent player-facing downloads from hanging indefinitely after headers arrive—where `HttpRequest.timeout` stops applying—by adding `IdleTimeoutDownload` (in `plexus-bridge-api` with a Java 17 copy in the installer) to send with `sendAsync`, cancel an attempt after 60 seconds without body data, and retry up to 3 attempts before failing with `HttpTimeoutException` across `ForgeInstallation.httpDownloader`, `FabricApiProvision`, `IntermediaryTranslations`, and `ServerInstaller.httpDownloader`.
+
+### Verification
+
+- Run the previously manual release-verification Forge-on-NeoForge scenarios in `compatibilityMatrix`, executing `forgeOnNeoForgeWorldTest`, `forgeOnNeoForgeServerBoot`, `forgeOnNeoForgeEvents`, `forgeOnNeoForgeContent`, `forgeOnNeoForgeLinkCheck`, and `forgeOnNeoForgeLinkCheckAlone` on every 26.x version as well as `forgeOnNeoForgeHello`, `forgeOnNeoForgeDiagnosed`, `forgeOnNeoForgeFallback`, and `forgeBesideNeoForge` on 26.2.
+- Fix `serverInstallTest` on Minecraft 26.1, 26.2, and 26.3 by running phase 4 on the game test server with `-Dplexus.fabricApi=off` and asserting no Fabric API is added—preventing the Quilt test mod's nested Fabric mod from triggering automatic Fabric API provisioning whose registry sync leaves built-in registries unfrozen until `net.minecraft.server.Main` and causes `Unbound tags`—and updating phase 5 on the dedicated server to expect `PLEXUS-DISCOVERY-004` instead of exactly two Fabric mods.
+- Fix `serverInstallTest` phases 6 and 7 on Minecraft 1.20.4 and 1.21.1—where installing the 26.x NeoForge test mods (`neoforge-gametest-harness`, `neoforge-early-service`, requiring NeoForge 21.11 or later) caused FML to leave them out with `PLEXUS-COMPAT-217`—by running `neoforge-fml4-hello` on NeoForge 20.4 and 21.1 (FML 2 and 4 on ModLauncher, ADR-0043) like `neoForgeWorldTest` and `neoForgeFml4ServerBoot` to check construction and a game test on the installed game test server (phase 6) and the EULA check on the dedicated server (phase 7), so `serverInstallTest` now passes on all 9 supported Minecraft versions.
+- Add the matching `modCorpusForge` or `modCorpusNeoforge` task dependency to `corpusForgeClient`, `corpusNeoForgeClient`, `corpusFabricNeoForgeClient`, and `corpusFabricApiNeoForgeClient` so pre-26.1 client window tests (such as `corpusNeoForgeClient` on Minecraft 1.21.11) download Forge and NeoForge corpus mods in fresh worktrees instead of relying on `modCorpus` alone.
+- Validate the release on Java 25 and Windows 11 with `check` (435 s), `build-logic` `check` (34 s), the headless test suite (`serverBootSmokeTest`, `worldCreateSaveTest`, `gameTests`, and `compatibilityMatrix`, now including the 26.x Forge on NeoForge scenarios) across all 9 supported Minecraft versions on the first run (`1.20.1` in 186 s, `1.20.4` in 222 s, `1.21.1` in 150 s, `1.21.11` in 154 s, `26.1` in 284 s, `26.1.1` in 277 s, `26.1.2` in 280 s, `26.2` in 371 s, `26.3` in 431 s), `serverInstallTest` across all 9 versions (`1.20.1` in 78 s, `1.20.4` in 135 s and `1.21.1` in 103 s as reruns after the phase 6 and 7 fix above, `1.21.11` in 99 s, `26.1` in 95 s, `26.1.1` in 91 s, `26.1.2` in 92 s, `26.2` in 93 s, `26.3` in 94 s), `compatibilityCorpus` across all 9 versions on the first run with loaded/not-loaded counts identical to 2.2.0 (`1.20.1` in 768 s, `1.20.4` in 333 s, `1.21.1` in 362 s, `1.21.11` in 421 s, `26.1` in 751 s, `26.1.1` in 704 s, `26.1.2` in 711 s, `26.2` in 884 s, `26.3` in 1143 s), and all 34 sequential client window tasks spaced 20 s apart passing (`exit=0`; 33 on the first run and `corpusNeoForgeClient` on `1.21.11` (82 s) on rerun after the corpus task dependency fix above, including `forgeOnNeoForgeClient` on `26.2` (75 s)), with full results in `docs/verification/2.3.0/release.md`.
+
+### Known Limitations
+
+- Forge on NeoForge is experimental and off by default; it has only been verified with test mods, and no real corpus Forge mods have been run yet.
+- Forge registration works only with a registry key: `ForgeRegistries` members (such as `ForgeRegistries.BLOCKS`), `IForgeRegistry`, new registries (`DeferredRegister.makeRegistry`, `NewRegistryEvent`), optional tag defaults, `@ObjectHolder` and standalone `RegistryObject.create`, `RegisterEvent.getForgeRegistry`, `RegisterEvent$RegisterHelper`, the 11 Forge-only `ForgeRegistries.Keys` registries, and data pack registries exclude the mod with `PLEXUS-COMPAT-229`, and in the cached 26.2 corpus only 1 of 35 Forge-only mods registers with keys alone.
+- Registration is verified for a block, its `BlockItem`, and a sound event only; no client window has run with registered Forge content, and the test block has no model or texture.
+- Bridged Forge events are limited to 10 game events, 4 lifecycle events, and `RegisterEvent` for registries NeoForge shares; player events, client tick and render events, client mod bus events such as `RegisterKeyMappingsEvent`, `BlockEvent$BreakEvent`, `AddReloadListenerEvent`, network payload events, `NewRegistryEvent`, and all other Forge events are not forwarded.
+- Forge listener priorities order Forge listeners only; all bridged Forge listeners run inside one NeoForge listener at normal priority.
+- Client window execution for Forge on NeoForge is verified on Minecraft 26.2 only; on dedicated servers, runs were checked up to the EULA check.
+- Fabric or Quilt mods in the same game as Forge on NeoForge are not supported yet.
+- Forge mods are not counted in Plexus Mod Loader's own mod list, other loaders' mods cannot depend on them, and Forge's `ModList` and `ModLoadingContext.get()` are not set up.
+- The installer's Java 17 copy of the download idle timeout was tested on Java 21 and 25 only, not on a Java 17 runtime.
+- Client mod initialization stays at Minecraft's initialization point when using Fabric API's own build beside NeoForge 21.1 (`KeyBindingRegistryImpl.registerKeyBinding` throws `"GameOptions has already been initialised"`).
+- Quilt Standard Libraries (QSL) remains omitted from Minecraft 1.20.1 Quilt corpus runs and beside Forge or NeoForge in corpus runs.
+- Quilt Loader 0.31.0 final is not released; bundled `0.31.0-beta.4` rejects mods requiring `quilt_loader >=0.31.0`.
+- Manual verification checklists (`MANUAL_QA_CHECKLIST`) and installer window validation require a human operator.
+
 ## 2.2.0 — 2026-11-14
 
 ### Summary

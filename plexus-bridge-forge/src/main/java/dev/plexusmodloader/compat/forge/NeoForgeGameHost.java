@@ -376,7 +376,8 @@ final class NeoForgeGameHost implements GameHost {
                 new URLClassLoader(urls(modules), NeoForgeGameHost.class.getClassLoader())) {
             ClassHierarchyResolver hierarchy = ClassHierarchyResolver.ofResourceParsing(hierarchyJars)
                     .orElse(ClassHierarchyResolver.defaultResolver());
-            libraryLayer = defineLibraryLayer(layers, hierarchy, patch);
+            ModuleLayer.Controller libraries = defineLibraryLayer(layers, hierarchy, patch);
+            libraryLayer = libraries.layer();
             openJdk(libraryLayer.modules());
             Module host = libraryLayer.modules().stream()
                     .filter(module -> module.getPackages().contains("dev.plexusmodloader.compat.forge.fml"))
@@ -411,7 +412,7 @@ final class NeoForgeGameHost implements GameHost {
                                         layers,
                                         classes,
                                         gameClassLoader,
-                                        this::openJdk,
+                                        gameModules -> gameLayerDefined(libraries, gameModules),
                                         otherMods,
                                         request.sharedMixin(),
                                         request.log(),
@@ -441,9 +442,10 @@ final class NeoForgeGameHost implements GameHost {
      * NeoForge's loader libraries (those Plexus Mod Loader's class path does not have) and the host as modules of the
      * game class loader, defined as they are except {@code FMLLoader} ({@link NeoForgeLoaderPatch}). NeoForge runs these
      * libraries from the class path, so each is an automatic module here ({@link #automatic}), and every module reads
-     * Plexus Mod Loader's class path, where the libraries it shares with Minecraft are.
+     * Plexus Mod Loader's class path, where the libraries it shares with Minecraft are. The layer's controller adds read
+     * edges once FML's game layer is defined ({@link #gameLayerDefined}).
      */
-    private ModuleLayer defineLibraryLayer(
+    private ModuleLayer.Controller defineLibraryLayer(
             GameModuleLayers layers,
             ClassHierarchyResolver hierarchy,
             AtomicReference<NeoForgeLoaderPatch.Result> patch) {
@@ -463,6 +465,10 @@ final class NeoForgeGameHost implements GameHost {
                 // NeoForge's early loading window shows Plexus Mod Loader's art and title.
                 reference = EarlyScreenArt.of(reference, earlyScreen, request.log());
                 reference = EarlyWindowTitle.of(reference, request.gameVersion(), request.log());
+            }
+            if (!forgeModJars.isEmpty()) {
+                // Forge on NeoForge, F-N4: Forge's RegistryObject without the Forge-patch-only isIntrusive() call.
+                reference = ForgeRegistryObjectPatch.patching(reference);
             }
             if (request.sharedMixin()) {
                 reference = NeoForgeSharedMixinPatch.patching(reference, hierarchy, result -> {
@@ -505,7 +511,7 @@ final class NeoForgeGameHost implements GameHost {
             controller.addReads(module, classPath);
             controller.addReads(module, module.getClassLoader().getUnnamedModule());
         }
-        return controller.layer();
+        return controller;
     }
 
     /**
@@ -594,6 +600,25 @@ final class NeoForgeGameHost implements GameHost {
                                         + " Plexus Mod(s) and other loaders' mod(s)");
                     }
                 });
+    }
+
+    /**
+     * Once FML's game layer is defined: opens the JDK to its modules ({@link #openJdk}), and with Forge mods handed over
+     * (Forge on NeoForge, ADR-0051) lets Forge's API modules among the libraries ({@code net.minecraftforge.*}) read
+     * every module of the game layer. On MinecraftForge, Forge's {@code universal} jar is in the game layer with
+     * Minecraft; here it is in the library layer below it, which does not read the game layer, so Forge's own code that
+     * calls Minecraft (its {@code DeferredRegister} and {@code RegistryObject}, F-N4) could not link otherwise.
+     */
+    private void gameLayerDefined(ModuleLayer.Controller libraries, Set<Module> gameModules) {
+        openJdk(gameModules);
+        if (forgeModJars.isEmpty()) {
+            return;
+        }
+        for (Module forge : libraries.layer().modules()) {
+            if (forge.getName().startsWith("net.minecraftforge.")) {
+                gameModules.forEach(game -> libraries.addReads(forge, game));
+            }
+        }
     }
 
     /** Opens {@code java.base}'s {@code java.lang.invoke} to {@code modules}, as NeoForge's launcher profile does. */

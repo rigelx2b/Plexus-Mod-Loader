@@ -348,9 +348,10 @@ final class ServerInstaller {
         }
     }
 
-    /** Downloads over HTTPS with Java's own client, following redirects. */
+    /** Downloads over HTTPS with Java's own client, following redirects, with {@link IdleTimeoutDownload}. */
     static Downloader httpDownloader() {
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
@@ -361,7 +362,7 @@ final class ServerInstaller {
                     .build();
             HttpResponse<Path> response;
             try {
-                response = client.send(request, HttpResponse.BodyHandlers.ofFile(target));
+                response = IdleTimeoutDownload.send(client, request, IdleTimeoutDownload.fileBody(target));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Download of " + uri + " was interrupted", e);
