@@ -27,10 +27,11 @@ final class ForgeOnNeoForgeLibraries {
 
     /**
      * File name prefixes of the jars taken: Forge's event bus 7, its SPI, FML's core and Java language provider, the
-     * secure jar handling and unsafe access {@code FMLModContainer} uses.
+     * secure jar handling and unsafe access {@code FMLModContainer} uses, and Forge's loader jar for its paths ({@code
+     * FMLPaths}, which the host sets to the game's; Forge's {@code FMLLoader} in it is never started).
      */
-    static final List<String> PREFIXES =
-            List.of("eventbus-", "forgespi-", "fmlcore-", "javafmllanguage-", "securemodules-", "unsafe-");
+    static final List<String> PREFIXES = List.of(
+            "eventbus-", "forgespi-", "fmlcore-", "javafmllanguage-", "securemodules-", "unsafe-", "fmlloader-");
 
     private ForgeOnNeoForgeLibraries() {}
 

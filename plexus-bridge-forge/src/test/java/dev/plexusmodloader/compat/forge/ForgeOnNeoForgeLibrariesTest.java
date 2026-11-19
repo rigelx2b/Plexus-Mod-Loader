@@ -51,6 +51,7 @@ class ForgeOnNeoForgeLibrariesTest {
                         "javafmllanguage-" + VERSION + ".jar",
                         "securemodules-2.2.24.jar",
                         "unsafe-0.9.2.jar",
+                        "fmlloader-" + VERSION + ".jar",
                         "forge-" + VERSION + "-universal.jar"),
                 selected.stream().map(jar -> jar.getFileName().toString()).toList());
     }

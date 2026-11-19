@@ -90,6 +90,7 @@ dependencies {
     "neoForgeHostCompileOnly"(libs.forge.fmlcore) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.javafmllanguage) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.forgespi) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.fmlloader) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.eventbus) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.securemodules) { isTransitive = false }
     "neoForgeHostCompileOnly"(variantOf(libs.forge.universal) { classifier("universal") }) { isTransitive = false }

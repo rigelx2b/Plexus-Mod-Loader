@@ -184,7 +184,8 @@ public final class PlexusRuntime {
         // F-N2: the Forge mods that use only the Forge API NeoForge's host runs are handed to it; the others stay left
         // out (229) with what they use beyond it.
         ForgeOnNeoForgeScope.Split forgeOnNeoForge = neoForgeHostsForge
-                ? ForgeOnNeoForgeScope.split(onlyForgeJars(files), gameVersion)
+                ? ForgeOnNeoForgeScope.split(
+                        onlyForgeJars(files), gameVersion, fabricModsBesides(files, neoForgeJars) > 0)
                 : new ForgeOnNeoForgeScope.Split(List.of(), List.of());
         if (forge) {
             reportNeoForgeBesideForge(files);

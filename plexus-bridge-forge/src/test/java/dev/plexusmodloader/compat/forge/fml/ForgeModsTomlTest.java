@@ -67,6 +67,29 @@ class ForgeModsTomlTest {
         assertFalse(dependencies.get(1).contains("mandatory"));
     }
 
+    /**
+     * Forge mods name their Mixin configurations in the jar's manifest ({@code MixinConfigs}); FML 11 and 12 take a mod
+     * file's from its {@code [[mixins]]} entries, which a Forge mod's own entries join without duplicates.
+     */
+    @Test
+    void manifestMixinConfigsBecomeMixinsEntries() {
+        CommentedConfig config = TomlFormat.instance()
+                .createParser()
+                .parse(FORGE_MODS_TOML + "\n[[mixins]]\nconfig = \"listed.mixins.json\"\n");
+        ForgeModsToml.addMixins(config, List.of("listed.mixins.json", "example.mixins.json"));
+        List<Config> mixins = config.get("mixins");
+        assertEquals(
+                List.of("listed.mixins.json", "example.mixins.json"),
+                mixins.stream().map(m -> (String) m.get("config")).toList());
+    }
+
+    @Test
+    void noManifestMixinConfigsAddNoMixinsEntry() {
+        CommentedConfig config = parse();
+        ForgeModsToml.addMixins(config, List.of());
+        assertFalse(config.contains("mixins"));
+    }
+
     private static CommentedConfig parse() {
         return TomlFormat.instance().createParser().parse(FORGE_MODS_TOML);
     }

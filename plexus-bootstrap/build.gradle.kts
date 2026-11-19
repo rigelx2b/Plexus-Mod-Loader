@@ -906,6 +906,49 @@ if (minecraft.startsWith("26.")) {
         )
         unexpectedOutput.add("PLEXUS-COMPAT-229")
     }
+    // Forge on NeoForge: Forge mods' Mixin configurations (manifest MixinConfigs) on NeoForge's game. forge-mixin injects
+    // into vanilla MinecraftServer methods and runs; forge-on-neoforge-patched-mixin injects into Entity.canUpdate(),
+    // which only MinecraftForge's patches add, and the link check's Mixin check leaves it out before it runs.
+    scenarios.gameTest(
+        "forgeOnNeoForgeMixin",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-mixin",
+            ":test-mods:forge-on-neoforge-patched-mixin",
+        ),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod's mixins of vanilla methods apply on NeoForge's game, and a Forge mod whose mixin targets a method only MinecraftForge's patches add is left out (PLEXUS-COMPAT-229), on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "forge_on_neoforge_patched_mixin.mixins.json EntityMixin: @Inject method canUpdate is not in net.minecraft.world.entity.Entity",
+            "[forge_mixin] tickServer @Inject ran; getServerModName() = ",
+            "+forge_mixin",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("[forge_on_neoforge_patched_mixin] constructed")
+    }
+    // Forge on NeoForge with a Fabric mod: NeoForge's mods share Fabric's Mixin (ADR-0026 30), which Forge mods'
+    // Mixin configurations have not been run with, so forge-mixin is left out naming that.
+    scenarios.gameTest(
+        "forgeOnNeoForgeSharedMixin",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-mixin", fabric),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on and a Fabric mod in the game, a Forge mod with Mixin configurations is left out (PLEXUS-COMPAT-229) because NeoForge's Mixin is shared with Fabric's, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        systemProperty("plexus.fabricApi", "off")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "MixinConfigs (with Fabric or Quilt mods, whose Mixin NeoForge's mods share)",
+            "[fabric_hello] ",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("[forge_mixin] tickServer @Inject ran")
+    }
     // Forge on NeoForge, link check: forge-on-neoforge-patch-member calls Entity.canUpdate(), which only MinecraftForge's
     // patches add, on the game's class and through its own Entity subclass. It is left out (229, naming both references)
     // before it runs, and the events mod next to it still runs with the game events.
@@ -1374,6 +1417,32 @@ val modCorpusNeoForge = registerLoaderCorpus("neoforge", hasNeoForgeRelease)
 val modCorpusForge = registerLoaderCorpus("forge", hasForgeRelease)
 fun corpus(vararg loaders: String): FileCollection =
     files(loaders.map { loader -> corpusRoot.map { it.dir(loader).asFileTree.matching { include("*.jar") } } })
+
+// Forge on NeoForge (ADR-0051, experimental): the corpus's Chunky, a MinecraftForge mod with Mixin configurations in its
+// manifest, Forge's own event bus and Forge's paths, on NeoForge's game test server. The driver runs Chunky's commands
+// once the server has started and keeps it running until Chunky's task is done, which needs Chunky's mixins.
+if (minecraft.startsWith("26.")) {
+    scenarios.gameTest(
+        "forgeOnNeoForgeChunky",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-chunky-driver") +
+            files(corpusRoot.map { it.dir("forge").asFileTree.matching { include("Chunky-Forge-*.jar") } }),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, the corpus's Chunky (a MinecraftForge mod with Mixin) runs on NeoForge's game test server and finishes a chunk generation task (network)."
+        dependsOn(modCorpus)
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "Forge on NeoForge: NeoForge's FML runs 1 MinecraftForge mod file(s) with Forge's own mod container",
+            "[neoforge_chunky_driver] chunky command registered: true",
+            "Task finished for minecraft:overworld. Processed: ",
+            "[neoforge_chunky_driver] chunky generation complete event for minecraft:overworld",
+            "[neoforge_chunky_driver] chunky task done: true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "chunky task done: false")
+    }
+}
 
 // Mojang's game test server is neither a dedicated server nor a client. Left out of the game test runs, and run in
 // corpusFabricServer instead:
@@ -3851,7 +3920,7 @@ tasks.register("compatibilityCorpus") {
         dependsOn(
             corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",
             "corpusFabricNeoForgeClientMixins", "corpusFabricNeoForgeClientBootstrap",
-            "mixinAuditQuiltClient", "mixinAuditQuiltServer",
+            "mixinAuditQuiltClient", "mixinAuditQuiltServer", "forgeOnNeoForgeChunky",
         )
     }
 }
@@ -3865,7 +3934,8 @@ tasks.register("compatibilityMatrix") {
     if (minecraft.startsWith("26.")) {
         dependsOn(
             "forgeOnNeoForgeWorldTest", "forgeOnNeoForgeServerBoot", "forgeOnNeoForgeEvents", "forgeOnNeoForgeContent",
-            "forgeOnNeoForgeLinkCheck", "forgeOnNeoForgeLinkCheckAlone",
+            "forgeOnNeoForgeLinkCheck", "forgeOnNeoForgeLinkCheckAlone", "forgeOnNeoForgeMixin",
+            "forgeOnNeoForgeSharedMixin",
         )
     }
     if (minecraft == "26.2") {
