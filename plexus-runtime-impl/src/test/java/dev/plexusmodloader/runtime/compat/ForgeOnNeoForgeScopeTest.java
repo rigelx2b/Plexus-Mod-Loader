@@ -39,6 +39,12 @@ class ForgeOnNeoForgeScopeTest {
             ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries$Keys");
     private static final ClassDesc RESOURCE_KEY = ClassDesc.ofInternalName("net/minecraft/resources/ResourceKey");
     private static final ClassDesc STRING = ConstantDescs.CD_String;
+    private static final ClassDesc MINECRAFT_FORGE =
+            ClassDesc.ofInternalName("net/minecraftforge/common/MinecraftForge");
+    private static final ClassDesc MIGRATION_HELPER =
+            ClassDesc.ofInternalName("net/minecraftforge/common/EventBusMigrationHelper");
+    private static final ClassDesc FML_PATHS = ClassDesc.ofInternalName("net/minecraftforge/fml/loading/FMLPaths");
+    private static final ClassDesc PATH = ClassDesc.of("java.nio.file.Path");
     private static final ClassDesc SUPPLIER = ClassDesc.of("java.util.function.Supplier");
 
     @TempDir
@@ -185,11 +191,12 @@ class ForgeOnNeoForgeScopeTest {
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
+    /**
+     * Access transformers and coremods are named; Mixin configurations are not, since FML applies them (the Mixin check
+     * of the link check decides whether they fit).
+     */
     @Test
-    void classTransformingFilesAndMixinConfigsAreNamed() throws IOException {
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        manifest.getMainAttributes().putValue("MixinConfigs", "example.mixins.json");
+    void classTransformingFilesAreNamed() throws IOException {
         Path jar = jar(
                 "transforms.jar",
                 Map.of(
@@ -197,11 +204,70 @@ class ForgeOnNeoForgeScopeTest {
                         "public net.minecraft.world.level.Level",
                         "META-INF/coremods.json",
                         "{}"),
-                manifest,
+                mixinManifest(),
                 code -> {});
         assertEquals(
-                List.of("META-INF/accesstransformer.cfg", "META-INF/coremods.json", "MixinConfigs"),
+                List.of("META-INF/accesstransformer.cfg", "META-INF/coremods.json"),
                 ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * With Fabric or Quilt mods in the game, NeoForge's mods share their Mixin (ADR-0026 30), which Forge mods' Mixin
+     * configurations have not been run with: such a mod is left out naming them.
+     */
+    @Test
+    void mixinConfigsAreNamedWhenTheMixinIsShared() throws IOException {
+        Path mixins = jar("mixins.jar", Map.of(), mixinManifest(), code -> {});
+        Path plain = jar("plain.jar", Map.of(), null, code -> {});
+        assertEquals(
+                List.of(mixins, plain),
+                ForgeOnNeoForgeScope.split(List.of(mixins, plain), "26.2", false)
+                        .runnable());
+        ForgeOnNeoForgeScope.Split shared = ForgeOnNeoForgeScope.split(List.of(mixins, plain), "26.2", true);
+        assertEquals(List.of(plain), shared.runnable());
+        assertEquals(
+                List.of(new ForgeOnNeoForgeScope.Left(mixins, List.of(ForgeOnNeoForgeScope.SHARED_MIXIN))),
+                shared.leftOut());
+    }
+
+    /** As Chunky: Forge's own event bus ({@code MinecraftForge.EVENT_BUS}) and Forge's paths ({@code FMLPaths}). */
+    @Test
+    void forgesEventBusAndPathsRun() throws IOException {
+        Path jar = jar("bus.jar", Map.of(), null, code -> {
+            code.getstatic(MINECRAFT_FORGE, "EVENT_BUS", MIGRATION_HELPER);
+            code.aload(0);
+            code.invokevirtual(
+                    MIGRATION_HELPER,
+                    "register",
+                    MethodTypeDesc.of(ClassDesc.of("java.util.Collection"), ConstantDescs.CD_Object));
+            code.pop();
+            code.getstatic(FML_PATHS, "CONFIGDIR", FML_PATHS);
+            code.invokevirtual(FML_PATHS, "get", MethodTypeDesc.of(PATH));
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /** Forge's startup and the setup of Forge's paths are the host's, not a mod's. */
+    @Test
+    void forgesStartupAndPathSetupAreNamed() throws IOException {
+        Path jar = jar("setup.jar", Map.of(), null, code -> {
+            code.invokestatic(MINECRAFT_FORGE, "initialize", MethodTypeDesc.of(ConstantDescs.CD_void));
+            code.aconst_null();
+            code.invokestatic(FML_PATHS, "loadAbsolutePaths", MethodTypeDesc.of(ConstantDescs.CD_void, PATH));
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/common/MinecraftForge.initialize",
+                        "net/minecraftforge/fml/loading/FMLPaths.loadAbsolutePaths"),
+                ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    private static Manifest mixinManifest() {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("MixinConfigs", "example.mixins.json");
+        return manifest;
     }
 
     @Test
@@ -213,7 +279,7 @@ class ForgeOnNeoForgeScopeTest {
                     MOD_LIST, "isLoaded", MethodTypeDesc.of(ConstantDescs.CD_boolean, ConstantDescs.CD_String));
             code.pop();
         });
-        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(left, runs), "26.2");
+        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(left, runs), "26.2", false);
         assertEquals(List.of(runs), split.runnable());
         assertEquals(
                 List.of(new ForgeOnNeoForgeScope.Left(left, List.of("net/minecraftforge/fml/ModList"))),
@@ -230,7 +296,7 @@ class ForgeOnNeoForgeScopeTest {
     void splitWithoutKeepsEachJarsReasons() throws IOException {
         Path runs = jar("runs.jar", Map.of(), null, code -> {});
         Path unlinked = jar("unlinked.jar", Map.of(), null, code -> {});
-        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(runs, unlinked), "26.2")
+        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(runs, unlinked), "26.2", false)
                 .without(Map.of(unlinked, List.of("1 Minecraft method(s) or field(s) ...")));
         assertEquals(List.of(runs), split.runnable());
         assertEquals(
@@ -242,7 +308,7 @@ class ForgeOnNeoForgeScopeTest {
     @Test
     void onAnUnverifiedVersionEveryForgeModIsLeftOut() throws IOException {
         Path runs = jar("runs.jar", Map.of(), null, code -> {});
-        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(runs), "1.21.11");
+        ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(runs), "1.21.11", false);
         assertEquals(List.of(), split.runnable());
         assertEquals(List.of(new ForgeOnNeoForgeScope.Left(runs, List.of("minecraft 1.21.11"))), split.leftOut());
     }

@@ -41,7 +41,10 @@ public final class ForgeOnNeoForgeScope {
      * RegistryObject}s, Forge's {@code RegisterEvent}, which NeoForge's is passed on as, and the keys of {@code
      * ForgeRegistries.Keys}, whose outer class {@code ForgeRegistries} is named too, though none of its members may be).
      * {@code IForgeRegistry} and the {@code RegisterEvent} helper (which needs Forge's {@code ModLoadingContext}) are
-     * not here: their names in a mod's descriptors leave it out.
+     * not here: their names in a mod's descriptors leave it out. Also Forge's own game event bus ({@code
+     * MinecraftForge.EVENT_BUS}, an {@code EventBusMigrationHelper} that registers a mod's listeners on the static
+     * buses of the events passed on) and Forge's paths ({@code FMLPaths}, from Forge's {@code fmlloader} jar, which the
+     * host sets to the game's paths).
      */
     private static final Set<String> CLASSES = Set.of(
             "net/minecraftforge/fml/common/Mod",
@@ -70,7 +73,10 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/RegistryObject",
             "net/minecraftforge/registries/RegisterEvent",
             "net/minecraftforge/registries/ForgeRegistries",
-            "net/minecraftforge/registries/ForgeRegistries$Keys");
+            "net/minecraftforge/registries/ForgeRegistries$Keys",
+            "net/minecraftforge/common/MinecraftForge",
+            "net/minecraftforge/common/EventBusMigrationHelper",
+            "net/minecraftforge/fml/loading/FMLPaths");
 
     /**
      * {@code ForgeRegistries} is named by the {@code InnerClasses} attribute of every class that uses {@code
@@ -104,6 +110,10 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/RegistryObject.create",
             "net/minecraftforge/registries/RegistryObject.createOptional",
             "net/minecraftforge/registries/RegisterEvent.getForgeRegistry",
+            "net/minecraftforge/common/MinecraftForge.initialize",
+            "net/minecraftforge/common/MinecraftForge.registerConfigScreen",
+            "net/minecraftforge/fml/loading/FMLPaths.setup",
+            "net/minecraftforge/fml/loading/FMLPaths.loadAbsolutePaths",
             "net/minecraftforge/registries/ForgeRegistries$Keys.ENTITY_DATA_SERIALIZERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.GLOBAL_LOOT_MODIFIER_SERIALIZERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.BIOME_MODIFIER_SERIALIZERS",
@@ -132,8 +142,9 @@ public final class ForgeOnNeoForgeScope {
 
     /**
      * What {@code jar} uses beyond F-N2's Forge API: Forge classes and members (as {@code owner} or {@code
-     * owner.member}), the class-transforming files it has, and {@code MixinConfigs} when its manifest names Mixin
-     * configurations. Empty when the mod runs on NeoForge.
+     * owner.member}) and the class-transforming files it has. Empty when the mod runs on NeoForge. Its Mixin
+     * configurations are not named: FML applies them, and the link check's Mixin check decides whether they fit
+     * ({@code ForgeOnNeoForgeMixins}).
      *
      * @throws IOException when the jar or one of its classes cannot be read
      */
@@ -144,10 +155,6 @@ public final class ForgeOnNeoForgeScope {
                 if (file.getEntry(name) != null) {
                     found.add(name);
                 }
-            }
-            Manifest manifest = file.getManifest();
-            if (manifest != null && manifest.getMainAttributes().getValue("MixinConfigs") != null) {
-                found.add("MixinConfigs");
             }
             Enumeration<JarEntry> entries = file.entries();
             while (entries.hasMoreElements()) {
@@ -166,6 +173,14 @@ public final class ForgeOnNeoForgeScope {
             throw new IOException(jar.getFileName() + ": " + e.getMessage(), e);
         }
         return List.copyOf(found);
+    }
+
+    /** Whether {@code jar}'s manifest names Mixin configurations ({@code MixinConfigs}). */
+    static boolean hasMixinConfigs(Path jar) throws IOException {
+        try (JarFile file = new JarFile(jar.toFile())) {
+            Manifest manifest = file.getManifest();
+            return manifest != null && manifest.getMainAttributes().getValue("MixinConfigs") != null;
+        }
     }
 
     /** Adds what {@code classBytes} uses beyond F-N2's Forge API to {@code found}. */
@@ -247,15 +262,23 @@ public final class ForgeOnNeoForgeScope {
      */
     static final Set<String> VERIFIED_MINECRAFT = Set.of("26.1", "26.1.1", "26.1.2", "26.2", "26.3");
 
+    /**
+     * What a Forge mod with Mixin configurations is left out with when Fabric or Quilt mods share NeoForge's Mixin
+     * (ADR-0026 30), which Forge mods' configurations have not been run with.
+     */
+    public static final String SHARED_MIXIN =
+            "MixinConfigs (with Fabric or Quilt mods, whose Mixin NeoForge's mods share)";
+
     /** What a jar the NeoForge host declined after reading its {@code mods.toml} is reported with. */
     public static final String DECLINED_BY_HOST = "META-INF/mods.toml";
 
     /**
      * Splits {@code jars} into those that run on NeoForge for Minecraft {@code gameVersion} and those left out; a jar
      * that cannot be read is left out, and on a version F-N2 was not run on ({@link #VERIFIED_MINECRAFT}) every jar is,
-     * with {@code minecraft <version>}.
+     * with {@code minecraft <version>}. With {@code sharedMixin} (Fabric or Quilt mods in the game), a jar whose manifest
+     * names Mixin configurations is left out with {@link #SHARED_MIXIN}.
      */
-    public static Split split(List<Path> jars, String gameVersion) {
+    public static Split split(List<Path> jars, String gameVersion, boolean sharedMixin) {
         List<Path> runnable = new ArrayList<>();
         List<Left> leftOut = new ArrayList<>();
         if (!VERIFIED_MINECRAFT.contains(gameVersion)) {
@@ -264,7 +287,10 @@ public final class ForgeOnNeoForgeScope {
         }
         for (Path jar : jars) {
             try {
-                List<String> unsupported = unsupported(jar);
+                List<String> unsupported = new ArrayList<>(unsupported(jar));
+                if (sharedMixin && hasMixinConfigs(jar)) {
+                    unsupported.add(SHARED_MIXIN);
+                }
                 if (unsupported.isEmpty()) {
                     runnable.add(jar);
                 } else {

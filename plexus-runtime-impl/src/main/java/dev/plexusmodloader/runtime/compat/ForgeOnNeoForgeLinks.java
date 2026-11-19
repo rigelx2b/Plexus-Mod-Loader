@@ -5,11 +5,18 @@ import dev.plexusmodloader.compat.bridge.CompatibilityFinding;
 import dev.plexusmodloader.compat.bridge.GameHost;
 import dev.plexusmodloader.compat.bridge.HostedLaunch;
 import dev.plexusmodloader.compat.bridge.ModLoaderBridge;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.jar.JarFile;
+import java.util.zip.ZipEntry;
 
 /**
  * Forge on NeoForge (ADR-0051): whether the MinecraftForge mods handed to the NeoForge host link against the game it
@@ -19,7 +26,8 @@ import java.util.Map;
  * against NeoForge's patched game and the vanilla jar, the host's loader libraries (Forge's API jars among them), the
  * NeoForge mods and the other Forge mods, with members reached through the mod's own subclasses of game classes too
  * ({@link ModLinkVerifier#builtForAnotherPatch}). A mod class that overrides a method NeoForge's patch made {@code final}
- * is found as well ({@link HostPatchCheck#finalOverrides}).
+ * is found as well ({@link HostPatchCheck#finalOverrides}), and so is a mixin that names what NeoForge's patched game
+ * lacks ({@link ForgeOnNeoForgeMixins}).
  *
  * <p>The Forge API jars must be among the jars checked against: otherwise every class that uses Forge's API counts as
  * another loader's code path, and its missing Minecraft members are noted instead of blocking.
@@ -29,6 +37,51 @@ import java.util.Map;
 public final class ForgeOnNeoForgeLinks {
 
     private ForgeOnNeoForgeLinks() {}
+
+    /** Class files from jars, first jar first. Never defines a class. */
+    private static final class GameClassFiles implements AutoCloseable {
+
+        private final List<JarFile> jars = new ArrayList<>();
+
+        GameClassFiles(List<Path> paths) throws IOException {
+            try {
+                for (Path path : paths) {
+                    if (path != null && Files.isRegularFile(path)) {
+                        jars.add(new JarFile(path.toFile()));
+                    }
+                }
+            } catch (IOException e) {
+                close();
+                throw e;
+            }
+        }
+
+        Optional<byte[]> read(String internalName) {
+            String name = internalName + ".class";
+            for (JarFile jar : jars) {
+                ZipEntry entry = jar.getEntry(name);
+                if (entry != null) {
+                    try (InputStream input = jar.getInputStream(entry)) {
+                        return Optional.of(input.readAllBytes());
+                    } catch (IOException e) {
+                        throw new UncheckedIOException("Failed to read " + name + " from " + jar.getName(), e);
+                    }
+                }
+            }
+            return Optional.empty();
+        }
+
+        @Override
+        public void close() {
+            for (JarFile jar : jars) {
+                try {
+                    jar.close();
+                } catch (IOException e) {
+                    // Read-only jars opened for this check; nothing was written to them.
+                }
+            }
+        }
+    }
 
     /**
      * What keeps each of {@code forgeMods} from running on {@code host}, by jar, in the order given; jars that link are
@@ -81,6 +134,26 @@ public final class ForgeOnNeoForgeLinks {
         HostPatchCheck.finalOverrides(hosted, patched.stream().distinct().toList(), platform, forgeMods)
                 .forEach((jar, lines) ->
                         reasons.computeIfAbsent(jar, key -> new ArrayList<>()).addAll(lines));
+        // A mixin may target NeoForge's own classes or another mod's, as well as the game's; the loader libraries
+        // (Forge's API jars among them) are outside FML's game layer, where its Mixin transforms, so only supertypes.
+        List<Path> mixinTargets = new ArrayList<>(patched);
+        mixinTargets.add(vanillaGameJar);
+        mixinTargets.addAll(otherJars);
+        mixinTargets.addAll(forgeMods);
+        try (GameClassFiles classes =
+                        new GameClassFiles(mixinTargets.stream().distinct().toList());
+                GameClassFiles libraries = new GameClassFiles(host.loaderJars())) {
+            for (Path jar : forgeMods) {
+                List<String> unfit = ForgeOnNeoForgeMixins.unfit(jar, side, classes::read, libraries::read);
+                if (!unfit.isEmpty()) {
+                    reasons.computeIfAbsent(jar, key -> new ArrayList<>())
+                            .add(unfit.size() + " mixin part(s) that do not fit " + hosted.hostName()
+                                    + "'s patched game: " + String.join("; ", unfit));
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to check the mixins of Forge mods against NeoForge's game", e);
+        }
         Map<Path, List<String>> ordered = new LinkedHashMap<>();
         for (Path jar : forgeMods) {
             List<String> lines = reasons.get(jar);

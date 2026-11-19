@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.3.1 — 2026-11-19
+
+### Summary
+
+Plexus Mod Loader 2.3.1 extends the experimental Forge on NeoForge opt-in (`-Dplexus.forgeOnNeoForge=on`, Minecraft 26.1 to 26.3) to run Forge mods' Mixin configurations, `MinecraftForge.EVENT_BUS`, and `FMLPaths` behind pre-start Mixin compatibility checks, allowing Chunky 1.5.4 to load and run headlessly.
+
+### What's New
+
+- Hand over MinecraftForge mods' `MixinConfigs` to NeoForge's FML on Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3 under `-Dplexus.forgeOnNeoForge=on` by translating them into `[[mixins]]` entries in `ForgeModsToml.addMixins` (skipping duplicates), while excluding Forge mods with `MixinConfigs` under `ForgeOnNeoForgeScope.SHARED_MIXIN` when Fabric or Quilt mods share Mixin (`ForgeOnNeoForgeScope.split` with `sharedMixin`).
+- Allow `MinecraftForge.EVENT_BUS` (`EventBusMigrationHelper.register(Object)` over Forge's `BusGroup.DEFAULT`) in `ForgeOnNeoForgeScope` so Forge mods can register `@SubscribeEvent` listeners on already-forwarded game events, while continuing to exclude `MinecraftForge.initialize` and `MinecraftForge.registerConfigScreen`.
+- Allow Forge's `FMLPaths` (except `FMLPaths.setup` and `FMLPaths.loadAbsolutePaths`) by adding `fmlloader-` to `ForgeOnNeoForgeLibraries.PREFIXES` and calling `FMLPaths.loadAbsolutePaths` in `ForgePaths` once with NeoForge's `FMLPaths.GAMEDIR.get()` before the first Forge mod is constructed so `FMLPaths.CONFIGDIR.get()` resolves to the game's `config` folder.
+
+### Improvements & Fixes
+
+- Add `ForgeOnNeoForgeMixins` (invoked from `ForgeOnNeoForgeLinks.check`) to inspect side-matching Forge mixin classes via the JDK class-file API before launch and exclude unfit mods under `PLEXUS-COMPAT-229`, verifying `@Mixin` targets against FML-transformed classes (NeoForge's patched game jar, loader-defined jars, vanilla, mods, and the mod's own jar, using loader libraries only for `@Shadow` supertype lookups), `@Inject`/`@Redirect`/`@ModifyArg`/`@ModifyArgs`/`@Overwrite` methods, `@At`/`@Slice` targets, `@Accessor`/`@Invoker` members, and `@Shadow` fields and methods.
+- Exclude Forge mods that rely on Mixin features `ForgeOnNeoForgeMixins` does not verify—configuration `plugin`s, shipped `refmap`s (missing refmap files still fit), MixinExtras annotations, `@ModifyVariable`, `@ModifyConstant`, captured locals other than `NO_CAPTURE`, selector patterns, `@Desc`, other Mixin annotations, and other injection points—while keeping access transformers, coremods, `META-INF/jarjar/metadata.json`, `FMLLoader`, and `FMLEnvironment` excluded.
+
+### Verification
+
+- Add unit tests in `ForgeOnNeoForgeMixinsTest` and expand `ForgeOnNeoForgeScopeTest`, `ForgeModsTomlTest`, and `ForgeOnNeoForgeLibrariesTest` to cover pre-start Mixin checks, shared-Mixin exclusion, `MinecraftForge.EVENT_BUS` and `FMLPaths` scoping, `[[mixins]]` translation, and `fmlloader` resolution.
+- Add `test-mods/forge-on-neoforge-patched-mixin` and `test-mods/neoforge-chunky-driver`, and widen `test-mods/forge-mixin`'s `loaderVersion` and Forge `versionRange` from `[65,)` to `[62,)` so it runs on Minecraft 26.1, 26.1.1, and 26.1.2 as well as 26.2 and 26.3 (`forgeGameTest` and `compatibilityMatrix`).
+- Add `forgeOnNeoForgeMixin` and `forgeOnNeoForgeSharedMixin` to `compatibilityMatrix` across all five 26.x releases to verify `PLEXUS-COMPAT-229` rejection of Forge-patched targets alongside passing `forge-mixin` runs and `SHARED_MIXIN` exclusion next to `fabric-entrypoint-only`.
+- Add `forgeOnNeoForgeChunky` to `compatibilityCorpus` across Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3 to verify `Chunky-Forge-*.jar` (1.5.4) loads without `PLEXUS-COMPAT-229`, registers `/chunky`, and completes a 25-chunk overworld pregeneration task.
+- Validate the release on Java 25 and Windows 11 with `check` (263 s), `build-logic` `check` (22 s), the headless test suite (`serverBootSmokeTest`, `worldCreateSaveTest`, `gameTests`, and `compatibilityMatrix`, now including `forgeOnNeoForgeMixin` and `forgeOnNeoForgeSharedMixin` on 26.x) across all 9 supported Minecraft versions on the first run (`1.20.1` in 131 s, `1.20.4` in 163 s, `1.21.1` in 128 s, `1.21.11` in 145 s, `26.1` in 617 s, `26.1.1` in 437 s, `26.1.2` in 400 s, `26.2` in 554 s, `26.3` in 374 s), `serverInstallTest` across all 9 versions on the first run (`1.20.1` in 54 s, `1.20.4` in 86 s, `1.21.1` in 74 s, `1.21.11` in 68 s, `26.1` in 62 s, `26.1.1` in 59 s, `26.1.2` in 63 s, `26.2` in 63 s, `26.3` in 84 s), `compatibilityCorpus` across all 9 versions with loaded/not-loaded counts identical to 2.3.0 and `forgeOnNeoForgeChunky` finishing a 25-chunk pregeneration on all five 26.x versions (`1.20.1` in 383 s, `1.20.4` in 213 s, `1.21.1` in 193 s, `1.21.11` in 183 s, `26.1` in 454 s, `26.1.1` in 470 s, `26.1.2` in 613 s on a rerun after the first attempt was stopped by host memory pressure (not a test failure), `26.2` in 820 s, `26.3` in 809 s), and all 34 sequential client window tasks spaced 20 s apart passing on the first run (`exit=0`, including `forgeOnNeoForgeClient` on `26.2` (50 s)), with full results in `docs/verification/2.3.1/release.md`.
+
+### Known Limitations
+
+- Forge on NeoForge remains experimental and off by default (`-Dplexus.forgeOnNeoForge=on`, supporting Minecraft 26.1, 26.1.1, 26.1.2, 26.2, and 26.3 only); Chunky 1.5.4 is the only real corpus Forge mod verified, headlessly, while `Dist`, `FMLEnvironment`, `FMLLoader`, `FMLJavaModLoadingContext` members, access transformers, coremods, `ModList`, `IExtensionPoint`, and `ForgeRegistries` members still exclude the remaining corpus Forge-only jars.
+- Forge mods with `MixinConfigs` are left out with `ForgeOnNeoForgeScope.SHARED_MIXIN` when Fabric or Quilt mods are present, and running mixed games with Fabric or Quilt mods alongside Forge on NeoForge is not supported yet.
+- `ForgeOnNeoForgeMixins` excludes mods rather than trusting unsupported Mixin features—configuration `plugin`s, shipped `refmap`s, MixinExtras, `@ModifyVariable`, `@ModifyConstant`, captured locals other than `NO_CAPTURE`, selector patterns, `@Desc`, and other injection points—and performs no handler-signature, `ordinal`/`shift`, or `required`/`defaultRequire` checks (missing targets always leave the mod out).
+- No client window has run a Forge mod's mixins (including Chunky's `IntegratedServerMixin`); client window verification for Forge on NeoForge covers Minecraft 26.2 only with no registered Forge content (the test block has no model or texture), and dedicated server runs reach only the EULA check before Forge mod construction.
+- Forge registration remains limited to `DeferredRegister` with shared registry keys (`ForgeRegistries` members, `IForgeRegistry`, new registries, optional tag defaults, `@ObjectHolder`, standalone `RegistryObject.create`/`createOptional`, `RegisterEvent.getForgeRegistry`, `RegisterEvent$RegisterHelper`, the 11 Forge-only `ForgeRegistries.Keys` registries, and data pack registries leave the mod out) and is verified only for a block, `BlockItem`, and sound event.
+- Bridged Forge events cover only 10 game events, 4 lifecycle events, and `RegisterEvent` for shared registries (excluding player, client tick/render, client mod bus, reload, network, and other events), and Forge listener priorities order Forge listeners only inside one normal-priority NeoForge listener; `@Mod.EventBusSubscriber`, `enqueueWork`, config, networking, and client rendering are not implemented.
+- Forge mods are not counted in Plexus Mod Loader's own mod list, other loaders' mods cannot depend on them, and Forge's `ModList` and `ModLoadingContext.get()` are not set up.
+- Client mod initialization stays at Minecraft's initialization point when using Fabric API's own build beside NeoForge 21.1 (`KeyBindingRegistryImpl.registerKeyBinding` throws `"GameOptions has already been initialised"`), Quilt Standard Libraries (QSL) remains omitted from 1.20.1 Quilt and mixed-loader corpus runs, and bundled Quilt Loader `0.31.0-beta.4` rejects mods requiring `quilt_loader >=0.31.0`.
+- Manual verification checklists (`MANUAL_QA_CHECKLIST`) and installer window validation require a human operator.
+
 ## 2.3.0 — 2026-11-15
 
 ### Summary

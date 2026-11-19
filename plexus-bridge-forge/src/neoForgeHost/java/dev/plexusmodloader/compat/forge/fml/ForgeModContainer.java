@@ -94,12 +94,14 @@ final class ForgeModContainer extends ModContainer {
 
     /**
      * Runs Forge's construction of the mod: its private {@code constructMod}, as Forge's loading stage would. The first
-     * Forge mod constructed adds the game bus events Forge mods get ({@link ForgeGameEvents}); before construction, the
+     * Forge mod constructed sets Forge's paths ({@link ForgePaths}) and adds the game bus events Forge mods get ({@link
+     * ForgeGameEvents}); before construction, the
      * mod's bus gets NeoForge's registry events passed on as Forge's ({@link ForgeRegistration}, F-N4).
      */
     @Override
     protected void constructMod() {
         try {
+            ForgePaths.setToGameDirectory();
             ForgeGameEvents.install(gameClassLoader, PlexusFml::log);
             ForgeRegistration.of(gameClassLoader).listen(eventBus, forge.getModBusGroup());
             Method construct = FMLModContainer.class.getDeclaredMethod("constructMod");
@@ -113,8 +115,9 @@ final class ForgeModContainer extends ModContainer {
     }
 
     private ModLoadingException failed(Throwable cause) {
-        // Forge's ModLoadingException formats its message through Forge's FML bindings, which need Forge's FMLLoader
-        // (not loaded here): FML reports what it wraps instead.
+        // Forge's ModLoadingException formats its message (getMessage) through Forge's FML bindings, which need Forge's
+        // FMLLoader started (its jar is loaded for FMLPaths, but it never starts here): FML reports what it wraps
+        // instead.
         while (cause instanceof net.minecraftforge.fml.ModLoadingException && cause.getCause() != null) {
             cause = cause.getCause();
         }
