@@ -91,6 +91,7 @@ dependencies {
     "neoForgeHostCompileOnly"(libs.forge.javafmllanguage) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.forgespi) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.fmlloader) { isTransitive = false }
+    "neoForgeHostCompileOnly"(libs.forge.mergetool.api) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.eventbus) { isTransitive = false }
     "neoForgeHostCompileOnly"(libs.forge.securemodules) { isTransitive = false }
     "neoForgeHostCompileOnly"(variantOf(libs.forge.universal) { classifier("universal") }) { isTransitive = false }
@@ -142,6 +143,38 @@ tasks.test {
     inputs.files(jars).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("forgeEventJars")
     jvmArgumentProviders.add(CommandLineArgumentProvider {
         listOf("-Dplexus.forgeEventJars=" + jars.files.joinToString(File.pathSeparator) { it.absolutePath })
+    })
+}
+// ForgeEnvironmentCheckTest and ForgeModListCheckTest check what the host sets of Forge's launch state against Forge's
+// fmlloader, mergetool-api and fmlcore jars pinned for Minecraft 26.2 and 26.3 (plexus.forgeEnvironment262, plexus.forgeEnvironment263), one configuration per
+// version for the same reason as above.
+val forgeEnvironment262 = configurations.create("forgeEnvironment262") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val forgeEnvironment263 = configurations.create("forgeEnvironment263") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    forgeEnvironment262(libs.forge.fmlloader)
+    forgeEnvironment262(libs.forge.mergetool.api)
+    forgeEnvironment262(libs.forge.fmlcore)
+    forgeEnvironment263(libs.forge263.fmlloader)
+    forgeEnvironment263(libs.forge.mergetool.api)
+    forgeEnvironment263(libs.forge263.fmlcore)
+    // ForgeEnvironmentCheckTest: NeoForge's and Forge's Dist have the same constants.
+    testImplementation(libs.forge.mergetool.api) { isTransitive = false }
+}
+tasks.test {
+    val jars262 = forgeEnvironment262.incoming.files
+    val jars263 = forgeEnvironment263.incoming.files
+    inputs.files(jars262 + jars263).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("forgeEnvironment")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "-Dplexus.forgeEnvironment262=" + jars262.files.joinToString(File.pathSeparator) { it.absolutePath },
+            "-Dplexus.forgeEnvironment263=" + jars263.files.joinToString(File.pathSeparator) { it.absolutePath },
+        )
     })
 }
 // Fml4SharedMixinPatchTest checks the patch against FML 4 (NeoForge 21.1) and FML 2 (NeoForge 20.4), whose classes share

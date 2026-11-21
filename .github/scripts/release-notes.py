@@ -3,8 +3,9 @@
 The section must have "### Summary" (one sentence) and at least one of "### What's New" and "### Improvements & Fixes"
 (bullets). The notes hold only these, in English; the rest of the section stays in the changelog.
 
-Usage: python release-notes.py <version> <CHANGELOG.md>
+Usage: python release-notes.py <version> <CHANGELOG.md>   (run from the repository root)
 Environment: PLEXUS_MINECRAFT_VERSIONS (comma-separated) adds a "Minecraft: ..." line first.
+gradle.properties: an https plexus.sponsorUrl adds a support line before the closing notice (the website hides it).
 """
 import os
 import re
@@ -12,6 +13,26 @@ import sys
 
 # Windows (GitHub's runner) would print the notes' emoji headings with its ANSI code page and fail.
 sys.stdout.reconfigure(encoding="utf-8")
+
+# The support line, "Support ...: <https address>"; the website's download page drops lines of this shape.
+SPONSOR_LINE = "Support Plexus Mod Loader development: %s"
+
+
+def sponsor_url(path="gradle.properties"):
+    """Return plexus.sponsorUrl from gradle.properties, the single source for the support link, or empty when unset or
+    not https.
+    """
+    try:
+        with open(path, encoding="utf-8") as file:
+            for line in file:
+                key, _, value = line.strip().partition("=")
+                if key.strip() == "plexus.sponsorUrl":
+                    value = value.strip()
+                    return value if re.match(r"https://[^\s/]+", value) else ""
+    except FileNotFoundError:
+        pass
+    return ""
+
 
 version, changelog = sys.argv[1], sys.argv[2]
 lines = open(changelog, encoding="utf-8").read().splitlines()
@@ -64,4 +85,8 @@ if minecraft:
     print()
 print(body)
 print()
+sponsor = sponsor_url()
+if sponsor:
+    print(SPONSOR_LINE % sponsor)
+    print()
 print("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.")

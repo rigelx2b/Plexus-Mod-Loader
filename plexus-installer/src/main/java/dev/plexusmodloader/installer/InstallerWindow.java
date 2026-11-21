@@ -1,6 +1,8 @@
 package dev.plexusmodloader.installer;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -8,7 +10,9 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.font.TextAttribute;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -260,7 +264,16 @@ final class InstallerWindow {
         JPanel content = new JPanel(new BorderLayout(0, 14));
         content.setBorder(BorderFactory.createEmptyBorder(18, 20, 16, 20));
         content.add(form, BorderLayout.CENTER);
-        content.add(buttons, BorderLayout.SOUTH);
+        // Most installs end with a notification and no dialog, so the support link also sits under the buttons,
+        // in their font size.
+        JPanel bottom = new JPanel(new BorderLayout(0, 6));
+        bottom.add(buttons, BorderLayout.CENTER);
+        sponsorButton().ifPresent(link -> {
+            JPanel row = new JPanel(new BorderLayout());
+            row.add(link, BorderLayout.EAST);
+            bottom.add(row, BorderLayout.SOUTH);
+        });
+        content.add(bottom, BorderLayout.SOUTH);
         frame.setContentPane(content);
         frame.getRootPane().setDefaultButton(install);
         refresh.run();
@@ -536,7 +549,7 @@ final class InstallerWindow {
         Object[] options = {text("openFolder"), text("close")};
         int choice = JOptionPane.showOptionDialog(
                 frame,
-                message,
+                withSponsorLink(message),
                 "Plexus Mod Loader",
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.INFORMATION_MESSAGE,
@@ -556,7 +569,7 @@ final class InstallerWindow {
         Object[] options = {text("openMods"), text("close")};
         int choice = JOptionPane.showOptionDialog(
                 frame,
-                message,
+                withSponsorLink(message),
                 "Plexus Mod Loader",
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.INFORMATION_MESSAGE,
@@ -565,6 +578,57 @@ final class InstallerWindow {
                 options[1]);
         if (choice == 0) {
             openMods(folder);
+        }
+    }
+
+    /**
+     * Returns the completion dialog message with the support link placed underneath, or the message alone when no link
+     * was set at build time or this desktop cannot open a browser.
+     */
+    private Object withSponsorLink(String message) {
+        Optional<JButton> button = sponsorButton();
+        if (button.isEmpty()) {
+            return message;
+        }
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        row.add(button.get(), BorderLayout.WEST);
+        return new Object[] {message, row};
+    }
+
+    /**
+     * Returns the support link as a borderless button that opens the browser, or empty when no link is configured or no
+     * browser is available.
+     */
+    private Optional<JButton> sponsorButton() {
+        Optional<URI> link = SponsorLink.bundled();
+        if (link.isEmpty()
+                || !Desktop.isDesktopSupported()
+                || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            return Optional.empty();
+        }
+        URI uri = link.get();
+        // Plain underlined text, not HTML: an HTML label measured a little short and clipped its last letter.
+        JButton button = new JButton(text("sponsor"));
+        button.setFont(button.getFont().deriveFont(Map.of(TextAttribute.UNDERLINE, TextAttribute.UNDERLINE_ON)));
+        Color linkColor = UIManager.getColor("Component.linkColor");
+        button.setForeground(linkColor != null ? linkColor : new Color(0x0066CC));
+        button.setToolTipText(uri.toString());
+        button.setBorderPainted(false);
+        button.setContentAreaFilled(false);
+        button.setFocusPainted(false);
+        button.setMargin(new Insets(0, 0, 0, 0));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.addActionListener(event -> browse(uri));
+        return Optional.of(button);
+    }
+
+    private void browse(URI uri) {
+        try {
+            Desktop.getDesktop().browse(uri);
+        } catch (IOException | UnsupportedOperationException | SecurityException e) {
+            log.append("Could not open " + uri + ": " + e.getMessage() + "\n");
         }
     }
 
@@ -638,6 +702,7 @@ final class InstallerWindow {
             Map.entry("removed", "Plexus Mod Loader for Minecraft %s is removed. The mods folder was left as it is."),
             Map.entry("failed", "Installation failed"),
             Map.entry("openMods", "Open mods folder"),
+            Map.entry("sponsor", "Support Plexus Mod Loader on Buy Me a Coffee"),
             Map.entry("close", "Close"));
 
     private static final Map<String, String> KOREAN = Map.ofEntries(
@@ -695,5 +760,6 @@ final class InstallerWindow {
             Map.entry("removed", "Minecraft %s용 Plexus 모드 로더를 제거했습니다. mods 폴더는 그대로 두었습니다."),
             Map.entry("failed", "설치하지 못했습니다"),
             Map.entry("openMods", "mods 폴더 열기"),
+            Map.entry("sponsor", "Plexus 모드 로더를 후원해 보세요"),
             Map.entry("close", "닫기"));
 }

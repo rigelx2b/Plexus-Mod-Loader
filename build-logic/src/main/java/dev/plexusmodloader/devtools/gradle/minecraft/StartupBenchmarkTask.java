@@ -17,6 +17,7 @@ import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.ListProperty;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
@@ -43,6 +44,10 @@ import org.gradle.work.DisableCachingByDefault;
  * by NeoForge's own argument files on FML's game test server entry point, with {@link #getReferenceModJars()} (for
  * Sinytra Connector and the Fabric mods it runs), and the same log configuration. Its warm-up run's game-folder cache
  * is copied into each of its measured runs, as Plexus Mod Loader's runs share their transform cache.
+ *
+ * <p>With {@link #getComparisonName()}, another Plexus Mod Loader variant runs in the same rotation with {@link
+ * #getComparisonModJars()} in place of {@link #getDevModJars()}, so that two mod sets can be compared on the same runtime
+ * (such as a mod with and without its access transformer); {@link #getVanilla()} can leave the vanilla variant out.
  */
 @DisableCachingByDefault(because = "Benchmarks must run every time")
 public abstract class StartupBenchmarkTask extends DefaultTask {
@@ -116,9 +121,34 @@ public abstract class StartupBenchmarkTask extends DefaultTask {
     @Input
     public abstract ListProperty<String> getReferenceExpectedOutput();
 
+    /** Whether the vanilla variant runs (default {@code true}). */
+    @Input
+    public abstract Property<Boolean> getVanilla();
+
+    /** System properties of every Plexus Mod Loader variant ({@code -D<key>=<value>}), such as an opt-in setting. */
+    @Input
+    public abstract MapProperty<String, String> getPlexusSystemProperties();
+
+    /** The name of the second Plexus Mod Loader variant; when absent, there is none. */
+    @Input
+    @Optional
+    public abstract Property<String> getComparisonName();
+
+    /** The mod jars of the second Plexus Mod Loader variant. */
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract ConfigurableFileCollection getComparisonModJars();
+
+    /** Lines every run of the second Plexus Mod Loader variant must have. */
+    @Input
+    public abstract ListProperty<String> getComparisonExpectedOutput();
+
     public StartupBenchmarkTask() {
         getPlexusExpectedOutput().convention(List.of());
         getReferenceExpectedOutput().convention(List.of());
+        getVanilla().convention(true);
+        getPlexusSystemProperties().convention(Map.of());
+        getComparisonExpectedOutput().convention(List.of());
     }
 
     @TaskAction
@@ -130,8 +160,14 @@ public abstract class StartupBenchmarkTask extends DefaultTask {
         String reference = getReferenceName().getOrNull();
         Map<String, List<BenchmarkLaunch.Timing>> measured = new LinkedHashMap<>();
         Map<String, BenchmarkLaunch.Timing> warmups = new LinkedHashMap<>();
-        measured.put("vanilla", new ArrayList<>());
+        String comparison = getComparisonName().getOrNull();
+        if (getVanilla().get()) {
+            measured.put("vanilla", new ArrayList<>());
+        }
         measured.put("plexus", new ArrayList<>());
+        if (comparison != null) {
+            measured.put(comparison, new ArrayList<>());
+        }
         if (reference != null) {
             measured.put(reference, new ArrayList<>());
         }
@@ -144,7 +180,9 @@ public abstract class StartupBenchmarkTask extends DefaultTask {
                 if (variant.equals("vanilla")) {
                     command = vanillaCommand(spec, directory, heap);
                 } else if (variant.equals("plexus")) {
-                    command = plexusCommand(spec, directory, heap);
+                    command = plexusCommand(spec, directory, heap, getDevModJars().getFiles());
+                } else if (variant.equals(comparison)) {
+                    command = plexusCommand(spec, directory, heap, getComparisonModJars().getFiles());
                 } else {
                     NeoForgeServerLaunch.prepareRun(directory, getReferenceModJars().getFiles(), warmCache);
                     command = referenceCommand(directory, heap);
@@ -153,6 +191,8 @@ public abstract class StartupBenchmarkTask extends DefaultTask {
                         command, directory, "All 1 required tests passed", READY_MARKER, 10);
                 if (variant.equals("plexus")) {
                     BenchmarkLaunch.requireOutput(directory, getPlexusExpectedOutput().get());
+                } else if (variant.equals(comparison)) {
+                    BenchmarkLaunch.requireOutput(directory, getComparisonExpectedOutput().get());
                 } else if (variant.equals(reference)) {
                     BenchmarkLaunch.requireOutput(directory, getReferenceExpectedOutput().get());
                     if (i < 0) {
@@ -264,17 +304,18 @@ public abstract class StartupBenchmarkTask extends DefaultTask {
                 java(), BenchmarkLaunch.Target.GAME_TEST_SERVER, spec, directory, heap, PROGRAM_ARGUMENTS);
     }
 
-    private List<String> plexusCommand(MinecraftLaunchSpec spec, Path directory, List<String> heap)
-            throws IOException {
+    private List<String> plexusCommand(
+            MinecraftLaunchSpec spec, Path directory, List<String> heap, Collection<File> modJars) throws IOException {
         List<String> plexusJvm = new ArrayList<>(BenchmarkLaunch.javaAgents(getPlexusJavaAgents().getFiles()));
         plexusJvm.addAll(heap);
+        getPlexusSystemProperties().get().forEach((key, value) -> plexusJvm.add("-D" + key + "=" + value));
         return BenchmarkLaunch.plexus(
                 java(),
                 BenchmarkLaunch.Target.GAME_TEST_SERVER,
                 spec,
                 directory,
                 getPlexusRuntime().getFiles(),
-                getDevModJars().getFiles(),
+                modJars,
                 getTransformCacheDirectory().get().getAsFile(),
                 plexusJvm,
                 PROGRAM_ARGUMENTS);

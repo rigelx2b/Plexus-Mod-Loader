@@ -453,6 +453,24 @@ val quiltHelloLines = listOf(
 // into java.lang.invoke; Plexus Mod Loader's Java agent opens it to FML's modules, as the launcher profile and the server's
 // launch jar start it. Without the agent NeoForge mods are left out (PLEXUS-COMPAT-216).
 val plexusAgentJar = tasks.jar.flatMap { it.archiveFile }
+// Forge on NeoForge access transformers: the test mod forge-on-neoforge-access-transformer repackaged without its access
+// transformer (the comparison run of startupBenchmarkForgeOnNeoForgeAccessTransformer) and with a line for a member only
+// MinecraftForge's patches add (forgeOnNeoForgeAccessTransformerUnfit). Same classes and mods.toml otherwise.
+fun forgeAccessTransformerVariant(name: String, accessTransformerFolder: File?) = tasks.register<Jar>(name) {
+    val mod = modJars(":test-mods:forge-on-neoforge-access-transformer")
+    inputs.files(mod)
+    from(mod.elements.map { jars -> jars.map { zipTree(it) } }) {
+        exclude("META-INF/MANIFEST.MF", "META-INF/accesstransformer.cfg")
+    }
+    if (accessTransformerFolder != null) {
+        from(accessTransformerFolder)
+    }
+    archiveFileName.set("$name.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("plexus/forge-access-transformer-variants"))
+}
+val forgeAccessTransformerModWithout = forgeAccessTransformerVariant("forgeAccessTransformerModWithout", null)
+val forgeAccessTransformerModUnfit = forgeAccessTransformerVariant(
+    "forgeAccessTransformerModUnfit", rootProject.file("test-mods/forge-on-neoforge-access-transformer/src/unfit"))
 fun dev.plexusmodloader.devtools.gradle.minecraft.VerifiedGameRunTask.runsNeoForge() {
     inputs.file(plexusAgentJar).withPropertyName("agentJar").withPathSensitivity(PathSensitivity.NONE)
     jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-javaagent:${plexusAgentJar.get().asFile.absolutePath}") })
@@ -685,7 +703,7 @@ if (minecraft == "26.2") {
             "[Plexus Mod Loader] NeoForge 26.2.0.93 loads 5 NeoForge mod file(s) itself on Plexus Mod Loader's game class loader",
             "FML's Mixin: [createClassProcessorSet: MixinFacade.getClassProcessor() -> PlexusFml.mixinClassProcessor, loadPlugins: its plugin files through PlexusFml.withoutForeignFabricLoader] (ADR-0026 30)",
             "is left out of the game layer: NeoForge's mods use the MixinExtras of the Mixin that Fabric mods share (ADR-0026 30)",
-            "Mixin configuration(s) of NeoForge's mods and libraries for the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0026 30)",
+            "Mixin configuration(s) of NeoForge's mods and libraries for the Mixin Fabric or Quilt mods share; FML's own Mixin does not start (ADR-0026 30)",
             "share Fabric's Mixin",
             "[Plexus Mod Loader] Loaded mods per loader: 2 Plexus, 7 Fabric, 0 Quilt, 0 Forge, 4 NeoForge",
             "[neoforge_hello] Constructed by FML in module neoforge_hello (neoforge_hello)",
@@ -929,6 +947,101 @@ if (minecraft.startsWith("26.")) {
             worldsSavedLine,
         )
         unexpectedOutput.add("[forge_on_neoforge_patched_mixin] constructed")
+    }
+    // Forge on NeoForge: where a Forge mod runs, as Forge's FMLEnvironment.dist, FMLLoader.getDist() and
+    // FMLLoader.getGamePath() answer it; the host sets them from NeoForge's side and game directory before FML starts, so
+    // the mod's mixin of Bootstrap.bootStrap and its constructor read the same.
+    scenarios.gameTest(
+        "forgeOnNeoForgeEnvironment",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-environment"),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod reads the dedicated server side from Forge's FMLEnvironment.dist and FMLLoader.getDist(), in a mixin of Bootstrap.bootStrap and in its constructor, and the game directory from FMLLoader.getGamePath(), on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_environment] Bootstrap.bootStrap: FMLEnvironment.dist = DEDICATED_SERVER",
+            "[forge_on_neoforge_environment] constructed: FMLEnvironment.dist = DEDICATED_SERVER, FMLLoader.getDist() = DEDICATED_SERVER, isDedicatedServer() = true",
+            "[forge_on_neoforge_environment] FMLLoader.getGamePath() is FMLPaths.GAMEDIR: true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge: a Forge mod registers display tests (IExtensionPoint.DisplayTest) on its FMLJavaModLoadingContext,
+    // which Forge's own FMLModContainer keeps, as most Forge mods do in their constructor.
+    scenarios.gameTest(
+        "forgeOnNeoForgeExtensionPoint",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-extension-point"),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod registers display tests with FMLJavaModLoadingContext.registerExtensionPoint and registerDisplayTest in its constructor, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_extension_point] display tests registered",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge: two Forge mods read Forge's ModList, which the host fills with the Forge mods it runs (each sees
+    // the other, whichever FML constructs first; NeoForge's mods are not in it), and Forge's ModLoadingContext, whose
+    // active container the host sets while a Forge mod is constructed and gets a lifecycle event.
+    scenarios.gameTest(
+        "forgeOnNeoForgeModList",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-on-neoforge-mod-list",
+            ":test-mods:forge-on-neoforge-mod-list-peer",
+        ),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, two Forge mods read Forge's ModList (isLoaded, getModContainerById, size) and ModLoadingContext.get() in their constructors and common setup, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_mod_list] ModList.isLoaded(forge_on_neoforge_mod_list_peer) = true, ModList.isLoaded(neoforge_gametest_harness) = false, ModList.size() = 2",
+            "[forge_on_neoforge_mod_list] ModList.getModContainerById(forge_on_neoforge_mod_list): forge_on_neoforge_mod_list 1.0.0 \"Forge on NeoForge Mod List\"",
+            "[forge_on_neoforge_mod_list] ModLoadingContext.get() in the constructor: active namespace forge_on_neoforge_mod_list, container forge_on_neoforge_mod_list",
+            "[forge_on_neoforge_mod_list] ModLoadingContext.get() in common setup: active namespace forge_on_neoforge_mod_list",
+            "[forge_on_neoforge_mod_list_peer] ModList.isLoaded(forge_on_neoforge_mod_list) = true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge: a Forge mod's access transformer (META-INF/accesstransformer.cfg), which NeoForge's FML reads into
+    // its own access transformer processor; the mod reads by reflection that the members it names are public. Its client
+    // class line is not checked on the game test server, a dedicated server, where the class is absent.
+    scenarios.gameTest(
+        "forgeOnNeoForgeAccessTransformer",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-access-transformer"),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, NeoForge's access transformer processor applies a Forge mod's access transformer to game classes, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_access_transformer] Bootstrap.isBootstrapped public: true, Bootstrap.wrapStreams public: true, DetectedVersion.createFromJson public: true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // The same mod with an access transformer line for a member only MinecraftForge's patches add (Entity.canUpdate()):
+    // the link check leaves it out before it runs, naming the line.
+    scenarios.gameTest(
+        "forgeOnNeoForgeAccessTransformerUnfit",
+        modJars(":test-mods:neoforge-gametest-harness") + files(forgeAccessTransformerModUnfit),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a Forge mod whose access transformer names a member only MinecraftForge's patches add is left out (PLEXUS-COMPAT-229), on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "access transformer line(s) that do not fit",
+            "accesstransformer.cfg line 6: method canUpdate()Z is not in net.minecraft.world.entity.Entity",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("[forge_on_neoforge_access_transformer] Bootstrap.isBootstrapped public:")
     }
     // Forge on NeoForge with a Fabric mod: NeoForge's mods share Fabric's Mixin (ADR-0026 30), which Forge mods'
     // Mixin configurations have not been run with, so forge-mixin is left out naming that.
@@ -3180,7 +3293,8 @@ if (minecraft == "26.2") {
         )
     }
     // Forge on NeoForge, F-N2 and F-N3 in the client (ADR-0051): with -Dplexus.forgeOnNeoForge=on, NeoForge's FML constructs
-    // the Forge mods forge-on-neoforge-hello and forge-on-neoforge-events with Forge's own FMLModContainer and passes
+    // the Forge mods forge-on-neoforge-hello, forge-on-neoforge-events and forge-on-neoforge-environment (Forge's side on
+    // the client) with Forge's own FMLModContainer and passes
     // FMLCommonSetupEvent, FMLClientSetupEvent and the game events on (the client level's ticks on the client side, the
     // integrated server's on the server side), then the NeoForge mod neoforge-client-session plays 200 ticks in the saved
     // world, saves, quits and stops the client.
@@ -3191,6 +3305,7 @@ if (minecraft == "26.2") {
             ":test-mods:neoforge-client-session",
             ":test-mods:forge-on-neoforge-hello",
             ":test-mods:forge-on-neoforge-events",
+            ":test-mods:forge-on-neoforge-environment",
         ))
         systemProperties.add("plexus.forgeOnNeoForge=on")
         worldName.set("plexus_forge_on_neoforge_client")
@@ -3210,6 +3325,10 @@ if (minecraft == "26.2") {
             "joined the game",
             "[neoforge_client_session] 200 client ticks in the world; save and quit",
             "[neoforge_client_session] left the saved world; stopping the client",
+            // Forge's side as the host sets it for the client (forge-on-neoforge-environment).
+            "[forge_on_neoforge_environment] Bootstrap.bootStrap: FMLEnvironment.dist = CLIENT",
+            "[forge_on_neoforge_environment] constructed: FMLEnvironment.dist = CLIENT, FMLLoader.getDist() = CLIENT, isDedicatedServer() = false",
+            "[forge_on_neoforge_environment] FMLLoader.getGamePath() is FMLPaths.GAMEDIR: true",
         )
         unexpectedOutput.addAll("PLEXUS-COMPAT-229", "FMLDedicatedServerSetupEvent received")
     }
@@ -3935,7 +4054,8 @@ tasks.register("compatibilityMatrix") {
         dependsOn(
             "forgeOnNeoForgeWorldTest", "forgeOnNeoForgeServerBoot", "forgeOnNeoForgeEvents", "forgeOnNeoForgeContent",
             "forgeOnNeoForgeLinkCheck", "forgeOnNeoForgeLinkCheckAlone", "forgeOnNeoForgeMixin",
-            "forgeOnNeoForgeSharedMixin",
+            "forgeOnNeoForgeSharedMixin", "forgeOnNeoForgeEnvironment", "forgeOnNeoForgeExtensionPoint",
+            "forgeOnNeoForgeAccessTransformer", "forgeOnNeoForgeAccessTransformerUnfit", "forgeOnNeoForgeModList",
         )
     }
     if (minecraft == "26.2") {
@@ -4021,6 +4141,34 @@ startupBenchmark("NeoForge", neoForgeBenchmarkMods) {
     description = "Game test server startup-to-exit time: vanilla versus Plexus Mod Loader with the corpus's NeoForge mods."
     dependsOn(modCorpus)
     plexusJavaAgents.from(plexusAgentJar)
+}
+// Forge on NeoForge access transformers (ADR-0051): the startup of the same Forge on NeoForge game with the test mod's
+// access transformer (plexus) and without it (plexusWithoutAt), alternating, no vanilla variant. The runs share one
+// Plexus Mod Loader cache folder (plexus.reportDir), so NeoForge's and Forge's files are installed once, by the warm-up.
+if (minecraft.startsWith("26.")) {
+    startupBenchmark(
+        "ForgeOnNeoForgeAccessTransformer",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-access-transformer"),
+    ) {
+        description = "Game test server startup-to-exit time of a Forge on NeoForge game: a Forge mod with its access transformer versus the same mod without it."
+        plexusJavaAgents.from(plexusAgentJar)
+        vanilla.set(false)
+        comparisonName.set("plexusWithoutAt")
+        comparisonModJars.from(modJars(":test-mods:neoforge-gametest-harness"), forgeAccessTransformerModWithout)
+        plexusSystemProperties.put("plexus.forgeOnNeoForge", "on")
+        plexusSystemProperties.put(
+            "plexus.reportDir",
+            layout.buildDirectory.dir("plexus/startup-benchmark-forge-on-neoforge-cache").get().asFile.absolutePath,
+        )
+        // -PstartupBenchmarkColdCache: every run without Plexus Mod Loader's transform cache (a cold start of each class).
+        if (providers.gradleProperty("startupBenchmarkColdCache").isPresent) {
+            plexusSystemProperties.put("plexus.transformCacheDir", "none")
+        }
+        plexusExpectedOutput.add(
+            "[forge_on_neoforge_access_transformer] Bootstrap.isBootstrapped public: true, Bootstrap.wrapStreams public: true, DetectedVersion.createFromJson public: true")
+        comparisonExpectedOutput.add(
+            "[forge_on_neoforge_access_transformer] Bootstrap.isBootstrapped public: false, Bootstrap.wrapStreams public: false, DetectedVersion.createFromJson public: false")
+    }
 }
 tickBenchmark("NeoForge", neoForgeBenchmarkMods) {
     description = "Server tick times, heap and GC: vanilla versus Plexus Mod Loader with the corpus's NeoForge mods."

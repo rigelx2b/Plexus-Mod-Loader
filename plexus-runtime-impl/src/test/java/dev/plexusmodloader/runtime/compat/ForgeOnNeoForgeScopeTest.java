@@ -31,6 +31,13 @@ class ForgeOnNeoForgeScopeTest {
     private static final ClassDesc BUS_GROUP = ClassDesc.ofInternalName("net/minecraftforge/eventbus/api/bus/BusGroup");
     private static final ClassDesc EVENT_BUS = ClassDesc.ofInternalName("net/minecraftforge/eventbus/api/bus/EventBus");
     private static final ClassDesc MOD_LIST = ClassDesc.ofInternalName("net/minecraftforge/fml/ModList");
+    private static final ClassDesc MOD_CONTAINER = ClassDesc.ofInternalName("net/minecraftforge/fml/ModContainer");
+    private static final ClassDesc MOD_LOADING_CONTEXT =
+            ClassDesc.ofInternalName("net/minecraftforge/fml/ModLoadingContext");
+    private static final ClassDesc MOD_INFO = ClassDesc.ofInternalName("net/minecraftforge/forgespi/language/IModInfo");
+    private static final ClassDesc ARTIFACT_VERSION =
+            ClassDesc.ofInternalName("org/apache/maven/artifact/versioning/ArtifactVersion");
+    private static final ClassDesc OPTIONAL = ClassDesc.of("java.util.Optional");
     private static final ClassDesc DEFERRED_REGISTER =
             ClassDesc.ofInternalName("net/minecraftforge/registries/DeferredRegister");
     private static final ClassDesc REGISTRY_OBJECT =
@@ -45,6 +52,10 @@ class ForgeOnNeoForgeScopeTest {
             ClassDesc.ofInternalName("net/minecraftforge/common/EventBusMigrationHelper");
     private static final ClassDesc FML_PATHS = ClassDesc.ofInternalName("net/minecraftforge/fml/loading/FMLPaths");
     private static final ClassDesc PATH = ClassDesc.of("java.nio.file.Path");
+    private static final ClassDesc DIST = ClassDesc.ofInternalName("net/minecraftforge/api/distmarker/Dist");
+    private static final ClassDesc FML_ENVIRONMENT =
+            ClassDesc.ofInternalName("net/minecraftforge/fml/loading/FMLEnvironment");
+    private static final ClassDesc FML_LOADER = ClassDesc.ofInternalName("net/minecraftforge/fml/loading/FMLLoader");
     private static final ClassDesc SUPPLIER = ClassDesc.of("java.util.function.Supplier");
 
     @TempDir
@@ -62,15 +73,151 @@ class ForgeOnNeoForgeScopeTest {
         assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
     }
 
+    /** As most corpus Forge mods: a display test registered on the mod's context, which Forge's container keeps. */
     @Test
-    void anotherForgeClassIsNamed() throws IOException {
-        Path jar = jar("modlist.jar", Map.of(), null, code -> {
-            code.ldc("x");
-            code.invokestatic(
-                    MOD_LIST, "isLoaded", MethodTypeDesc.of(ConstantDescs.CD_boolean, ConstantDescs.CD_String));
+    void aDisplayTestOnTheContextRuns() throws IOException {
+        ClassDesc displayTest = ClassDesc.ofInternalName("net/minecraftforge/fml/IExtensionPoint$DisplayTest");
+        ClassDesc supplier = ClassDesc.of("java.util.function.Supplier");
+        Path jar = jar("display.jar", Map.of(), null, code -> {
+            code.aload(1);
+            code.ldc(displayTest);
+            code.aconst_null();
+            code.invokevirtual(
+                    CONTEXT,
+                    "registerExtensionPoint",
+                    MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Class, supplier));
+            code.aload(1);
+            code.getstatic(displayTest, "IGNORE_ALL_VERSION", supplier);
+            code.invokevirtual(CONTEXT, "registerDisplayTest", MethodTypeDesc.of(ConstantDescs.CD_void, supplier));
+            code.new_(displayTest);
+            code.dup();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokespecial(
+                    displayTest,
+                    ConstantDescs.INIT_NAME,
+                    MethodTypeDesc.of(ConstantDescs.CD_void, supplier, ClassDesc.of("java.util.function.BiPredicate")));
             code.pop();
         });
-        assertEquals(List.of("net/minecraftforge/fml/ModList"), ForgeOnNeoForgeScope.unsupported(jar));
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * The context's other members need Forge's loading context state or config tracking, or hand out Forge's mod
+     * container; another extension point class (a config screen) is named too.
+     */
+    @Test
+    void theContextsOtherMembersAndOtherExtensionPointsAreNamed() throws IOException {
+        ClassDesc screenFactory =
+                ClassDesc.ofInternalName("net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory");
+        Path jar = jar("context.jar", Map.of(), null, code -> {
+            code.invokestatic(CONTEXT, "get", MethodTypeDesc.of(CONTEXT));
+            code.pop();
+            code.aload(1);
+            code.invokevirtual(CONTEXT, "getActiveNamespace", MethodTypeDesc.of(STRING));
+            code.pop();
+            code.aload(1);
+            code.invokevirtual(CONTEXT, "getContainer", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+            code.ldc(screenFactory);
+            code.pop();
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory",
+                        "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.get",
+                        "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.getActiveNamespace",
+                        "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.getContainer"),
+                ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    @Test
+    void anotherForgeClassIsNamed() throws IOException {
+        ClassDesc config = ClassDesc.ofInternalName("net/minecraftforge/common/ForgeConfigSpec");
+        Path jar = jar("config.jar", Map.of(), null, code -> {
+            code.ldc(config);
+            code.pop();
+        });
+        assertEquals(List.of("net/minecraftforge/common/ForgeConfigSpec"), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * As most corpus Forge mods that read Forge's mod list (Xaero's maps, Ping Wheel, Carry On): whether a mod is loaded,
+     * a mod's container and its ID, name and version, and the container the mod's code runs for, which the host sets up
+     * for the Forge mods it runs.
+     */
+    @Test
+    void readingForgesModListAndLoadingContextRuns() throws IOException {
+        Path jar = jar("modlist.jar", Map.of(), null, code -> {
+            code.ldc("x");
+            code.invokestatic(MOD_LIST, "isLoaded", MethodTypeDesc.of(ConstantDescs.CD_boolean, STRING));
+            code.pop();
+            code.ldc("x");
+            code.invokestatic(MOD_LIST, "getModContainerById", MethodTypeDesc.of(OPTIONAL, STRING));
+            code.pop();
+            code.invokestatic(MOD_LIST, "size", MethodTypeDesc.of(ConstantDescs.CD_int));
+            code.pop();
+            code.aconst_null();
+            code.invokevirtual(MOD_CONTAINER, "getModInfo", MethodTypeDesc.of(MOD_INFO));
+            code.dup();
+            code.invokeinterface(MOD_INFO, "getVersion", MethodTypeDesc.of(ARTIFACT_VERSION));
+            code.pop();
+            code.dup();
+            code.invokeinterface(MOD_INFO, "getDisplayName", MethodTypeDesc.of(STRING));
+            code.pop();
+            code.invokeinterface(MOD_INFO, "getModId", MethodTypeDesc.of(STRING));
+            code.pop();
+            code.invokestatic(MOD_LOADING_CONTEXT, "get", MethodTypeDesc.of(MOD_LOADING_CONTEXT));
+            code.dup();
+            code.invokevirtual(MOD_LOADING_CONTEXT, "getActiveNamespace", MethodTypeDesc.of(STRING));
+            code.pop();
+            code.invokevirtual(MOD_LOADING_CONTEXT, "getContainer", MethodTypeDesc.of(MOD_CONTAINER));
+            code.invokevirtual(MOD_CONTAINER, "getModId", MethodTypeDesc.of(STRING));
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * Forge's mod list here holds the Forge mods' containers only: what reads Forge's loading mod list (mod files, scan
+     * data, sorted mod infos), a mod's file and dependencies, and config registration (F-N6) are named.
+     */
+    @Test
+    void whatForgesModListDoesNotHoldIsNamed() throws IOException {
+        ClassDesc modFileInfo = ClassDesc.ofInternalName("net/minecraftforge/forgespi/language/IModFileInfo");
+        Path jar = jar("modfiles.jar", Map.of(), null, code -> {
+            code.invokestatic(MOD_LIST, "getMods", MethodTypeDesc.of(ConstantDescs.CD_List));
+            code.pop();
+            code.ldc("x");
+            code.invokestatic(MOD_LIST, "getModFileById", MethodTypeDesc.of(modFileInfo, STRING));
+            code.pop();
+            code.invokestatic(MOD_LIST, "getAllScanData", MethodTypeDesc.of(ConstantDescs.CD_List));
+            code.pop();
+            code.aconst_null();
+            code.invokeinterface(MOD_INFO, "getOwningFile", MethodTypeDesc.of(modFileInfo));
+            code.pop();
+            code.aconst_null();
+            code.invokeinterface(MOD_INFO, "getDependencies", MethodTypeDesc.of(ConstantDescs.CD_List));
+            code.pop();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(
+                    MOD_CONTAINER, "addConfig", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object));
+            code.invokestatic(MOD_LOADING_CONTEXT, "get", MethodTypeDesc.of(MOD_LOADING_CONTEXT));
+            code.invokevirtual(MOD_LOADING_CONTEXT, "extension", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/fml/ModContainer.addConfig",
+                        "net/minecraftforge/fml/ModList.getAllScanData",
+                        "net/minecraftforge/fml/ModList.getModFileById",
+                        "net/minecraftforge/fml/ModList.getMods",
+                        "net/minecraftforge/fml/ModLoadingContext.extension",
+                        "net/minecraftforge/forgespi/language/IModFileInfo",
+                        "net/minecraftforge/forgespi/language/IModInfo.getDependencies",
+                        "net/minecraftforge/forgespi/language/IModInfo.getOwningFile"),
+                ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     /** {@code enqueueWork} needs Forge's deferred work queue, which runs in Forge's loading stages only. */
@@ -206,9 +353,8 @@ class ForgeOnNeoForgeScopeTest {
                         "{}"),
                 mixinManifest(),
                 code -> {});
-        assertEquals(
-                List.of("META-INF/accesstransformer.cfg", "META-INF/coremods.json"),
-                ForgeOnNeoForgeScope.unsupported(jar));
+        // FML's access transformers apply the jar's access transformer; the link check checks its lines.
+        assertEquals(List.of("META-INF/coremods.json"), ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     /**
@@ -263,6 +409,45 @@ class ForgeOnNeoForgeScopeTest {
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
+    /** As test-mods/forge-on-neoforge-environment and EuphoriaPatcher: the side and game directory, which the host sets. */
+    @Test
+    void forgesSideAndGamePathRun() throws IOException {
+        Path jar = jar("side.jar", Map.of(), null, code -> {
+            code.getstatic(FML_ENVIRONMENT, "dist", DIST);
+            code.getstatic(DIST, "DEDICATED_SERVER", DIST);
+            code.pop2();
+            code.invokestatic(FML_LOADER, "getDist", MethodTypeDesc.of(DIST));
+            code.invokevirtual(DIST, "isClient", MethodTypeDesc.of(ConstantDescs.CD_boolean));
+            code.pop();
+            code.invokestatic(FML_LOADER, "getGamePath", MethodTypeDesc.of(PATH));
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /** The rest of Forge's launch state stays unset, so its members are named; so is Forge's {@code OnlyIn}. */
+    @Test
+    void forgesOtherLaunchStateAndOnlyInAreNamed() throws IOException {
+        ClassDesc onlyIn = ClassDesc.ofInternalName("net/minecraftforge/api/distmarker/OnlyIn");
+        Path jar = jar("launch.jar", Map.of(), null, code -> {
+            code.getstatic(FML_ENVIRONMENT, "production", ConstantDescs.CD_boolean);
+            code.pop();
+            code.invokestatic(FML_LOADER, "isProduction", MethodTypeDesc.of(ConstantDescs.CD_boolean));
+            code.pop();
+            code.invokestatic(FML_LOADER, "getLoadingModList", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+            code.ldc(onlyIn);
+            code.pop();
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/api/distmarker/OnlyIn",
+                        "net/minecraftforge/fml/loading/FMLEnvironment.production",
+                        "net/minecraftforge/fml/loading/FMLLoader.getLoadingModList",
+                        "net/minecraftforge/fml/loading/FMLLoader.isProduction"),
+                ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
     private static Manifest mixinManifest() {
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
@@ -274,15 +459,13 @@ class ForgeOnNeoForgeScopeTest {
     void splitKeepsTheOrderAndTheReasons() throws IOException {
         Path runs = jar("runs.jar", Map.of(), null, code -> {});
         Path left = jar("left.jar", Map.of(), null, code -> {
-            code.ldc("x");
-            code.invokestatic(
-                    MOD_LIST, "isLoaded", MethodTypeDesc.of(ConstantDescs.CD_boolean, ConstantDescs.CD_String));
+            code.invokestatic(MOD_LIST, "getMods", MethodTypeDesc.of(ConstantDescs.CD_List));
             code.pop();
         });
         ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(left, runs), "26.2", false);
         assertEquals(List.of(runs), split.runnable());
         assertEquals(
-                List.of(new ForgeOnNeoForgeScope.Left(left, List.of("net/minecraftforge/fml/ModList"))),
+                List.of(new ForgeOnNeoForgeScope.Left(left, List.of("net/minecraftforge/fml/ModList.getMods"))),
                 split.leftOut());
         ForgeOnNeoForgeScope.Split declined = split.without(List.of(runs), ForgeOnNeoForgeScope.DECLINED_BY_HOST);
         assertEquals(List.of(), declined.runnable());

@@ -27,11 +27,22 @@ final class ForgeOnNeoForgeLibraries {
 
     /**
      * File name prefixes of the jars taken: Forge's event bus 7, its SPI, FML's core and Java language provider, the
-     * secure jar handling and unsafe access {@code FMLModContainer} uses, and Forge's loader jar for its paths ({@code
-     * FMLPaths}, which the host sets to the game's; Forge's {@code FMLLoader} in it is never started).
+     * secure jar handling and unsafe access {@code FMLModContainer} uses, Forge's loader jar for its paths ({@code
+     * FMLPaths}, which the host sets to the game's; Forge's {@code FMLLoader} in it is never started, the host only sets
+     * its side and game directory, {@link ForgeEnvironmentCheck}), Forge's {@code mergetool-api} for its {@code Dist},
+     * and Forge's ModLauncher, whose API types {@code FMLLoader}'s code names: without them the JVM cannot link {@code
+     * FMLLoader} (its package {@code cpw.mods.modlauncher} is not among NeoForge 26.x's libraries).
      */
     static final List<String> PREFIXES = List.of(
-            "eventbus-", "forgespi-", "fmlcore-", "javafmllanguage-", "securemodules-", "unsafe-", "fmlloader-");
+            "eventbus-",
+            "forgespi-",
+            "fmlcore-",
+            "javafmllanguage-",
+            "securemodules-",
+            "unsafe-",
+            "fmlloader-",
+            "mergetool-api-",
+            "modlauncher-");
 
     private ForgeOnNeoForgeLibraries() {}
 
@@ -71,8 +82,9 @@ final class ForgeOnNeoForgeLibraries {
      * loader and version, and ({@link #languageReasons}) {@code javafml} with an {@code @Mod} class for each of its mods.
      * A mod that fails, or every mod when Forge's jars cannot be prepared or a pair of {@link ForgeEventPairs} does not
      * hold for NeoForge's {@code neoForgeUniversal} and Forge's universal jar, or registration does not ({@link
-     * ForgeEventPairCheck}), is declined
-     * rather than stopping NeoForge, so that the NeoForge mods still run.
+     * ForgeEventPairCheck}), or Forge's side and game directory cannot be set ({@link ForgeEnvironmentCheck}), or
+     * Forge's {@code ModList} cannot be set up ({@link ForgeModListCheck}), is
+     * declined rather than stopping NeoForge, so that the NeoForge mods still run.
      */
     static Mods mods(GameHost.Request request, Path mavenArtifact, Path neoForgeUniversal) {
         List<Path> jars = request.forgeModJars();
@@ -105,8 +117,23 @@ final class ForgeOnNeoForgeLibraries {
                 return declineAll(
                         request, jars, "registry event forwarding hooks missing: " + String.join("; ", unregistered));
             }
+            List<String> unsettable = ForgeEnvironmentCheck.missing(
+                    only(libraries, name -> name.startsWith("fmlloader-"), "fmlloader-*.jar"),
+                    only(libraries, name -> name.startsWith("mergetool-api-"), "mergetool-api-*.jar"));
+            if (!unsettable.isEmpty()) {
+                return declineAll(
+                        request,
+                        jars,
+                        "Forge's side and game directory cannot be set: " + String.join("; ", unsettable));
+            }
+            List<String> noModList = ForgeModListCheck.missing(
+                    only(libraries, name -> name.startsWith("fmlcore-"), "fmlcore-*.jar"),
+                    only(libraries, name -> name.startsWith("fmlloader-"), "fmlloader-*.jar"));
+            if (!noModList.isEmpty()) {
+                return declineAll(request, jars, "Forge's ModList cannot be set up: " + String.join("; ", noModList));
+            }
         } catch (IOException e) {
-            return declineAll(request, jars, e.getMessage());
+            return declineAll(request, jars, e.toString());
         }
         Checked checked;
         try {
@@ -180,8 +207,8 @@ final class ForgeOnNeoForgeLibraries {
 
     /**
      * What keeps Plexus Mod Loader's Forge language loader from constructing {@code jar}'s mods: a {@code modLoader}
-     * other than {@code javafml} (such as another language provider's), and the mod IDs without an {@code @Mod} class
-     * (a data-only jar).
+     * other than {@code javafml} (such as another language provider's), or the {@code javafml} mod IDs without an
+     * {@code @Mod} class (a data-only jar), with the words of {@link ForgeModRequirements#NO_MOD_CLASS}.
      */
     static List<String> languageReasons(Path jar) {
         try {
@@ -189,16 +216,15 @@ final class ForgeOnNeoForgeLibraries {
             if (toml == null) {
                 return List.of(NeoForgeModRequirements.LEGACY_METADATA);
             }
-            List<String> reasons = new ArrayList<>();
             if (!"javafml".equals(toml.modLoader())) {
-                reasons.add("modLoader " + toml.modLoader());
+                return List.of("modLoader " + toml.modLoader());
             }
             List<String> missing = ForgeModRequirements.modIdsWithoutModClass(
                     jar, toml.versions().keySet());
             if (!missing.isEmpty()) {
-                reasons.add("@Mod " + String.join(", ", missing));
+                return List.of(ForgeModRequirements.NO_MOD_CLASS + String.join(", ", missing));
             }
-            return reasons;
+            return List.of();
         } catch (IOException | RuntimeException e) {
             return List.of(e.toString());
         }

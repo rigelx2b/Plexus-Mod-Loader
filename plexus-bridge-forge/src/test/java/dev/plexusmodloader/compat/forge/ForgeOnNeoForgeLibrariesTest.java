@@ -40,6 +40,8 @@ class ForgeOnNeoForgeLibrariesTest {
                 Path.of("net/minecraftforge/securemodules/2.2.24/securemodules-2.2.24.jar"),
                 Path.of("net/minecraftforge/unsafe/0.9.2/unsafe-0.9.2.jar"),
                 Path.of("net/minecraftforge/fmlloader/" + VERSION + "/fmlloader-" + VERSION + ".jar"),
+                Path.of("net/minecraftforge/mergetool-api/1.0/mergetool-api-1.0.jar"),
+                Path.of("net/minecraftforge/modlauncher/10.2.6/modlauncher-10.2.6.jar"),
                 Path.of("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-universal.jar"),
                 Path.of("org/ow2/asm/asm/9.10.1/asm-9.10.1.jar"));
         List<Path> selected = ForgeOnNeoForgeLibraries.select(libraries, VERSION);
@@ -52,6 +54,8 @@ class ForgeOnNeoForgeLibrariesTest {
                         "securemodules-2.2.24.jar",
                         "unsafe-0.9.2.jar",
                         "fmlloader-" + VERSION + ".jar",
+                        "mergetool-api-1.0.jar",
+                        "modlauncher-10.2.6.jar",
                         "forge-" + VERSION + "-universal.jar"),
                 selected.stream().map(jar -> jar.getFileName().toString()).toList());
     }
@@ -73,7 +77,8 @@ class ForgeOnNeoForgeLibrariesTest {
     @Test
     void aModWithoutModClassIsDeclined() throws IOException {
         Path jar = jar("javafml", "example", false);
-        assertEquals(List.of("@Mod example"), ForgeOnNeoForgeLibraries.languageReasons(jar));
+        assertEquals(
+                List.of(ForgeModRequirements.NO_MOD_CLASS + "example"), ForgeOnNeoForgeLibraries.languageReasons(jar));
     }
 
     /** Another language provider's mod (Kotlin for Forge) is not constructed by Forge's Java mod container. */
@@ -112,7 +117,9 @@ class ForgeOnNeoForgeLibrariesTest {
         assertEquals(List.of(alone), checked.kept());
         assertEquals(
                 List.of(dataOnly, needsData), List.copyOf(checked.declined().keySet()));
-        assertEquals(List.of("@Mod data_only"), checked.declined().get(dataOnly));
+        assertEquals(
+                List.of(ForgeModRequirements.NO_MOD_CLASS + "data_only"),
+                checked.declined().get(dataOnly));
         assertEquals(2, log.size(), log::toString);
     }
 

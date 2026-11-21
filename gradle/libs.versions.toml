@@ -147,6 +147,8 @@ forge-fmlloader = { module = "net.minecraftforge:fmlloader", version.ref = "forg
 forge-forgespi = { module = "net.minecraftforge:forgespi", version.ref = "forgeSpi" }
 forge-universal = { module = "net.minecraftforge:forge", version.ref = "forgeFml" }
 forge263-universal = { module = "net.minecraftforge:forge", version.ref = "forge263" }
+forge263-fmlloader = { module = "net.minecraftforge:fmlloader", version.ref = "forge263" }
+forge263-fmlcore = { module = "net.minecraftforge:fmlcore", version.ref = "forge263" }
 forge-fmlcore = { module = "net.minecraftforge:fmlcore", version.ref = "forgeFml" }
 forge-javafmllanguage = { module = "net.minecraftforge:javafmllanguage", version.ref = "forgeFml" }
 forge-eventbus = { module = "net.minecraftforge:eventbus", version.ref = "forgeEventbus" }
