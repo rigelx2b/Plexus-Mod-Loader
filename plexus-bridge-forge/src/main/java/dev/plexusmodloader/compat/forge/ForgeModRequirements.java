@@ -51,6 +51,9 @@ import org.tomlj.TomlTable;
  */
 final class ForgeModRequirements {
 
+    /** The reason for {@code javafml} mod IDs without an {@code @Mod} class, followed by those IDs. */
+    static final String NO_MOD_CLASS = "its mods.toml declares javafml mods with no matching @Mod class: ";
+
     private static final List<String> FORGE_LANGUAGES = List.of("javafml", "lowcodefml");
     private static final String MOD = "net/minecraftforge/fml/common/Mod";
     private static final String ONLY_IN = "net/minecraftforge/api/distmarker/OnlyIn";
@@ -128,10 +131,7 @@ final class ForgeModRequirements {
                         List<String> missing =
                                 modIdsWithoutModClass(jar, toml.versions().keySet());
                         if (!missing.isEmpty()) {
-                            failures.put(
-                                    jar,
-                                    List.of("its mods.toml declares javafml mods with no matching @Mod class: "
-                                            + String.join(", ", missing)));
+                            failures.put(jar, List.of(NO_MOD_CLASS + String.join(", ", missing)));
                         }
                     }
                 } else if (side != GameSide.CLIENT) {

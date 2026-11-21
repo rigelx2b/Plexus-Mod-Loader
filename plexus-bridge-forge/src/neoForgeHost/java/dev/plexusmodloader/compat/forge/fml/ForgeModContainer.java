@@ -54,6 +54,7 @@ final class ForgeModContainer extends ModContainer {
                 .allowPerPhasePost()
                 .build();
         this.gameClassLoader = gameLayer.modules().iterator().next().getClassLoader();
+        ForgeModList.add(forge);
         eventBus.addListener(
                 FMLCommonSetupEvent.class,
                 event -> post(
@@ -93,9 +94,11 @@ final class ForgeModContainer extends ModContainer {
     }
 
     /**
-     * Runs Forge's construction of the mod: its private {@code constructMod}, as Forge's loading stage would. The first
-     * Forge mod constructed sets Forge's paths ({@link ForgePaths}) and adds the game bus events Forge mods get ({@link
-     * ForgeGameEvents}); before construction, the
+     * Runs Forge's construction of the mod: its private {@code constructMod}, as Forge's loading stage would, with the
+     * mod's container active in Forge's {@code ModLoadingContext} ({@link ForgeModList#runAs}). The first Forge mod
+     * constructed sets Forge's paths ({@link ForgePaths}), Forge's {@code ModList} to all Forge mods' containers ({@link
+     * ForgeModList#publish}), and adds the game bus events Forge mods get ({@link ForgeGameEvents}); before construction,
+     * the
      * mod's bus gets NeoForge's registry events passed on as Forge's ({@link ForgeRegistration}, F-N4).
      */
     @Override
@@ -104,12 +107,15 @@ final class ForgeModContainer extends ModContainer {
             ForgePaths.setToGameDirectory();
             ForgeGameEvents.install(gameClassLoader, PlexusFml::log);
             ForgeRegistration.of(gameClassLoader).listen(eventBus, forge.getModBusGroup());
+            ForgeModList.publish();
             Method construct = FMLModContainer.class.getDeclaredMethod("constructMod");
             construct.setAccessible(true);
-            construct.invoke(forge);
+            ForgeModList.runAs(forge, () -> construct.invoke(forge));
         } catch (InvocationTargetException e) {
             throw failed(e.getCause());
-        } catch (ReflectiveOperationException | RuntimeException e) {
+        } catch (Error e) {
+            throw e;
+        } catch (Throwable e) {
             throw failed(e);
         }
     }
@@ -131,7 +137,13 @@ final class ForgeModContainer extends ModContainer {
             Function<BusGroup, EventBus<E>> bus,
             BiFunction<net.minecraftforge.fml.ModContainer, ModLoadingStage, E> event,
             ModLoadingStage stage) {
-        bus.apply(forge.getModBusGroup()).post(event.apply(forge, stage));
+        try {
+            ForgeModList.runAs(forge, () -> bus.apply(forge.getModBusGroup()).post(event.apply(forge, stage)));
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw failed(e);
+        }
     }
 
     @Override

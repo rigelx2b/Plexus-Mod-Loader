@@ -44,7 +44,9 @@ public final class ForgeOnNeoForgeScope {
      * not here: their names in a mod's descriptors leave it out. Also Forge's own game event bus ({@code
      * MinecraftForge.EVENT_BUS}, an {@code EventBusMigrationHelper} that registers a mod's listeners on the static
      * buses of the events passed on) and Forge's paths ({@code FMLPaths}, from Forge's {@code fmlloader} jar, which the
-     * host sets to the game's paths).
+     * host sets to the game's paths), and the side and game directory the mod runs with: Forge's {@code Dist} (from
+     * Forge's {@code mergetool-api} jar) and the members of {@link #ONLY_MEMBERS}. Forge's {@code OnlyIn} is not here:
+     * nothing strips the members it marks when NeoForge hosts the game.
      */
     private static final Set<String> CLASSES = Set.of(
             "net/minecraftforge/fml/common/Mod",
@@ -76,7 +78,71 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/ForgeRegistries$Keys",
             "net/minecraftforge/common/MinecraftForge",
             "net/minecraftforge/common/EventBusMigrationHelper",
-            "net/minecraftforge/fml/loading/FMLPaths");
+            "net/minecraftforge/fml/loading/FMLPaths",
+            "net/minecraftforge/api/distmarker/Dist",
+            "net/minecraftforge/fml/loading/FMLEnvironment",
+            "net/minecraftforge/fml/loading/FMLLoader",
+            "net/minecraftforge/fml/IExtensionPoint",
+            "net/minecraftforge/fml/IExtensionPoint$DisplayTest",
+            "net/minecraftforge/fml/ModList",
+            "net/minecraftforge/fml/ModLoadingContext",
+            "net/minecraftforge/fml/ModContainer",
+            "net/minecraftforge/forgespi/language/IModInfo");
+
+    /**
+     * Allowed classes of which only some members may be used: Forge's {@code FMLEnvironment} and {@code FMLLoader} keep
+     * the state of Forge's launch, which does not run; the host sets the side and the game directory from NeoForge's
+     * before FML starts ({@code ForgeEnvironment} in the Forge bridge), and every other member stays unset. Of the mod's
+     * {@code FMLJavaModLoadingContext}: its mod bus group (F-N2) and its extension points, which Forge's own {@code
+     * FMLModContainer} keeps (with Forge's {@code IExtensionPoint.DisplayTest}, the only extension point class allowed;
+     * nothing on NeoForge reads them). Its other members need Forge's {@code ModLoadingContext} state ({@code get()},
+     * {@code getActiveNamespace()}), Forge's config tracking ({@code registerConfig}) or hand out Forge's mod container,
+     * whose members are not checked ({@code getContainer()}).
+     *
+     * <p>Forge's {@code ModList} holds the containers of the Forge mods the host runs ({@code ForgeModList} in the Forge
+     * bridge): its members that read those containers, not those that read Forge's loading mod list (mod files, scan
+     * data, sorted mod infos), which stays empty. Forge's {@code ModLoadingContext} has the mod's container as the
+     * active one while the mod is constructed and while it gets a lifecycle event; its config ({@code registerConfig},
+     * F-N6) and language extension ({@code extension}) are not set. Of a Forge mod container and its {@code IModInfo},
+     * what Forge's own {@code FMLModContainer} and the host's view of the mod's {@code mods.toml} answer; not the mod's
+     * file or dependencies, which that view does not have, and not its configs.
+     */
+    private static final Map<String, Set<String>> ONLY_MEMBERS = Map.of(
+            "net/minecraftforge/fml/loading/FMLEnvironment", Set.of("dist"),
+            "net/minecraftforge/fml/loading/FMLLoader", Set.of("getDist", "getGamePath"),
+            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext",
+                    Set.of("getModBusGroup", "registerExtensionPoint", "registerDisplayTest"),
+            "net/minecraftforge/fml/ModList",
+                    Set.of(
+                            "isLoaded",
+                            "getModContainerById",
+                            "getModObjectById",
+                            "getModContainerByObject",
+                            "getLoadedMods",
+                            "forEachModContainer",
+                            "forEachModInOrder",
+                            "applyForEachModContainer",
+                            "size"),
+            "net/minecraftforge/fml/ModLoadingContext",
+                    Set.of(
+                            "get",
+                            "getContainer",
+                            "getActiveNamespace",
+                            "registerExtensionPoint",
+                            "registerDisplayTest"),
+            "net/minecraftforge/fml/ModContainer",
+                    Set.of(
+                            "getModId",
+                            "getNamespace",
+                            "getModInfo",
+                            "getMod",
+                            "matches",
+                            "getCustomExtension",
+                            "registerExtensionPoint",
+                            "registerDisplayTest",
+                            "getModBusGroup"),
+            "net/minecraftforge/forgespi/language/IModInfo",
+                    Set.of("getModId", "getDisplayName", "getDescription", "getVersion", "getNamespace"));
 
     /**
      * {@code ForgeRegistries} is named by the {@code InnerClasses} attribute of every class that uses {@code
@@ -98,12 +164,6 @@ public final class ForgeOnNeoForgeScope {
      */
     private static final Set<String> MEMBERS = Set.of(
             "net/minecraftforge/event/server/ServerLifecycleEvent.BUS",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.get",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.getContainer",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerConfig",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerExtensionPoint",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.registerDisplayTest",
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.extension",
             "net/minecraftforge/registries/DeferredRegister.makeRegistry",
             "net/minecraftforge/registries/DeferredRegister.createOptionalTagKey",
             "net/minecraftforge/registries/DeferredRegister.addOptionalTagDefaults",
@@ -132,9 +192,13 @@ public final class ForgeOnNeoForgeScope {
      */
     private static final String LIFECYCLE_EVENTS = "net/minecraftforge/fml/event/lifecycle/";
 
-    /** Files that make Forge transform classes or install more jars, which F-N2 does not do. */
-    private static final List<String> FILES =
-            List.of("META-INF/coremods.json", "META-INF/accesstransformer.cfg", "META-INF/jarjar/metadata.json");
+    /**
+     * Files that make Forge transform classes or install more jars, which F-N2 does not do. A mod's {@code
+     * META-INF/accesstransformer.cfg} is not here: NeoForge's FML reads it as a NeoForge mod's (its default access
+     * transformer path) into its own access transformer processor, and the link check checks its lines ({@code
+     * ForgeOnNeoForgeAccessTransformers}).
+     */
+    private static final List<String> FILES = List.of("META-INF/coremods.json", "META-INF/jarjar/metadata.json");
 
     private static final Pattern FORGE_CLASS = Pattern.compile("net/minecraftforge/[A-Za-z0-9_/$]+");
 
@@ -143,8 +207,8 @@ public final class ForgeOnNeoForgeScope {
     /**
      * What {@code jar} uses beyond F-N2's Forge API: Forge classes and members (as {@code owner} or {@code
      * owner.member}) and the class-transforming files it has. Empty when the mod runs on NeoForge. Its Mixin
-     * configurations are not named: FML applies them, and the link check's Mixin check decides whether they fit
-     * ({@code ForgeOnNeoForgeMixins}).
+     * configurations and access transformer are not named: FML applies them, and the link check decides whether they
+     * fit ({@code ForgeOnNeoForgeMixins}, {@code ForgeOnNeoForgeAccessTransformers}).
      *
      * @throws IOException when the jar or one of its classes cannot be read
      */
@@ -170,7 +234,7 @@ public final class ForgeOnNeoForgeScope {
                 collect(bytes, found);
             }
         } catch (IllegalArgumentException e) {
-            throw new IOException(jar.getFileName() + ": " + e.getMessage(), e);
+            throw new IOException(jar.getFileName() + ": " + e, e);
         }
         return List.copyOf(found);
     }
@@ -196,10 +260,12 @@ public final class ForgeOnNeoForgeScope {
                     }
                 }
             } else if (entry instanceof MemberRefEntry member) {
-                String reference =
-                        member.owner().asInternalName() + "." + member.name().stringValue();
+                String owner = member.owner().asInternalName();
+                String reference = owner + "." + member.name().stringValue();
+                Set<String> only = ONLY_MEMBERS.get(owner);
                 if (MEMBERS.contains(reference)
-                        || member.owner().asInternalName().equals(FORGE_REGISTRIES)
+                        || (only != null && !only.contains(member.name().stringValue()))
+                        || owner.equals(FORGE_REGISTRIES)
                         || (reference.startsWith(LIFECYCLE_EVENTS) && reference.endsWith(".enqueueWork"))) {
                     found.add(reference);
                 }
@@ -270,7 +336,8 @@ public final class ForgeOnNeoForgeScope {
             "MixinConfigs (with Fabric or Quilt mods, whose Mixin NeoForge's mods share)";
 
     /** What a jar the NeoForge host declined after reading its {@code mods.toml} is reported with. */
-    public static final String DECLINED_BY_HOST = "META-INF/mods.toml";
+    public static final String DECLINED_BY_HOST =
+            "META-INF/mods.toml rejected by NeoForge (see earlier PLEXUS-COMPAT-229)";
 
     /**
      * Splits {@code jars} into those that run on NeoForge for Minecraft {@code gameVersion} and those left out; a jar

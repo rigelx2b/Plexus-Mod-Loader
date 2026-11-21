@@ -150,9 +150,17 @@ public final class ForgeOnNeoForgeLinks {
                             .add(unfit.size() + " mixin part(s) that do not fit " + hosted.hostName()
                                     + "'s patched game: " + String.join("; ", unfit));
                 }
+                // FML's access transformers apply to the same classes as its Mixin.
+                List<String> lines = ForgeOnNeoForgeAccessTransformers.unfit(jar, side, classes::read, libraries::read);
+                if (!lines.isEmpty()) {
+                    reasons.computeIfAbsent(jar, key -> new ArrayList<>())
+                            .add(lines.size() + " access transformer line(s) that do not fit " + hosted.hostName()
+                                    + "'s patched game: " + String.join("; ", lines));
+                }
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("Failed to check the mixins of Forge mods against NeoForge's game", e);
+            throw new UncheckedIOException(
+                    "Failed to check the mixins and access transformers of Forge mods against NeoForge's game", e);
         }
         Map<Path, List<String>> ordered = new LinkedHashMap<>();
         for (Path jar : forgeMods) {

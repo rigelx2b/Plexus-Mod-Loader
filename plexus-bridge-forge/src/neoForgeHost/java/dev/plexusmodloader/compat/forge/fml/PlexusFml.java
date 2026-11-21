@@ -87,6 +87,10 @@ public final class PlexusFml implements NeoForgeLaunch {
                 parent);
         Thread.currentThread().setContextClassLoader(request.gameClassLoader());
         ForeignModList.install(request.otherMods());
+        if (!request.forgeModJars().isEmpty()) {
+            // Forge on NeoForge: Forge's side and game directory, before any Forge mod's mixin can read them.
+            ForgeEnvironment.set(request.dist(), request.gameDirectory());
+        }
         FMLLoader loader = FMLLoader.create(null, arguments);
         ModuleLayer layer = gameLayer;
         if (layer == null) {
@@ -220,7 +224,7 @@ public final class PlexusFml implements NeoForgeLaunch {
         sharedMixinConfigs = configs;
         current.log()
                 .accept("FML found " + configs.size() + " Mixin configuration(s) of NeoForge's mods and libraries for"
-                        + " the Mixin Fabric mods share; FML's own Mixin does not start (ADR-0026 30)");
+                        + " the Mixin Fabric or Quilt mods share; FML's own Mixin does not start (ADR-0026 30)");
     }
 
     /** In place of FML's {@code new ModsFolderLocator()}: the NeoForge mods Plexus Mod Loader found and left in. */
@@ -336,8 +340,8 @@ public final class PlexusFml implements NeoForgeLaunch {
     private void auditMixins(String mainClass) throws ReflectiveOperationException {
         ClassLoader classes = loader.getCurrentClassLoader();
         Request current = request;
-        List<String> failures = new ArrayList<>();
-        load(mainClass, classes, failures);
+        List<String> loadFailures = new ArrayList<>();
+        load(mainClass, classes, loadFailures);
         Class<?> environmentClass = Class.forName("org.spongepowered.asm.mixin.MixinEnvironment", true, classes);
         Object environment = environmentClass.getMethod("getCurrentEnvironment").invoke(null);
         Object transformer = environmentClass.getMethod("getActiveTransformer").invoke(environment);
@@ -354,26 +358,32 @@ public final class PlexusFml implements NeoForgeLaunch {
             }
         }
         for (String target : targets) {
-            load(target, classes, failures);
+            load(target, classes, loadFailures);
         }
         // Code that casts to a type a left-out or failed mixin should have given its target (ADR-0026 39).
         List<String> notes = new ArrayList<>();
-        failures.addAll(MixinTypeAudit.check(configs, classes, current.dist().equals("CLIENT"), notes));
+        List<String> typeFailures =
+                MixinTypeAudit.check(configs, classes, current.dist().equals("CLIENT"), notes);
         // Classes the host's patch and a mod give two defaults of the same method (ADR-0026 42).
-        failures.addAll(MixinTypeAudit.conflictingDefaults(classes, notes));
+        List<String> defaultFailures = MixinTypeAudit.conflictingDefaults(classes, notes);
+        List<String> failures = new ArrayList<>(loadFailures);
+        failures.addAll(typeFailures);
+        failures.addAll(defaultFailures);
         // Mostly mixins their mod's own configuration turns off (Lithium's options); listed for diagnosis.
         current.log()
-                .accept("Mixin audit: " + notes.size() + " type(s) mixins would add are missing on their targets but"
-                        + " no transformed game class uses them unchecked");
+                .accept("Mixin audit: " + notes.size() + " note(s) (missing mixin types not used unchecked, or"
+                        + " unreadable Mixin configs, classes, or interfaces)");
         notes.forEach(note -> current.log().accept("Mixin audit note: " + note));
+        // Scenario tasks match ", 0 failed": the total is zero only when every kind is.
         current.log()
                 .accept("Mixin audit: " + targets.size() + " target class(es) of " + configurations
                         + " Mixin configuration(s) loaded through FML's class loader, " + failures.size()
-                        + " failed");
-        failures.forEach(failure -> current.log().accept("Mixin audit: " + failure));
-        // What FML would show on its loading screen when the client starts (errors stop the game, warnings ask first).
+                        + " failed (" + loadFailures.size() + " class load failure(s), " + typeFailures.size()
+                        + " missing mixin type use(s), " + defaultFailures.size() + " default method conflict(s))");
+        failures.forEach(failure -> current.log().accept("Mixin audit failure: " + failure));
+        // What FML would show on its loading screen (errors stop the game, warnings ask first).
         var issues = loader.getLoadingModList().getModLoadingIssues();
-        current.log().accept("FML loading issues for the client: " + issues.size());
+        current.log().accept("FML loading issues on " + current.dist() + " (errors and warnings): " + issues.size());
         issues.forEach(issue -> current.log()
                 .accept("FML loading issue: " + issue.severity() + " " + issue.translationKey() + " "
                         + issue.translationArgs()));

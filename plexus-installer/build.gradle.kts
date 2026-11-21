@@ -83,6 +83,17 @@ val installerPayload = tasks.register<dev.plexusmodloader.devtools.gradle.releas
     outputDirectory = layout.buildDirectory.dir("installer-payload")
 }
 
+// The completion dialogs' support link: plexus.sponsorUrl of gradle.properties as a resource of the installer (SponsorLink).
+val sponsorLinkDirectory = layout.buildDirectory.dir("generated/sponsor-link")
+val sponsorLink = tasks.register<WriteProperties>("sponsorLink") {
+    description = "Writes plexus.sponsorUrl from gradle.properties into the installer resources."
+    destinationFile = sponsorLinkDirectory.map { it.file("META-INF/plexusmodloader/sponsor.properties") }
+    property("url", providers.gradleProperty("plexus.sponsorUrl").orElse(""))
+}
+sourceSets.main {
+    resources.srcDir(files(sponsorLinkDirectory).builtBy(sponsorLink))
+}
+
 // PlexusModLoader-<version>.jar: the installer with gson and the payload inside; double-click or java -jar.
 val installerJar = tasks.register<Jar>("installerJar") {
     group = "distribution"
