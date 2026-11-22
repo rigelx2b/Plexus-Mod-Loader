@@ -4,6 +4,7 @@ import dev.plexusmodloader.api.stability.ApiStability;
 import dev.plexusmodloader.api.stability.StabilityLevel;
 import java.lang.module.Configuration;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Defines JPMS module layers whose modules belong to the game class loader (ADR-0021), for a loader whose code and
@@ -25,6 +26,19 @@ public interface GameModuleLayers {
      * @throws java.lang.LayerInstantiationException when the JDK refuses the layer
      */
     ModuleLayer.Controller define(Configuration configuration, List<ModuleLayer> parents, boolean transformed);
+
+    /**
+     * As {@link #define(Configuration, List, boolean)}, with only the modules {@code transformed} names going through
+     * the transformers: a loader's own code layer that also holds a jar Plexus Mod Loader's rules target (Forge's
+     * {@code universal} jar among NeoForge's loader libraries, ADR-0051).
+     *
+     * @param transformed the names of the modules whose classes go through the transformers
+     * @throws UnsupportedOperationException when this game class loader cannot transform some modules of a layer only
+     */
+    default ModuleLayer.Controller define(
+            Configuration configuration, List<ModuleLayer> parents, Predicate<String> transformed) {
+        throw new UnsupportedOperationException("This game class loader transforms a whole layer or none of it");
+    }
 
     /**
      * Adds a class loader the game class loader asks last, after its own jars and modules and its parent, for classes

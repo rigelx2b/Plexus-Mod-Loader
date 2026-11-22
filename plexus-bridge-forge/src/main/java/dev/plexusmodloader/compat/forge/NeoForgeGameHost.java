@@ -65,6 +65,9 @@ final class NeoForgeGameHost implements GameHost {
     private final List<Path> onClassPath;
     private final Path hostJar;
     private List<Path> modJars;
+    /** The automatic module name of Forge's universal jar among the loader libraries (Forge on NeoForge). */
+    static final String FORGE_UNIVERSAL_MODULE = "net.minecraftforge.forge";
+
     private List<Path> forgeModJars;
     /** Forge's API jars among {@link #modules} (ADR-0051), dropped when no Forge mod is left. */
     private final List<Path> forgeLibraries;
@@ -469,6 +472,12 @@ final class NeoForgeGameHost implements GameHost {
             if (!forgeModJars.isEmpty()) {
                 // Forge on NeoForge, F-N4: Forge's RegistryObject without the Forge-patch-only isIntrusive() call.
                 reference = ForgeRegistryObjectPatch.patching(reference);
+                // Forge on NeoForge, F-N4: Forge's ForgeRegistries with views of the game's registries.
+                reference = ForgeRegistriesPatch.patching(reference);
+                // Forge on NeoForge, F-N6: Forge's Mod.EventBusSubscriber.Bus without Forge's Bindings.
+                reference = ForgeEventBusPatch.patching(reference);
+                // Forge on NeoForge, F-N6: Forge's config classes without Forge's Bindings and FMLConfig.
+                reference = ForgeConfigPatch.patching(reference);
             }
             if (request.sharedMixin()) {
                 reference = NeoForgeSharedMixinPatch.patching(reference, hierarchy, result -> {
@@ -505,7 +514,12 @@ final class NeoForgeGameHost implements GameHost {
         };
         Configuration configuration =
                 ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), rewritten.keySet());
-        ModuleLayer.Controller controller = layers.define(configuration, List.of(ModuleLayer.boot()), false);
+        // Forge on NeoForge, F-N6: Forge's universal jar goes through the transformers for ForgeNetworkRules; the rest
+        // of
+        // the loader libraries are defined as they are.
+        ModuleLayer.Controller controller = forgeModJars.isEmpty()
+                ? layers.define(configuration, List.of(ModuleLayer.boot()), false)
+                : layers.define(configuration, List.of(ModuleLayer.boot()), FORGE_UNIVERSAL_MODULE::equals);
         Module classPath = NeoForgeGameHost.class.getClassLoader().getUnnamedModule();
         for (Module module : controller.layer().modules()) {
             controller.addReads(module, classPath);
@@ -729,18 +743,30 @@ final class NeoForgeGameHost implements GameHost {
      */
     @Override
     public List<TransformRuleDefinition> transformRules(String gameLayerPackage) {
-        if (!request.sharedMixin() || gameLayerPackage.isEmpty()) {
+        if (gameLayerPackage.isEmpty()) {
             return transformRules();
         }
         List<TransformRuleDefinition> rules = new ArrayList<>(transformRules());
-        rules.addAll(NeoForgeForeignPayloads.rules(request.gameVersion(), gameLayerPackage));
+        if (request.sharedMixin()) {
+            rules.addAll(NeoForgeForeignPayloads.rules(request.gameVersion(), gameLayerPackage));
+        }
+        if (!forgeLibraries.isEmpty()) {
+            // Forge on NeoForge, F-N6: Forge's network classes without MinecraftForge's patched game (ADR-0051 22).
+            rules.addAll(ForgeNetworkRules.rules(request.gameVersion(), gameLayerPackage));
+        }
         return List.copyOf(rules);
     }
 
-    /** NeoForge's universal jar, which has the class {@link NeoForgeTitleBranding}'s rule targets. */
+    /**
+     * NeoForge's universal jar, which has the class {@link NeoForgeTitleBranding}'s rule targets, and with Forge mods
+     * handed over Forge's universal jar, whose network classes {@link ForgeNetworkRules} target.
+     */
     @Override
     public List<Path> transformTargetJars() {
-        return List.of(files.universal());
+        if (forgeLibraries.isEmpty()) {
+            return List.of(files.universal());
+        }
+        return List.of(files.universal(), forgeLibraries.getLast());
     }
 
     @Override

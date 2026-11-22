@@ -45,17 +45,36 @@ public final class ForgeEventPairs {
      */
     public record Side() implements Argument {}
 
-    /** NeoForge's event {@code neoForge} posted as Forge's {@code forge}. */
-    public record Pair(String neoForge, String forge, List<Argument> arguments) {
+    /** Where a pair is passed on. */
+    public enum Where {
+        /** In every game. */
+        ANY,
+        /**
+         * In a client game only: both events name client classes in their members, which a dedicated server does not
+         * have. The pre-launch check still checks the pair on every side.
+         */
+        CLIENT
+    }
+
+    /** NeoForge's event {@code neoForge} posted as Forge's {@code forge}, in the games {@code where} says. */
+    public record Pair(String neoForge, String forge, List<Argument> arguments, Where where) {
         public Pair {
             Objects.requireNonNull(neoForge, "neoForge");
             Objects.requireNonNull(forge, "forge");
             arguments = List.copyOf(arguments);
+            Objects.requireNonNull(where, "where");
+        }
+
+        /** A pair passed on in every game. */
+        public Pair(String neoForge, String forge, List<Argument> arguments) {
+            this(neoForge, forge, arguments, Where.ANY);
         }
     }
 
     private static final String NEOFORGE = "net.neoforged.neoforge.event.";
+    private static final String NEOFORGE_CLIENT = "net.neoforged.neoforge.client.event.";
     private static final String FORGE = "net.minecraftforge.event.";
+    private static final String FORGE_CLIENT = "net.minecraftforge.client.event.";
 
     /** The game bus events passed on. */
     public static final List<Pair> GAME_EVENTS = List.of(
@@ -113,7 +132,117 @@ public final class ForgeEventPairs {
             new Pair(
                     NEOFORGE + "entity.EntityJoinLevelEvent",
                     FORGE + "entity.EntityJoinLevelEvent",
-                    List.of(new Getter("getEntity"), new Getter("getLevel"), new Getter("loadedFromDisk"))));
+                    List.of(new Getter("getEntity"), new Getter("getLevel"), new Getter("loadedFromDisk"))),
+            // The pairs below were compared on the 26.2 patched client jars, as above (2026-11-22).
+            // PlayerList.placeNewPlayer: ForgeEventFactory.firePlayerLoggedIn / EventHooks.firePlayerLoggedIn.
+            new Pair(
+                    NEOFORGE + "entity.player.PlayerEvent$PlayerLoggedInEvent",
+                    FORGE + "entity.player.PlayerEvent$PlayerLoggedInEvent",
+                    List.of(new Getter("getEntity"))),
+            // PlayerList.remove: firePlayerLoggedOut in both.
+            new Pair(
+                    NEOFORGE + "entity.player.PlayerEvent$PlayerLoggedOutEvent",
+                    FORGE + "entity.player.PlayerEvent$PlayerLoggedOutEvent",
+                    List.of(new Getter("getEntity"))),
+            // PlayerList.respawn: firePlayerRespawnEvent in both.
+            new Pair(
+                    NEOFORGE + "entity.player.PlayerEvent$PlayerRespawnEvent",
+                    FORGE + "entity.player.PlayerEvent$PlayerRespawnEvent",
+                    List.of(new Getter("getEntity"), new Getter("isEndConquered"))),
+            // ServerPlayer.teleport: ForgeEventFactory.onPlayerChangedDimension /
+            // EventHooks.firePlayerChangedDimensionEvent.
+            new Pair(
+                    NEOFORGE + "entity.player.PlayerEvent$PlayerChangedDimensionEvent",
+                    FORGE + "entity.player.PlayerEvent$PlayerChangedDimensionEvent",
+                    List.of(new Getter("getEntity"), new Getter("getFrom"), new Getter("getTo"))),
+            // Player.tick: ForgeEventFactory.onPlayerPreTick / EventHooks.firePlayerTickPre. A player ticks on the
+            // thread of its level, so the side agrees as for the level ticks.
+            new Pair(
+                    NEOFORGE + "tick.PlayerTickEvent$Pre",
+                    FORGE + "TickEvent$PlayerTickEvent$Pre",
+                    List.of(new Getter("getEntity"), new Side())),
+            // Player.tick: onPlayerPostTick / firePlayerTickPost.
+            new Pair(
+                    NEOFORGE + "tick.PlayerTickEvent$Post",
+                    FORGE + "TickEvent$PlayerTickEvent$Post",
+                    List.of(new Getter("getEntity"), new Side())),
+            // Minecraft.tick: ForgeEventFactory.onPreClientTick / ClientHooks.fireClientTickPre. NeoForge posts both
+            // client
+            // tick events only once the game has loaded (Minecraft.gameLoadFinished), Forge on every tick: Forge mods
+            // get no client ticks while the game loads.
+            new Pair(
+                    NEOFORGE_CLIENT + "ClientTickEvent$Pre",
+                    FORGE + "TickEvent$ClientTickEvent$Pre",
+                    List.of(),
+                    Where.CLIENT),
+            // Minecraft.tick: onPostClientTick / fireClientTickPost.
+            new Pair(
+                    NEOFORGE_CLIENT + "ClientTickEvent$Post",
+                    FORGE + "TickEvent$ClientTickEvent$Post",
+                    List.of(),
+                    Where.CLIENT),
+            // Minecraft.renderFrame: ForgeEventFactoryClient.onRenderTickStart / ClientHooks.fireRenderFramePre.
+            new Pair(
+                    NEOFORGE_CLIENT + "RenderFrameEvent$Pre",
+                    FORGE + "TickEvent$RenderTickEvent$Pre",
+                    List.of(new Getter("getPartialTick")),
+                    Where.CLIENT),
+            // Minecraft.renderFrame: onRenderTickEnd / fireRenderFramePost.
+            new Pair(
+                    NEOFORGE_CLIENT + "RenderFrameEvent$Post",
+                    FORGE + "TickEvent$RenderTickEvent$Post",
+                    List.of(new Getter("getPartialTick")),
+                    Where.CLIENT),
+            // The pairs below were compared on the 26.2 patched client jars, as above (2026-11-22, F-N6); their event
+            // shapes are the same on the five 26.x releases.
+            // DedicatedServer, IntegratedServer and GameTestServer.initServer:
+            // ServerLifecycleHooks.handleServerAboutToStart
+            // in both. Forge loads the server configs just before it (the host's ForgeConfigs too).
+            new Pair(
+                    NEOFORGE + "server.ServerAboutToStartEvent",
+                    FORGE + "server.ServerAboutToStartEvent",
+                    List.of(new Getter("getServer"))),
+            // MinecraftServer.createLevels and ClientLevel.<init>: ForgeEventFactory.onLevelLoad / NeoForge directly.
+            new Pair(
+                    NEOFORGE + "level.LevelEvent$Load",
+                    FORGE + "level.LevelEvent$Load",
+                    List.of(new Getter("getLevel"))),
+            // MinecraftServer.stopServer, Minecraft.setLevel and Minecraft.disconnect: ForgeEventFactory.onLevelUnload
+            // /
+            // NeoForge directly; NeoForge also posts it from Minecraft.clearClientLevel, where Forge does not.
+            new Pair(
+                    NEOFORGE + "level.LevelEvent$Unload",
+                    FORGE + "level.LevelEvent$Unload",
+                    List.of(new Getter("getLevel"))),
+            // ServerPlayer.restoreFrom: ForgeEventFactory.onPlayerClone / EventHooks.onPlayerClone.
+            new Pair(
+                    NEOFORGE + "entity.player.PlayerEvent$Clone",
+                    FORGE + "entity.player.PlayerEvent$Clone",
+                    List.of(new Getter("getEntity"), new Getter("getOriginal"), new Getter("isWasDeath"))),
+            // The pairs below were compared on the 26.2 patched client jars, as above, and the hooks' bodies on the
+            // universal jars (2026-11-22, F-N6): both build their event from the same arguments.
+            // ClientPacketListener.handleLogin: ForgeEventFactoryClient.firePlayerLogin / ClientHooks.firePlayerLogin.
+            new Pair(
+                    NEOFORGE_CLIENT + "ClientPlayerNetworkEvent$LoggingIn",
+                    FORGE_CLIENT + "ClientPlayerNetworkEvent$LoggingIn",
+                    List.of(new Getter("getMultiPlayerGameMode"), new Getter("getPlayer"), new Getter("getConnection")),
+                    Where.CLIENT),
+            // Minecraft.disconnect: firePlayerLogout in both; the game mode, player and connection may be null.
+            new Pair(
+                    NEOFORGE_CLIENT + "ClientPlayerNetworkEvent$LoggingOut",
+                    FORGE_CLIENT + "ClientPlayerNetworkEvent$LoggingOut",
+                    List.of(new Getter("getMultiPlayerGameMode"), new Getter("getPlayer"), new Getter("getConnection")),
+                    Where.CLIENT),
+            // ClientPacketListener.handleRespawn: firePlayerRespawn in both.
+            new Pair(
+                    NEOFORGE_CLIENT + "ClientPlayerNetworkEvent$Clone",
+                    FORGE_CLIENT + "ClientPlayerNetworkEvent$Clone",
+                    List.of(
+                            new Getter("getMultiPlayerGameMode"),
+                            new Getter("getOldPlayer"),
+                            new Getter("getNewPlayer"),
+                            new Getter("getConnection")),
+                    Where.CLIENT));
 
     private ForgeEventPairs() {}
 }

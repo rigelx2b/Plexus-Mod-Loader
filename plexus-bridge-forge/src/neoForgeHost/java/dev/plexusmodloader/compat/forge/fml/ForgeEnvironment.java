@@ -10,7 +10,9 @@ import net.minecraftforge.fml.loading.FMLLoader;
  * FMLLoader.getDist()}, {@code FMLLoader.getGamePath()}). MinecraftForge's launch sets them in private static fields of
  * Forge's {@code FMLLoader}, in Forge's {@code fmlloader} jar among the loader libraries; that launch does not run here,
  * so the host sets the same two fields from NeoForge's side and game directory before FML starts, and before anything
- * reads Forge's {@code FMLEnvironment}, which copies the side once. The fields were checked before launch ({@code
+ * reads Forge's {@code FMLEnvironment}, which copies the side once. It also sets {@code production} to {@code true}, as a
+ * player's Forge launch does (F-N6; {@code FMLEnvironment.production}, which Forge's config values read, copies it once).
+ * The fields were checked before launch ({@code
  * ForgeEnvironmentCheck}). It then prepares Forge's {@code ModList} ({@link ForgeModList}, checked by {@code
  * ForgeModListCheck}); every other part of Forge's launch state stays unset.
  *
@@ -94,12 +96,15 @@ final class ForgeEnvironment {
             lookup.findStaticSetter(loader, "dist", distType).invoke(side);
             lookup.findStaticSetter(loader, "gamePath", Path.class)
                     .invoke(gameDirectory.toAbsolutePath().normalize());
+            // F-N6: a player's Forge runs in production (Forge's own launch sets it unless it is Forge's userdev); in
+            // production a Forge config value read before its config loads gives its default instead of throwing.
+            lookup.findStaticSetter(loader, "production", boolean.class).invoke(true);
         } catch (LinkageError e) {
             // ExceptionInInitializerError and NoClassDefFoundError among them: FMLLoader does not link or initialise.
             throw doesNotLoad(e);
         } catch (NoSuchFieldException | IllegalArgumentException e) {
             throw new IllegalStateException(
-                    "PLEXUS-COMPAT-230 Forge's FMLLoader lacks private static fields dist and gamePath of the expected"
+                    "PLEXUS-COMPAT-230 Forge's FMLLoader lacks private static fields dist, gamePath and production of the expected"
                             + " types, or Forge's Dist has no constant for NeoForge's side; stopping launch: " + e,
                     e);
         } catch (RuntimeException | Error e) {
@@ -109,7 +114,7 @@ final class ForgeEnvironment {
             // IllegalAccessException (the package is not open to the host), or a checked throwable MethodHandle.invoke
             // declares and a static field setter does not throw.
             throw new IllegalStateException(
-                    "PLEXUS-COMPAT-230 Unexpected failure setting Forge's FMLLoader dist and gamePath fields; stopping"
+                    "PLEXUS-COMPAT-230 Unexpected failure setting Forge's FMLLoader dist, gamePath and production fields; stopping"
                             + " launch: " + e,
                     e);
         }

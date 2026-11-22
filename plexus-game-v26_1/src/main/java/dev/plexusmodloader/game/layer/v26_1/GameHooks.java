@@ -552,6 +552,7 @@ public final class GameHooks {
      * {@code ServerEvents.STARTING}.
      */
     public static void onCreateLevels(MinecraftServer server) {
+        ForgeNetworkHooks.serverStarting(server);
         WorldBackups.beforeLoading(server);
         LayerState.registries(server.registryAccess());
         LayerState.context().ifPresent(context -> {

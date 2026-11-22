@@ -112,10 +112,47 @@ final class ForgeOnNeoForgeLibraries {
             if (!unpaired.isEmpty()) {
                 return declineAll(request, jars, "game event pairs do not hold: " + String.join("; ", unpaired));
             }
+            List<String> unreloaded =
+                    ForgeEventPairCheck.missingReloadListeners(neoForgeUniversal, libraries.getLast());
+            if (!unreloaded.isEmpty()) {
+                return declineAll(
+                        request,
+                        jars,
+                        "reload listener event forwarding hooks missing: " + String.join("; ", unreloaded));
+            }
+            List<String> unmapped = ForgeEventPairCheck.missingKeyMappings(neoForgeUniversal, libraries.getLast());
+            if (!unmapped.isEmpty()) {
+                return declineAll(
+                        request, jars, "key mapping event forwarding hooks missing: " + String.join("; ", unmapped));
+            }
             List<String> unregistered = ForgeEventPairCheck.missingRegistration(neoForgeUniversal, libraries.getLast());
             if (!unregistered.isEmpty()) {
                 return declineAll(
                         request, jars, "registry event forwarding hooks missing: " + String.join("; ", unregistered));
+            }
+            int busCalls = ForgeEventBusPatch.calls(
+                    only(libraries, name -> name.startsWith("javafmllanguage-"), "javafmllanguage-*.jar"));
+            if (busCalls != 1) {
+                return declineAll(
+                        request,
+                        jars,
+                        "event subscriber bus hook missing: " + ForgeEventBusPatch.CLASS_FILE + " has " + busCalls
+                                + " Bindings.getForgeBus() call(s)");
+            }
+            List<String> unconfigurable = new ArrayList<>();
+            ForgeConfigPatch.calls(only(libraries, name -> name.startsWith("fmlcore-"), "fmlcore-*.jar"))
+                    .forEach((redirect, calls) -> {
+                        if (calls != 1) {
+                            unconfigurable.add(redirect.classFile() + " has " + calls + " " + redirect.owner() + "."
+                                    + redirect.name() + " call(s)");
+                        }
+                    });
+            if (!unconfigurable.isEmpty()) {
+                return declineAll(request, jars, "config hooks missing: " + String.join("; ", unconfigurable));
+            }
+            List<String> unnetworked = ForgeNetworkRules.missing(libraries.getLast());
+            if (!unnetworked.isEmpty()) {
+                return declineAll(request, jars, "network hooks missing: " + String.join("; ", unnetworked));
             }
             List<String> unsettable = ForgeEnvironmentCheck.missing(
                     only(libraries, name -> name.startsWith("fmlloader-"), "fmlloader-*.jar"),

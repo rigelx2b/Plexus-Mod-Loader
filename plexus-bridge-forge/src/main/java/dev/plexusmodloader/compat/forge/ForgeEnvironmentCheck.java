@@ -27,8 +27,10 @@ import java.util.jar.JarFile;
  * FMLLoader}; that launch does not run on NeoForge, so the host writes the same two fields from NeoForge's side and game
  * directory before FML starts. This check reads Forge's {@code fmlloader} and {@code mergetool-api} jars for what that
  * relies on: Forge's {@code Dist} has the constants of {@link #SIDES}; {@code FMLLoader} has the private static,
- * non-final fields {@code dist} and {@code gamePath}, and {@code getDist()} and {@code getGamePath()} only return them;
- * and {@code FMLEnvironment} copies {@code FMLLoader.getDist()} into its {@code dist} field when it is initialised.
+ * non-final fields {@code dist}, {@code gamePath} and {@code production} (F-N6), and {@code getDist()}, {@code
+ * getGamePath()} and {@code isProduction()} only return them; and {@code FMLEnvironment} copies {@code
+ * FMLLoader.getDist()} into its {@code dist} field and reads {@code FMLLoader.isProduction()} for its public {@code
+ * production} field when it is initialised.
  * When any of it differs (another Forge release), every Forge mod is left out ({@code PLEXUS-COMPAT-229}).
  *
  * <p>Thread: stateless.
@@ -41,6 +43,7 @@ final class ForgeEnvironmentCheck {
     static final String FML_LOADER = "net/minecraftforge/fml/loading/FMLLoader";
     static final String DIST_FIELD = "dist";
     static final String GAME_PATH_FIELD = "gamePath";
+    static final String PRODUCTION_FIELD = "production";
 
     private static final String DIST = "net/minecraftforge/api/distmarker/Dist";
     private static final String FML_ENVIRONMENT = "net/minecraftforge/fml/loading/FMLEnvironment";
@@ -75,6 +78,7 @@ final class ForgeEnvironmentCheck {
             } else {
                 checkState(loader.get(), DIST_FIELD, DIST_DESCRIPTOR, "getDist", missing);
                 checkState(loader.get(), GAME_PATH_FIELD, PATH_DESCRIPTOR, "getGamePath", missing);
+                checkState(loader.get(), PRODUCTION_FIELD, "Z", "isProduction", missing);
             }
             Optional<ClassModel> environment = read(loaderJar, FML_ENVIRONMENT);
             if (environment.isEmpty()) {
@@ -87,6 +91,12 @@ final class ForgeEnvironmentCheck {
                 }
                 if (!copiesDist(environment.get())) {
                     missing.add(FML_ENVIRONMENT + ": <clinit> does not set dist from FMLLoader.getDist()");
+                }
+                if (!field(environment.get(), PRODUCTION_FIELD, "Z", Set.of(AccessFlag.PUBLIC, AccessFlag.STATIC))) {
+                    missing.add(FML_ENVIRONMENT + ": missing public static field " + PRODUCTION_FIELD + " Z");
+                }
+                if (!callsIsProduction(environment.get())) {
+                    missing.add(FML_ENVIRONMENT + ": <clinit> does not read FMLLoader.isProduction()");
                 }
             }
         } catch (IllegalArgumentException e) {
@@ -135,7 +145,7 @@ final class ForgeEnvironmentCheck {
                 .anyMatch(flags -> flags.has(flag));
     }
 
-    /** Whether {@code method} of {@code model} is {@code getstatic <field>; areturn}. */
+    /** Whether {@code method} of {@code model} is {@code getstatic <field>} and a return of it. */
     private static boolean returnsField(ClassModel model, MethodModel method, String field) {
         List<Instruction> code = instructions(method);
         return code.size() == 2
@@ -143,7 +153,7 @@ final class ForgeEnvironmentCheck {
                 && get.opcode() == Opcode.GETSTATIC
                 && get.owner().asInternalName().equals(model.thisClass().asInternalName())
                 && get.name().equalsString(field)
-                && code.get(1).opcode() == Opcode.ARETURN;
+                && (code.get(1).opcode() == Opcode.ARETURN || code.get(1).opcode() == Opcode.IRETURN);
     }
 
     /** Whether {@code FMLEnvironment}'s {@code <clinit>} has {@code invokestatic FMLLoader.getDist(); putstatic dist}. */
@@ -167,6 +177,17 @@ final class ForgeEnvironmentCheck {
             }
         }
         return false;
+    }
+
+    /** Whether {@code FMLEnvironment}'s {@code <clinit>} calls {@code FMLLoader.isProduction()}. */
+    private static boolean callsIsProduction(ClassModel environment) {
+        return method(environment, "<clinit>", "()V").stream()
+                .flatMap(clinit -> instructions(clinit).stream())
+                .anyMatch(instruction -> instruction instanceof InvokeInstruction invoke
+                        && invoke.opcode() == Opcode.INVOKESTATIC
+                        && invoke.owner().asInternalName().equals(FML_LOADER)
+                        && invoke.name().equalsString("isProduction")
+                        && invoke.type().equalsString("()Z"));
     }
 
     private static Optional<MethodModel> method(ClassModel model, String name, String descriptor) {

@@ -158,7 +158,14 @@ class ForgeEnvironmentCheckTest {
         byte[] loader = ClassFile.of().build(LOADER, type -> {
             type.withField("dist", DIST, ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC);
             type.withField("gamePath", PATH, ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC);
+            type.withField("production", ConstantDescs.CD_boolean, ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC);
             int getter = ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC;
+            type.withMethodBody(
+                    "isProduction",
+                    MethodTypeDesc.of(ConstantDescs.CD_boolean),
+                    getter,
+                    code -> code.getstatic(LOADER, "production", ConstantDescs.CD_boolean)
+                            .ireturn());
             type.withMethodBody(
                     "getDist",
                     MethodTypeDesc.of(DIST),
@@ -176,6 +183,10 @@ class ForgeEnvironmentCheckTest {
             if (environmentField) {
                 type.withField("dist", DIST, ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC | ClassFile.ACC_FINAL);
             }
+            type.withField(
+                    "production",
+                    ConstantDescs.CD_boolean,
+                    ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC | ClassFile.ACC_FINAL);
             type.withMethodBody("<clinit>", MethodTypeDesc.of(ConstantDescs.CD_void), ClassFile.ACC_STATIC, code -> {
                 if (copiesSide) {
                     code.invokestatic(LOADER, "getDist", MethodTypeDesc.of(DIST));
@@ -183,6 +194,8 @@ class ForgeEnvironmentCheckTest {
                     code.aconst_null();
                 }
                 code.putstatic(ENVIRONMENT, "dist", DIST);
+                code.invokestatic(LOADER, "isProduction", MethodTypeDesc.of(ConstantDescs.CD_boolean));
+                code.putstatic(ENVIRONMENT, "production", ConstantDescs.CD_boolean);
                 code.return_();
             });
         });

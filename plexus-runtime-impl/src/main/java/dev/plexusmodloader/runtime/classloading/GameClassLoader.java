@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
@@ -227,6 +228,16 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
      */
     @Override
     public ModuleLayer.Controller define(Configuration configuration, List<ModuleLayer> parents, boolean transformed) {
+        return define(configuration, parents, name -> transformed);
+    }
+
+    /**
+     * As {@link #define(Configuration, List, boolean)}, with only the modules {@code transformed} names going through
+     * the transformers.
+     */
+    @Override
+    public ModuleLayer.Controller define(
+            Configuration configuration, List<ModuleLayer> parents, Predicate<String> transformed) {
         List<OwnedModule> opened = new ArrayList<>();
         try {
             for (ResolvedModule module : configuration.modules()) {
@@ -236,7 +247,7 @@ public final class GameClassLoader extends URLClassLoader implements GameClassBy
                         module.name(),
                         reference.open(),
                         new ProtectionDomain(new CodeSource(location, (CodeSigner[]) null), null, this, null),
-                        transformed));
+                        transformed.test(module.name())));
             }
         } catch (IOException e) {
             opened.forEach(GameClassLoader::closeQuietly);
