@@ -54,11 +54,12 @@ final class ForgeGameEvents {
     private ForgeGameEvents() {}
 
     /**
-     * Adds the listeners once, to NeoForge's {@code NeoForge.EVENT_BUS}.
+     * Adds the listeners once, to NeoForge's {@code NeoForge.EVENT_BUS}; the pairs for a client game only ({@link
+     * ForgeEventPairs.Where#CLIENT}) when {@code client}, as their events' members name client classes.
      *
      * @throws IllegalStateException when an event or member of a pair is not in this NeoForge or Forge release
      */
-    static synchronized void install(ClassLoader game, Consumer<String> log) {
+    static synchronized void install(ClassLoader game, boolean client, Consumer<String> log) {
         if (installed) {
             return;
         }
@@ -74,7 +75,9 @@ final class ForgeGameEvents {
         }
         List<Forwarding> forwardings = new ArrayList<>();
         for (ForgeEventPairs.Pair pair : ForgeEventPairs.GAME_EVENTS) {
-            forwardings.add(Forwarding.of(pair, game, lookup));
+            if (client || pair.where() == ForgeEventPairs.Where.ANY) {
+                forwardings.add(Forwarding.of(pair, game, lookup));
+            }
         }
         forwardings.forEach(forwarding -> forwarding.listen(neoForge));
         installed = true;
@@ -97,7 +100,7 @@ final class ForgeGameEvents {
                 for (ForgeEventPairs.Argument argument : pair.arguments()) {
                     switch (argument) {
                         case ForgeEventPairs.Getter getter -> {
-                            Method method = neoForge.getMethod(getter.method());
+                            Method method = getter(neoForge, getter.method());
                             types.add(method.getReturnType());
                             values.add(lookup.unreflect(method)
                                     .asType(MethodType.methodType(method.getReturnType(), Object.class)));
@@ -161,8 +164,30 @@ final class ForgeGameEvents {
         }
     }
 
+    /**
+     * The public no-argument method {@code name} of {@code type}, not a bridge method, as the pre-launch check reads it
+     * ({@code ForgeEventPairCheck}): NeoForge's player events declare {@code getEntity()} bridges returning {@code
+     * LivingEntity} and {@code Entity}, and {@link Class#getMethod} may return one of them instead of the getter that
+     * returns the player.
+     */
+    private static Method getter(Class<?> type, String name) throws NoSuchMethodException {
+        Method found = null;
+        for (Method method : type.getMethods()) {
+            if (method.getName().equals(name) && method.getParameterCount() == 0 && !method.isBridge()) {
+                if (found == null || found.getReturnType().isAssignableFrom(method.getReturnType())) {
+                    found = method;
+                }
+            }
+        }
+        if (found == null) {
+            throw new NoSuchMethodException(type.getName() + "." + name + "()");
+        }
+        return found;
+    }
+
+    /** Posts {@code event} to Forge's {@code bus}; whether a listener cancelled it. */
     @SuppressWarnings("unchecked")
-    private static boolean post(EventBus<?> bus, Object event) {
+    static boolean post(EventBus<?> bus, Object event) {
         return ((EventBus<net.minecraftforge.eventbus.internal.Event>) bus)
                 .post((net.minecraftforge.eventbus.internal.Event) event);
     }

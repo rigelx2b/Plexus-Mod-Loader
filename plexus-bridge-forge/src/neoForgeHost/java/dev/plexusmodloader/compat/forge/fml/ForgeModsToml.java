@@ -7,9 +7,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import net.neoforged.fml.jarcontents.JarResource;
 import net.neoforged.fml.loading.moddiscovery.ModFile;
 import net.neoforged.fml.loading.moddiscovery.ModFileInfo;
@@ -52,30 +51,22 @@ final class ForgeModsToml {
     }
 
     /**
-     * Adds a {@code [[mixins]]} entry to {@code config} for each of {@code manifestConfigs} it does not list yet: Forge
-     * mods name their Mixin configurations in the manifest ({@code MixinConfigs}), and FML 11 and 12 apply a mod file's
-     * from its {@code [[mixins]]} entries, as for NeoForge's mods.
+     * Sets {@code config}'s {@code [[mixins]]} entries to {@code manifestConfigs}, in order: Forge applies only the Mixin
+     * configurations of a mod's manifest ({@code MixinConfigs}), while FML 11 and 12 apply a mod file's from its {@code
+     * [[mixins]]} entries, as for NeoForge's mods. A Forge mod's own {@code [[mixins]]} entries, which Forge ignores, are
+     * dropped: the corpus's boatiview 0.0.9 names a configuration there that its jar does not have, and FML stopped the
+     * game on it.
      */
     static void addMixins(Config config, List<String> manifestConfigs) {
+        config.remove("mixins");
         if (manifestConfigs.isEmpty()) {
             return;
         }
         List<Object> mixins = new ArrayList<>();
-        Set<String> listed = new HashSet<>();
-        if (config.get("mixins") instanceof List<?> existing) {
-            for (Object element : existing) {
-                mixins.add(element);
-                if (element instanceof Config entry && entry.get("config") instanceof String name) {
-                    listed.add(name);
-                }
-            }
-        }
-        for (String name : manifestConfigs) {
-            if (listed.add(name)) {
-                Config entry = config.createSubConfig();
-                entry.set("config", name);
-                mixins.add(entry);
-            }
+        for (String name : new LinkedHashSet<>(manifestConfigs)) {
+            Config entry = config.createSubConfig();
+            entry.set("config", name);
+            mixins.add(entry);
         }
         config.set("mixins", mixins);
     }

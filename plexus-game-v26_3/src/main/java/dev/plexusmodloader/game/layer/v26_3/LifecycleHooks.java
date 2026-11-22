@@ -83,6 +83,7 @@ public final class LifecycleHooks {
 
     /** Before the return of {@code MinecraftServer.stopServer()}. */
     public static void onServerStopped(MinecraftServer server) {
+        ForgeNetworkHooks.serverStopped(server);
         // stopServer has saved and closed every world by now. Checks read this line: since 26.3 the game no
         // longer logs that all dimensions are saved.
         LOGGER.info("[Plexus Mod Loader] Server stopped after saving and closing its worlds");

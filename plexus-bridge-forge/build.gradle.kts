@@ -121,7 +121,8 @@ tasks.test {
     })
 }
 // ForgeEventPairCheckTest checks the Forge on NeoForge event pairs (F-N3) against the NeoForge and Forge universal jars
-// pinned for Minecraft 26.2 and 26.3 (plexus.forgeEventJars), and that the runtime's scope check allows their Forge events.
+// pinned for Minecraft 26.1, 26.1.1, 26.1.2, 26.2 and 26.3 (plexus.forgeEventJars), and that the runtime's scope check
+// allows their Forge events.
 // One configuration per version: in one, Gradle would resolve the two releases of each module to the newer one.
 val forgeEventJars262 = configurations.create("forgeEventJars262") {
     isCanBeConsumed = false
@@ -131,22 +132,41 @@ val forgeEventJars263 = configurations.create("forgeEventJars263") {
     isCanBeConsumed = false
     isTransitive = false
 }
+val forgeEventJars261 = configurations.create("forgeEventJars261") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val forgeEventJars2611 = configurations.create("forgeEventJars2611") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val forgeEventJars2612 = configurations.create("forgeEventJars2612") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
 dependencies {
     forgeEventJars262(variantOf(libs.neoforge.universal) { classifier("universal") })
     forgeEventJars262(variantOf(libs.forge.universal) { classifier("universal") })
     forgeEventJars263(variantOf(libs.neoforge263.universal) { classifier("universal") })
     forgeEventJars263(variantOf(libs.forge263.universal) { classifier("universal") })
+    forgeEventJars261(variantOf(libs.neoforge261.universal) { classifier("universal") })
+    forgeEventJars261(variantOf(libs.forge261.universal) { classifier("universal") })
+    forgeEventJars2611(variantOf(libs.neoforge2611.universal) { classifier("universal") })
+    forgeEventJars2611(variantOf(libs.forge2611.universal) { classifier("universal") })
+    forgeEventJars2612(variantOf(libs.neoforge2612.universal) { classifier("universal") })
+    forgeEventJars2612(variantOf(libs.forge2612.universal) { classifier("universal") })
     testImplementation(project(":plexus-runtime-impl"))
 }
 tasks.test {
-    val jars = forgeEventJars262.incoming.files + forgeEventJars263.incoming.files
+    val jars = forgeEventJars262.incoming.files + forgeEventJars263.incoming.files +
+        forgeEventJars261.incoming.files + forgeEventJars2611.incoming.files + forgeEventJars2612.incoming.files
     inputs.files(jars).withPathSensitivity(PathSensitivity.NAME_ONLY).withPropertyName("forgeEventJars")
     jvmArgumentProviders.add(CommandLineArgumentProvider {
         listOf("-Dplexus.forgeEventJars=" + jars.files.joinToString(File.pathSeparator) { it.absolutePath })
     })
 }
 // ForgeEnvironmentCheckTest and ForgeModListCheckTest check what the host sets of Forge's launch state against Forge's
-// fmlloader, mergetool-api and fmlcore jars pinned for Minecraft 26.2 and 26.3 (plexus.forgeEnvironment262, plexus.forgeEnvironment263), one configuration per
+// fmlloader, mergetool-api, fmlcore and javafmllanguage jars pinned for Minecraft 26.2 and 26.3 (plexus.forgeEnvironment262, plexus.forgeEnvironment263), one configuration per
 // version for the same reason as above.
 val forgeEnvironment262 = configurations.create("forgeEnvironment262") {
     isCanBeConsumed = false
@@ -160,9 +180,11 @@ dependencies {
     forgeEnvironment262(libs.forge.fmlloader)
     forgeEnvironment262(libs.forge.mergetool.api)
     forgeEnvironment262(libs.forge.fmlcore)
+    forgeEnvironment262(libs.forge.javafmllanguage)
     forgeEnvironment263(libs.forge263.fmlloader)
     forgeEnvironment263(libs.forge.mergetool.api)
     forgeEnvironment263(libs.forge263.fmlcore)
+    forgeEnvironment263(libs.forge263.javafmllanguage)
     // ForgeEnvironmentCheckTest: NeoForge's and Forge's Dist have the same constants.
     testImplementation(libs.forge.mergetool.api) { isTransitive = false }
 }

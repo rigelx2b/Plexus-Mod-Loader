@@ -45,6 +45,11 @@ class ForgeOnNeoForgeScopeTest {
     private static final ClassDesc KEYS =
             ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries$Keys");
     private static final ClassDesc RESOURCE_KEY = ClassDesc.ofInternalName("net/minecraft/resources/ResourceKey");
+    private static final ClassDesc FORGE_REGISTRIES =
+            ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries");
+    private static final ClassDesc FORGE_REGISTRY =
+            ClassDesc.ofInternalName("net/minecraftforge/registries/IForgeRegistry");
+    private static final ClassDesc IDENTIFIER = ClassDesc.ofInternalName("net/minecraft/resources/Identifier");
     private static final ClassDesc STRING = ConstantDescs.CD_String;
     private static final ClassDesc MINECRAFT_FORGE =
             ClassDesc.ofInternalName("net/minecraftforge/common/MinecraftForge");
@@ -102,14 +107,9 @@ class ForgeOnNeoForgeScopeTest {
         assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
     }
 
-    /**
-     * The context's other members need Forge's loading context state or config tracking, or hand out Forge's mod
-     * container; another extension point class (a config screen) is named too.
-     */
+    /** The context's other members need Forge's loading context state, or hand out Forge's mod container. */
     @Test
-    void theContextsOtherMembersAndOtherExtensionPointsAreNamed() throws IOException {
-        ClassDesc screenFactory =
-                ClassDesc.ofInternalName("net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory");
+    void theContextsOtherMembersAreNamed() throws IOException {
         Path jar = jar("context.jar", Map.of(), null, code -> {
             code.invokestatic(CONTEXT, "get", MethodTypeDesc.of(CONTEXT));
             code.pop();
@@ -119,12 +119,9 @@ class ForgeOnNeoForgeScopeTest {
             code.aload(1);
             code.invokevirtual(CONTEXT, "getContainer", MethodTypeDesc.of(ConstantDescs.CD_Object));
             code.pop();
-            code.ldc(screenFactory);
-            code.pop();
         });
         assertEquals(
                 List.of(
-                        "net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory",
                         "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.get",
                         "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.getActiveNamespace",
                         "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext.getContainer"),
@@ -133,12 +130,92 @@ class ForgeOnNeoForgeScopeTest {
 
     @Test
     void anotherForgeClassIsNamed() throws IOException {
-        ClassDesc config = ClassDesc.ofInternalName("net/minecraftforge/common/ForgeConfigSpec");
-        Path jar = jar("config.jar", Map.of(), null, code -> {
-            code.ldc(config);
+        ClassDesc tracker = ClassDesc.ofInternalName("net/minecraftforge/fml/config/ConfigTracker");
+        Path jar = jar("tracker.jar", Map.of(), null, code -> {
+            code.ldc(tracker);
             code.pop();
         });
-        assertEquals(List.of("net/minecraftforge/common/ForgeConfigSpec"), ForgeOnNeoForgeScope.unsupported(jar));
+        assertEquals(List.of("net/minecraftforge/fml/config/ConfigTracker"), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * As test-mods/forge-on-neoforge-config (F-N6): a config screen factory registered as an extension point of the mod's
+     * context and through {@code MinecraftForge.registerConfigScreen}, which NeoForge's mod list gets from the host.
+     */
+    @Test
+    void aConfigScreenRuns() throws IOException {
+        ClassDesc factory =
+                ClassDesc.ofInternalName("net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory");
+        ClassDesc function = ClassDesc.of("java.util.function.Function");
+        Path jar = jar("screen.jar", Map.of(), null, code -> {
+            code.aload(1);
+            code.ldc(factory);
+            code.aconst_null();
+            code.invokevirtual(
+                    CONTEXT,
+                    "registerExtensionPoint",
+                    MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Class, SUPPLIER));
+            code.new_(factory);
+            code.dup();
+            code.aconst_null();
+            code.invokespecial(factory, "<init>", MethodTypeDesc.of(ConstantDescs.CD_void, function));
+            code.pop();
+            code.aconst_null();
+            code.invokestatic(
+                    MINECRAFT_FORGE, "registerConfigScreen", MethodTypeDesc.of(ConstantDescs.CD_void, function));
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * As test-mods/forge-on-neoforge-config (F-N6): a config spec built and registered on the mod's context and its
+     * container, read in production, and its loading event; a server's configs sent to a client are not.
+     */
+    @Test
+    void aModWithAForgeConfigRuns() throws IOException {
+        ClassDesc spec = ClassDesc.ofInternalName("net/minecraftforge/common/ForgeConfigSpec");
+        ClassDesc builder = ClassDesc.ofInternalName("net/minecraftforge/common/ForgeConfigSpec$Builder");
+        ClassDesc intValue = ClassDesc.ofInternalName("net/minecraftforge/common/ForgeConfigSpec$IntValue");
+        ClassDesc type = ClassDesc.ofInternalName("net/minecraftforge/fml/config/ModConfig$Type");
+        ClassDesc modConfig = ClassDesc.ofInternalName("net/minecraftforge/fml/config/ModConfig");
+        ClassDesc configSpec = ClassDesc.ofInternalName("net/minecraftforge/fml/config/IConfigSpec");
+        ClassDesc loading = ClassDesc.ofInternalName("net/minecraftforge/fml/event/config/ModConfigEvent$Loading");
+        Path jar = jar("config.jar", Map.of(), null, code -> {
+            code.new_(builder);
+            code.dup();
+            code.invokespecial(builder, "<init>", MethodTypeDesc.of(ConstantDescs.CD_void));
+            code.dup();
+            code.ldc("value");
+            code.iconst_1();
+            code.iconst_0();
+            code.bipush(10);
+            code.invokevirtual(
+                    builder,
+                    "defineInRange",
+                    MethodTypeDesc.of(
+                            intValue, STRING, ConstantDescs.CD_int, ConstantDescs.CD_int, ConstantDescs.CD_int));
+            code.invokevirtual(intValue, "get", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+            code.invokevirtual(builder, "build", MethodTypeDesc.of(spec));
+            code.astore(2);
+            code.aload(1);
+            code.getstatic(type, "COMMON", type);
+            code.aload(2);
+            code.invokevirtual(CONTEXT, "registerConfig", MethodTypeDesc.of(ConstantDescs.CD_void, type, configSpec));
+            code.aconst_null();
+            code.invokestatic(loading, "getBus", MethodTypeDesc.of(EVENT_BUS, BUS_GROUP));
+            code.pop();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(MOD_CONTAINER, "addConfig", MethodTypeDesc.of(ConstantDescs.CD_void, modConfig));
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(
+                    modConfig, "acceptSyncedConfig", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object));
+        });
+        assertEquals(
+                List.of("net/minecraftforge/fml/config/ModConfig.acceptSyncedConfig"),
+                ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     /**
@@ -199,17 +276,12 @@ class ForgeOnNeoForgeScopeTest {
             code.aconst_null();
             code.invokeinterface(MOD_INFO, "getDependencies", MethodTypeDesc.of(ConstantDescs.CD_List));
             code.pop();
-            code.aconst_null();
-            code.aconst_null();
-            code.invokevirtual(
-                    MOD_CONTAINER, "addConfig", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object));
             code.invokestatic(MOD_LOADING_CONTEXT, "get", MethodTypeDesc.of(MOD_LOADING_CONTEXT));
             code.invokevirtual(MOD_LOADING_CONTEXT, "extension", MethodTypeDesc.of(ConstantDescs.CD_Object));
             code.pop();
         });
         assertEquals(
                 List.of(
-                        "net/minecraftforge/fml/ModContainer.addConfig",
                         "net/minecraftforge/fml/ModList.getAllScanData",
                         "net/minecraftforge/fml/ModList.getModFileById",
                         "net/minecraftforge/fml/ModList.getMods",
@@ -220,23 +292,26 @@ class ForgeOnNeoForgeScopeTest {
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
-    /** {@code enqueueWork} needs Forge's deferred work queue, which runs in Forge's loading stages only. */
+    /**
+     * {@code enqueueWork} on any lifecycle event, whichever class the call names: the host runs each stage's queue
+     * through NeoForge's (F-N6).
+     */
     @Test
-    void aMemberThatNeedsForgesLoaderIsNamed() throws IOException {
+    void enqueueWorkRunsOnEveryLifecycleEvent() throws IOException {
+        ClassDesc clientSetup = ClassDesc.ofInternalName("net/minecraftforge/fml/event/lifecycle/FMLClientSetupEvent");
+        MethodTypeDesc enqueue = MethodTypeDesc.of(
+                ClassDesc.of("java.util.concurrent.CompletableFuture"), ClassDesc.of("java.lang.Runnable"));
         Path jar = jar("enqueue.jar", Map.of(), null, code -> {
-            code.aload(1);
             code.aconst_null();
-            code.invokevirtual(
-                    SETUP,
-                    "enqueueWork",
-                    MethodTypeDesc.of(
-                            ClassDesc.of("java.util.concurrent.CompletableFuture"),
-                            ClassDesc.of("java.lang.Runnable")));
+            code.aconst_null();
+            code.invokevirtual(SETUP, "enqueueWork", enqueue);
+            code.pop();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(clientSetup, "enqueueWork", enqueue);
             code.pop();
         });
-        assertEquals(
-                List.of("net/minecraftforge/fml/event/lifecycle/FMLCommonSetupEvent.enqueueWork"),
-                ForgeOnNeoForgeScope.unsupported(jar));
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     /** As test-mods/forge-on-neoforge-events: a passed-on game event's own bus and its record accessors (F-N3). */
@@ -250,6 +325,34 @@ class ForgeOnNeoForgeScopeTest {
             code.aconst_null();
             code.checkcast(tick);
             code.invokevirtual(tick, "side", MethodTypeDesc.of(side));
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * As test-mods/forge-on-neoforge-events (F-N6): the construct event's bus and the client player network events' buses
+     * and getters.
+     */
+    @Test
+    void theConstructEventAndTheClientPlayerNetworkEventsRun() throws IOException {
+        ClassDesc construct = ClassDesc.ofInternalName("net/minecraftforge/fml/event/lifecycle/FMLConstructModEvent");
+        ClassDesc network = ClassDesc.ofInternalName("net/minecraftforge/client/event/ClientPlayerNetworkEvent");
+        ClassDesc loggingIn =
+                ClassDesc.ofInternalName("net/minecraftforge/client/event/ClientPlayerNetworkEvent$LoggingIn");
+        ClassDesc clone = ClassDesc.ofInternalName("net/minecraftforge/client/event/ClientPlayerNetworkEvent$Clone");
+        ClassDesc localPlayer = ClassDesc.ofInternalName("net/minecraft/client/player/LocalPlayer");
+        Path jar = jar("construct-and-network.jar", Map.of(), null, code -> {
+            code.aconst_null();
+            code.invokestatic(construct, "getBus", MethodTypeDesc.of(EVENT_BUS, BUS_GROUP));
+            code.pop();
+            code.getstatic(loggingIn, "BUS", EVENT_BUS);
+            code.pop();
+            code.aconst_null();
+            code.invokeinterface(network, "getPlayer", MethodTypeDesc.of(localPlayer));
+            code.pop();
+            code.aconst_null();
+            code.invokevirtual(clone, "getNewPlayer", MethodTypeDesc.of(localPlayer));
             code.pop();
         });
         assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
@@ -278,18 +381,56 @@ class ForgeOnNeoForgeScopeTest {
     }
 
     /**
-     * {@code ForgeRegistries.BLOCKS} is a Forge registry, which NeoForge's game does not have: a member of {@code
-     * ForgeRegistries} or naming {@code IForgeRegistry} leaves the mod out, as do a new registry and a key of a registry
-     * only Forge has.
+     * As test-mods/forge-on-neoforge-registries (F-N4): a {@code DeferredRegister} made with {@code
+     * ForgeRegistries.BLOCKS}, and lookups in {@code ForgeRegistries.ITEMS}, which the host makes views of the game's
+     * registries.
      */
     @Test
-    void forgeRegistriesNewRegistriesAndForgeOnlyKeysAreNamed() throws IOException {
-        ClassDesc forgeRegistries = ClassDesc.ofInternalName("net/minecraftforge/registries/ForgeRegistries");
-        ClassDesc forgeRegistry = ClassDesc.ofInternalName("net/minecraftforge/registries/IForgeRegistry");
-        Path jar = jar("forge-registries.jar", Map.of(), null, code -> {
-            code.getstatic(forgeRegistries, "BLOCKS", forgeRegistry);
+    void forgeRegistryLookupsRun() throws IOException {
+        Path jar = jar("forge-registry-lookups.jar", Map.of(), null, code -> {
+            code.getstatic(FORGE_REGISTRIES, "BLOCKS", FORGE_REGISTRY);
             code.ldc("example");
-            code.invokestatic(DEFERRED_REGISTER, "create", MethodTypeDesc.of(DEFERRED_REGISTER, forgeRegistry, STRING));
+            code.invokestatic(
+                    DEFERRED_REGISTER, "create", MethodTypeDesc.of(DEFERRED_REGISTER, FORGE_REGISTRY, STRING));
+            code.pop();
+            code.getstatic(FORGE_REGISTRIES, "ITEMS", FORGE_REGISTRY);
+            code.dup();
+            code.aconst_null();
+            code.invokeinterface(FORGE_REGISTRY, "getKey", MethodTypeDesc.of(IDENTIFIER, ConstantDescs.CD_Object));
+            code.invokeinterface(FORGE_REGISTRY, "getValue", MethodTypeDesc.of(ConstantDescs.CD_Object, IDENTIFIER));
+            code.pop();
+            code.getstatic(FORGE_REGISTRIES, "ENTITY_TYPES", FORGE_REGISTRY);
+            code.invokeinterface(FORGE_REGISTRY, "getValues", MethodTypeDesc.of(ClassDesc.of("java.util.Collection")));
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * Of {@code ForgeRegistries}, the data pack registries ({@code BIOMES}, {@code PAINTING_VARIANTS}) and the fields of
+     * Forge's own registries leave a mod out, as do the {@code IForgeRegistry} members the host's view does not answer, a
+     * new registry and a key of a registry only Forge has.
+     */
+    @Test
+    void forgeOnlyRegistriesAndUnansweredMembersAreNamed() throws IOException {
+        ClassDesc registryHolder =
+                ClassDesc.ofInternalName("net/minecraftforge/registries/DeferredRegister$RegistryHolder");
+        Path jar = jar("forge-registries.jar", Map.of(), null, code -> {
+            code.getstatic(FORGE_REGISTRIES, "BIOMES", FORGE_REGISTRY);
+            code.dup();
+            code.invokeinterface(FORGE_REGISTRY, "tags", MethodTypeDesc.of(ConstantDescs.CD_Object));
+            code.pop();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokeinterface(
+                    FORGE_REGISTRY,
+                    "register",
+                    MethodTypeDesc.of(ConstantDescs.CD_void, IDENTIFIER, ConstantDescs.CD_Object));
+            code.getstatic(FORGE_REGISTRIES, "PAINTING_VARIANTS", FORGE_REGISTRY);
+            code.pop();
+            code.getstatic(FORGE_REGISTRIES, "FLUID_TYPES", registryHolder);
+            code.pop();
+            code.aconst_null();
             code.aconst_null();
             code.invokevirtual(DEFERRED_REGISTER, "makeRegistry", MethodTypeDesc.of(ConstantDescs.CD_Object, SUPPLIER));
             code.pop();
@@ -298,44 +439,80 @@ class ForgeOnNeoForgeScopeTest {
         });
         assertEquals(
                 List.of(
+                        "net/minecraftforge/registries/DeferredRegister$RegistryHolder",
                         "net/minecraftforge/registries/DeferredRegister.makeRegistry",
                         "net/minecraftforge/registries/ForgeRegistries$Keys.FLUID_TYPES",
-                        "net/minecraftforge/registries/ForgeRegistries.BLOCKS",
-                        "net/minecraftforge/registries/IForgeRegistry"),
+                        "net/minecraftforge/registries/ForgeRegistries.BIOMES",
+                        "net/minecraftforge/registries/ForgeRegistries.FLUID_TYPES",
+                        "net/minecraftforge/registries/ForgeRegistries.PAINTING_VARIANTS",
+                        "net/minecraftforge/registries/IForgeRegistry.register",
+                        "net/minecraftforge/registries/IForgeRegistry.tags"),
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
-    /** Every lifecycle event queues {@code enqueueWork} work for Forge's stages, whichever class the call names. */
+    /**
+     * A mod's {@code @Mod.EventBusSubscriber} annotation and its bus constants run (F-N6), but asking a bus constant for
+     * its group outside Forge's construction of the mod would reach {@code FMLJavaModLoadingContext.get()}.
+     */
     @Test
-    void enqueueWorkIsNamedOnEveryLifecycleEvent() throws IOException {
-        ClassDesc clientSetup = ClassDesc.ofInternalName("net/minecraftforge/fml/event/lifecycle/FMLClientSetupEvent");
-        Path jar = jar("client-enqueue.jar", Map.of(), null, code -> {
-            code.aconst_null();
-            code.aconst_null();
-            code.invokevirtual(
-                    clientSetup,
-                    "enqueueWork",
-                    MethodTypeDesc.of(
-                            ClassDesc.of("java.util.concurrent.CompletableFuture"),
-                            ClassDesc.of("java.lang.Runnable")));
+    void anEventBusSubscribersBusGroupIsNamed() throws IOException {
+        ClassDesc bus = ClassDesc.ofInternalName("net/minecraftforge/fml/common/Mod$EventBusSubscriber$Bus");
+        Path jar = jar("subscriber-bus.jar", Map.of(), null, code -> {
+            code.getstatic(bus, "MOD", bus);
+            code.invokevirtual(bus, "bus", MethodTypeDesc.of(SUPPLIER));
             code.pop();
         });
         assertEquals(
-                List.of("net/minecraftforge/fml/event/lifecycle/FMLClientSetupEvent.enqueueWork"),
+                List.of("net/minecraftforge/fml/common/Mod$EventBusSubscriber$Bus.bus"),
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
-    /** The bus of {@code ServerLifecycleEvent} would also get events that are not passed on, such as about-to-start. */
+    /**
+     * The bus of {@code LevelEvent} would also get events that are not passed on, such as {@code Save}; every event of
+     * {@code ServerLifecycleEvent} is passed on since F-N6 (about-to-start), so its bus runs.
+     */
     @Test
     void theBusOfAnEventInterfaceWithEventsNotPassedOnIsNamed() throws IOException {
+        ClassDesc level = ClassDesc.ofInternalName("net/minecraftforge/event/level/LevelEvent");
+        ClassDesc load = ClassDesc.ofInternalName("net/minecraftforge/event/level/LevelEvent$Load");
         ClassDesc lifecycle = ClassDesc.ofInternalName("net/minecraftforge/event/server/ServerLifecycleEvent");
-        Path jar = jar("lifecycle-bus.jar", Map.of(), null, code -> {
+        Path jar = jar("level-bus.jar", Map.of(), null, code -> {
+            code.getstatic(level, "BUS", EVENT_BUS);
+            code.pop();
+            code.getstatic(load, "BUS", EVENT_BUS);
+            code.pop();
             code.getstatic(lifecycle, "BUS", EVENT_BUS);
             code.pop();
         });
+        assertEquals(List.of("net/minecraftforge/event/level/LevelEvent.BUS"), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * Forge's reload listener event is passed on, but its condition context comes from a member only MinecraftForge's
+     * patches add: adding a listener runs, reading the condition context is named.
+     */
+    @Test
+    void theConditionContextOfTheReloadListenerEventIsNamed() throws IOException {
+        ClassDesc event = ClassDesc.ofInternalName("net/minecraftforge/event/AddReloadListenerEvent");
+        ClassDesc listener = ClassDesc.ofInternalName("net/minecraft/server/packs/resources/PreparableReloadListener");
+        ClassDesc context =
+                ClassDesc.ofInternalName("net/minecraftforge/common/crafting/conditions/ICondition$IContext");
+        Path adds = jar("reload-listener.jar", Map.of(), null, code -> {
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(event, "addListener", MethodTypeDesc.of(ConstantDescs.CD_void, listener));
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(adds));
+        Path reads = jar("reload-context.jar", Map.of(), null, code -> {
+            code.aconst_null();
+            code.invokevirtual(event, "getConditionContext", MethodTypeDesc.of(context));
+            code.pop();
+        });
         assertEquals(
-                List.of("net/minecraftforge/event/server/ServerLifecycleEvent.BUS"),
-                ForgeOnNeoForgeScope.unsupported(jar));
+                List.of(
+                        "net/minecraftforge/common/crafting/conditions/ICondition$IContext",
+                        "net/minecraftforge/event/AddReloadListenerEvent.getConditionContext"),
+                ForgeOnNeoForgeScope.unsupported(reads));
     }
 
     /**
@@ -421,6 +598,11 @@ class ForgeOnNeoForgeScopeTest {
             code.pop();
             code.invokestatic(FML_LOADER, "getGamePath", MethodTypeDesc.of(PATH));
             code.pop();
+            // F-N6: the host sets production as a player's Forge launch does.
+            code.getstatic(FML_ENVIRONMENT, "production", ConstantDescs.CD_boolean);
+            code.pop();
+            code.invokestatic(FML_LOADER, "isProduction", MethodTypeDesc.of(ConstantDescs.CD_boolean));
+            code.pop();
         });
         assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
     }
@@ -430,10 +612,6 @@ class ForgeOnNeoForgeScopeTest {
     void forgesOtherLaunchStateAndOnlyInAreNamed() throws IOException {
         ClassDesc onlyIn = ClassDesc.ofInternalName("net/minecraftforge/api/distmarker/OnlyIn");
         Path jar = jar("launch.jar", Map.of(), null, code -> {
-            code.getstatic(FML_ENVIRONMENT, "production", ConstantDescs.CD_boolean);
-            code.pop();
-            code.invokestatic(FML_LOADER, "isProduction", MethodTypeDesc.of(ConstantDescs.CD_boolean));
-            code.pop();
             code.invokestatic(FML_LOADER, "getLoadingModList", MethodTypeDesc.of(ConstantDescs.CD_Object));
             code.pop();
             code.ldc(onlyIn);
@@ -442,9 +620,7 @@ class ForgeOnNeoForgeScopeTest {
         assertEquals(
                 List.of(
                         "net/minecraftforge/api/distmarker/OnlyIn",
-                        "net/minecraftforge/fml/loading/FMLEnvironment.production",
-                        "net/minecraftforge/fml/loading/FMLLoader.getLoadingModList",
-                        "net/minecraftforge/fml/loading/FMLLoader.isProduction"),
+                        "net/minecraftforge/fml/loading/FMLLoader.getLoadingModList"),
                 ForgeOnNeoForgeScope.unsupported(jar));
     }
 
@@ -494,6 +670,94 @@ class ForgeOnNeoForgeScopeTest {
         ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(runs), "1.21.11", false);
         assertEquals(List.of(), split.runnable());
         assertEquals(List.of(new ForgeOnNeoForgeScope.Left(runs, List.of("minecraft 1.21.11"))), split.leftOut());
+    }
+
+    /**
+     * As test-mods/forge-on-neoforge-network (F-N6 networking, ADR-0051 22): a play-phase SimpleChannel built with
+     * ChannelBuilder, its message builder, sends to PacketDistributor targets and the context of a received message.
+     */
+    @Test
+    void aSimpleChannelOfThePlayPhaseRuns() throws IOException {
+        ClassDesc builder = ClassDesc.ofInternalName("net/minecraftforge/network/ChannelBuilder");
+        ClassDesc channel = ClassDesc.ofInternalName("net/minecraftforge/network/SimpleChannel");
+        ClassDesc messages = ClassDesc.ofInternalName("net/minecraftforge/network/SimpleChannel$MessageBuilder");
+        ClassDesc distributor = ClassDesc.ofInternalName("net/minecraftforge/network/PacketDistributor");
+        ClassDesc target = ClassDesc.ofInternalName("net/minecraftforge/network/PacketDistributor$PacketTarget");
+        ClassDesc context = ClassDesc.ofInternalName("net/minecraftforge/event/network/CustomPayloadEvent$Context");
+        ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+        Path jar = jar("network.jar", Map.of(), null, code -> {
+            code.ldc("example:main");
+            code.invokestatic(builder, "named", MethodTypeDesc.of(builder, STRING));
+            code.iconst_1();
+            code.invokevirtual(builder, "networkProtocolVersion", MethodTypeDesc.of(builder, ConstantDescs.CD_int));
+            code.invokevirtual(builder, "simpleChannel", MethodTypeDesc.of(channel));
+            code.ldc(ConstantDescs.CD_String);
+            code.invokevirtual(channel, "messageBuilder", MethodTypeDesc.of(messages, ClassDesc.of("java.lang.Class")));
+            code.aconst_null();
+            code.invokevirtual(messages, "consumerMainThread", MethodTypeDesc.of(messages, biConsumer));
+            code.invokevirtual(messages, "add", MethodTypeDesc.of(channel));
+            code.pop();
+            code.aconst_null();
+            code.ldc("hello");
+            code.getstatic(distributor, "SERVER", distributor);
+            code.invokevirtual(distributor, "noArg", MethodTypeDesc.of(target));
+            code.invokevirtual(
+                    channel, "send", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, target));
+            code.aconst_null();
+            code.invokevirtual(
+                    context, "getSender", MethodTypeDesc.of(ClassDesc.of("net.minecraft.server.level.ServerPlayer")));
+            code.pop();
+            code.aconst_null();
+            code.iconst_1();
+            code.invokevirtual(
+                    context, "setPacketHandled", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_boolean));
+            // A version test written as a lambda takes the status of the remote side.
+            ClassDesc status = ClassDesc.ofInternalName("net/minecraftforge/network/Channel$VersionTest$Status");
+            code.getstatic(status, "PRESENT", status);
+            code.pop();
+        });
+        assertEquals(List.of(), ForgeOnNeoForgeScope.unsupported(jar));
+    }
+
+    /**
+     * What the first networking slice does not carry is named: other phases' protocols and directions, event channels,
+     * the remote check, the event bus of all payloads, and targets that are not PLAYER, SERVER or ALL.
+     */
+    @Test
+    void networkingBeyondThePlayPhasesSimpleChannelIsNamed() throws IOException {
+        ClassDesc builder = ClassDesc.ofInternalName("net/minecraftforge/network/ChannelBuilder");
+        ClassDesc channel = ClassDesc.ofInternalName("net/minecraftforge/network/SimpleChannel");
+        ClassDesc events = ClassDesc.ofInternalName("net/minecraftforge/network/EventNetworkChannel");
+        ClassDesc protocol = ClassDesc.ofInternalName("net/minecraftforge/network/NetworkProtocol");
+        ClassDesc distributor = ClassDesc.ofInternalName("net/minecraftforge/network/PacketDistributor");
+        ClassDesc payloadEvent = ClassDesc.ofInternalName("net/minecraftforge/event/network/CustomPayloadEvent");
+        Path jar = jar("network-beyond.jar", Map.of(), null, code -> {
+            code.aconst_null();
+            code.invokevirtual(builder, "eventNetworkChannel", MethodTypeDesc.of(events));
+            code.pop();
+            code.getstatic(protocol, "CONFIGURATION", protocol);
+            code.pop();
+            code.aconst_null();
+            code.aconst_null();
+            code.invokevirtual(
+                    channel,
+                    "isRemotePresent",
+                    MethodTypeDesc.of(ConstantDescs.CD_boolean, ClassDesc.of("net.minecraft.network.Connection")));
+            code.pop();
+            code.getstatic(payloadEvent, "BUS", EVENT_BUS);
+            code.pop();
+            code.getstatic(distributor, "TRACKING_ENTITY", distributor);
+            code.pop();
+        });
+        assertEquals(
+                List.of(
+                        "net/minecraftforge/event/network/CustomPayloadEvent.BUS",
+                        "net/minecraftforge/network/ChannelBuilder.eventNetworkChannel",
+                        "net/minecraftforge/network/EventNetworkChannel",
+                        "net/minecraftforge/network/NetworkProtocol",
+                        "net/minecraftforge/network/PacketDistributor.TRACKING_ENTITY",
+                        "net/minecraftforge/network/SimpleChannel.isRemotePresent"),
+                ForgeOnNeoForgeScope.unsupported(jar));
     }
 
     private interface Body {

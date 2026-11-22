@@ -884,11 +884,17 @@ if (minecraft.startsWith("26.")) {
         runsNeoForge()
         systemProperty("plexus.forgeOnNeoForge", "on")
         expectedOutput.addAll(
-            "Forge on NeoForge: 10 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
+            "Forge on NeoForge: 20 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
             "[forge_on_neoforge_events] constructed",
+            "[forge_on_neoforge_events] FMLConstructModEvent received",
             "[forge_on_neoforge_events] FMLDedicatedServerSetupEvent received",
             "[forge_on_neoforge_events] FMLLoadCompleteEvent received",
+            "[forge_on_neoforge_events] work queued in common setup ran 1 time(s) received",
             "[forge_on_neoforge_events] RegisterCommandsEvent received",
+            "Forge on NeoForge: NeoForge's server reload listener event passed on to Forge mods (experimental, F-N3)",
+            "[forge_on_neoforge_events] AddReloadListenerEvent received",
+            "Forge on NeoForge: 1 Forge reload listener(s) added to NeoForge's server reload",
+            "[forge_on_neoforge_events] reload listener applied: prepared received",
             "[forge_on_neoforge_events] ServerStartingEvent received",
             "[forge_on_neoforge_events] ServerStartedEvent received",
             "[forge_on_neoforge_events] command /forge_on_neoforge_events registered: true",
@@ -897,12 +903,31 @@ if (minecraft.startsWith("26.")) {
             "[forge_on_neoforge_events] ServerTickEvent.Post received",
             "[forge_on_neoforge_events] LevelTickEvent.Pre on SERVER received",
             "[forge_on_neoforge_events] LevelTickEvent.Post on SERVER received",
+            "[forge_on_neoforge_events] PlayerLoggedInEvent for forge_mock received",
+            "[forge_on_neoforge_events] PlayerTickEvent.Pre on SERVER received",
+            "[forge_on_neoforge_events] PlayerTickEvent.Post on SERVER received",
+            "[forge_on_neoforge_events] PlayerChangedDimensionEvent from minecraft:overworld to minecraft:the_nether received",
+            "[forge_on_neoforge_events] PlayerRespawnEvent (end conquered false) received",
+            "[forge_on_neoforge_events] PlayerLoggedOutEvent for forge_mock received",
+            "[forge_on_neoforge_events] mock player journey done",
+            // F-N6: server about to start, level load and unload, and the clone of the respawned mock player.
+            "[forge_on_neoforge_events] ServerAboutToStartEvent (server present true) received",
+            "[forge_on_neoforge_events] LevelEvent.Load (level present true) received",
+            "[forge_on_neoforge_events] PlayerEvent.Clone (was death true, original forge_mock) received",
             "All 1 required tests passed",
             worldsSavedLine,
             "[forge_on_neoforge_events] ServerStoppingEvent received",
+            "[forge_on_neoforge_events] LevelEvent.Unload (level present true) received",
             "[forge_on_neoforge_events] ServerStoppedEvent received",
         )
-        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "on CLIENT received")
+        // The client tick, render and client player network events are passed on in a client game only.
+        unexpectedOutput.addAll(
+            "PLEXUS-COMPAT-229",
+            "on CLIENT received",
+            "ClientTickEvent.Pre received",
+            "RenderTickEvent.Pre received",
+            "ClientPlayerNetworkEvent",
+        )
     }
     // Forge on NeoForge, F-N4: a Forge mod registers a block (vanilla registry key) and its block item (a key of
     // ForgeRegistries.Keys) with Forge's DeferredRegister, and a sound event (a registry without intrusive holders);
@@ -923,6 +948,78 @@ if (minecraft.startsWith("26.")) {
             worldsSavedLine,
         )
         unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge, F-N4: a Forge mod registers an item with a DeferredRegister made from ForgeRegistries.ITEMS and
+    // looks things up in the game's registries through ForgeRegistries, whose fields the host makes views of them.
+    scenarios.gameTest(
+        "forgeOnNeoForgeRegistries",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-registries"),
+    ) {
+        description = "Forge on NeoForge (F-N4): with -Dplexus.forgeOnNeoForge=on, a Forge mod registers an item through ForgeRegistries.ITEMS and looks up the game's registries through ForgeRegistries, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_registries] constructed",
+            "[forge_on_neoforge_registries] item registered through ForgeRegistries.ITEMS: true",
+            "[forge_on_neoforge_registries] game blocks through ForgeRegistries.BLOCKS: true",
+            "[forge_on_neoforge_registries] values, keys and iteration through ForgeRegistries: true",
+            "[forge_on_neoforge_registries] holders through ForgeRegistries: true",
+            // Data pack registries are not built in; the defaulted ones are those Forge's GameData gives a default.
+            "[forge_on_neoforge_registries] ForgeRegistries fields without a game registry: [BIOMES, PAINTING_VARIANTS]",
+            "[forge_on_neoforge_registries] ForgeRegistries fields with a default key: [BLOCKS, CHUNK_STATUS," +
+                " ENTITY_TYPES, FLUIDS, ITEMS, MEMORY_MODULE_TYPES, SENSOR_TYPES, VILLAGER_PROFESSIONS]",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge, F-N5: overrides of the methods Forge's extension interfaces add to game classes. One mod's item
+    // overrides IForgeItem.getEntityLifespan, which NeoForge's IItemExtension has too: it runs, and NeoForge's game calls
+    // the override when it makes an item entity. The other's overrides IForgeItem.getBurnTime(ItemStack, RecipeType),
+    // which NeoForge's game does not have: the link check leaves it out before it runs, naming the override.
+    scenarios.gameTest(
+        "forgeOnNeoForgeExtensions",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:forge-on-neoforge-extension-override",
+            ":test-mods:forge-on-neoforge-extension-unfit",
+        ),
+    ) {
+        description = "Forge on NeoForge (F-N5): with -Dplexus.forgeOnNeoForge=on, a Forge mod overriding a Forge extension method NeoForge's game also has runs and is called, and one overriding a Forge-only extension method is left out (PLEXUS-COMPAT-229), on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_extension_override] constructed",
+            "[forge_on_neoforge_extension_override] getEntityLifespan called by the game: true",
+            "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
+            "1 override(s) of Forge extension methods that",
+            "ForgeOnNeoForgeExtensionUnfit\$FuelItem.getBurnTime overrides IForgeItem.getBurnTime(",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("[forge_on_neoforge_extension_unfit] constructed")
+    }
+    // Forge on NeoForge, F-N6: @Mod.EventBusSubscriber classes, which Forge's own FMLModContainer registers from the scan
+    // data the host gives it: on the mod bus, on the default bus (each listener on its event's bus), on the Forge bus,
+    // and for the client only, which the game test server does not register.
+    scenarios.gameTest(
+        "forgeOnNeoForgeEventSubscriber",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-event-subscriber"),
+    ) {
+        description = "Forge on NeoForge (F-N6): with -Dplexus.forgeOnNeoForge=on, a Forge mod's @Mod.EventBusSubscriber classes get their events on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_event_subscriber] constructed",
+            "[forge_on_neoforge_event_subscriber] mod bus subscriber got FMLCommonSetupEvent",
+            "[forge_on_neoforge_event_subscriber] default bus subscriber got FMLLoadCompleteEvent",
+            "[forge_on_neoforge_event_subscriber] Forge bus subscriber got ServerStartingEvent",
+            "[forge_on_neoforge_event_subscriber] default bus subscriber got ServerStartedEvent",
+            "[forge_on_neoforge_event_subscriber] server only subscriber got ServerStartedEvent",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "[forge_on_neoforge_event_subscriber] client only subscriber")
     }
     // Forge on NeoForge: Forge mods' Mixin configurations (manifest MixinConfigs) on NeoForge's game. forge-mixin injects
     // into vanilla MinecraftServer methods and runs; forge-on-neoforge-patched-mixin injects into Entity.canUpdate(),
@@ -1008,6 +1105,54 @@ if (minecraft.startsWith("26.")) {
         )
         unexpectedOutput.add("PLEXUS-COMPAT-229")
     }
+    // Forge on NeoForge, F-N6: a Forge mod's COMMON and SERVER configs (Forge's ForgeConfigSpec), kept and loaded by
+    // Forge's own config tracker: a value read in the constructor is its default (production), the COMMON file the mod
+    // wrote with a value out of range is read and corrected before common setup, and the SERVER config loads from the
+    // world's serverconfig folder when the server is about to start.
+    scenarios.gameTest(
+        "forgeOnNeoForgeConfig",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-config"),
+    ) {
+        description = "Forge on NeoForge (F-N6): with -Dplexus.forgeOnNeoForge=on, Forge's config tracker loads a Forge mod's COMMON config (correcting a value out of range) before common setup and its SERVER config from the world's serverconfig folder, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_config] count read in the constructor: 5",
+            "Forge on NeoForge: Forge's config tracker loaded 1 COMMON config(s) of Forge mods (experimental, F-N6)",
+            "[forge_on_neoforge_config] COMMON config loaded from forge_on_neoforge_config-common.toml: count 10, enabled false",
+            "[forge_on_neoforge_config] common setup: COMMON config loaded before it true, count 10, corrected file holds count = 10 true",
+            "[forge_on_neoforge_config] SERVER config loaded from forge_on_neoforge_config-server.toml: greeting hello",
+            "Forge on NeoForge: Forge's config tracker loaded 1 SERVER config(s) of Forge mods from the world's serverconfig folder (experimental, F-N6)",
+            "[forge_on_neoforge_config] server started: SERVER config in the world's serverconfig folder true, file exists true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "no SERVER config loaded")
+    }
+    // Forge on NeoForge, F-N6 networking (ADR-0051 22): a Forge mod's play-phase SimpleChannel, registered as a NeoForge
+    // payload type. On the game test server it sends to ALL with no players (Forge's PacketDistributor.getServer, redirected
+    // to the game layer), then to a mock player through PLAYER and to its connection (Channel.toVanillaPacket and validate,
+    // whose Connection.getProtocol() is redirected), and writes and reads one packet with the game's custom payload codec
+    // (NeoForge's lookup, the host's codec). The client and server round trip runs in the forgeOnNeoForgeClient window.
+    scenarios.gameTest(
+        "forgeOnNeoForgeNetwork",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:forge-on-neoforge-network"),
+    ) {
+        description = "Forge on NeoForge (F-N6 networking): with -Dplexus.forgeOnNeoForge=on, a Forge mod's SimpleChannel is carried as a NeoForge payload type; sends to ALL, PLAYER and a connection, and a codec round trip, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "[forge_on_neoforge_network] channel built: forge_on_neoforge_network:main",
+            "Forge on NeoForge: 1 Forge channel(s) carried as NeoForge payloads [forge_on_neoforge_network:main] (ADR-0051 22)",
+            "[forge_on_neoforge_network] sent to ALL with no players",
+            "[forge_on_neoforge_network] mock player got 2 packet(s) on the channel",
+            "[forge_on_neoforge_network] codec round trip: id forge_on_neoforge_network:main, ",
+            "read to the end true, written again the same true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "NoSuchMethodError")
+    }
     // Forge on NeoForge: a Forge mod's access transformer (META-INF/accesstransformer.cfg), which NeoForge's FML reads into
     // its own access transformer processor; the mod reads by reflection that the members it names are public. Its client
     // class line is not checked on the game test server, a dedicated server, where the class is absent.
@@ -1079,7 +1224,7 @@ if (minecraft.startsWith("26.")) {
         expectedOutput.addAll(
             "[Plexus Mod Loader] PLEXUS-COMPAT-229 1 Forge mod file(s) are NOT loaded: NeoForge hosts the game",
             "NeoForge hosts the game, and this MinecraftForge mod is not loaded due to: 2 Minecraft method(s) or field(s) this game version does not have (added by MinecraftForge patches absent from NeoForge, or the mod was built for another Minecraft version): com.example.forgeonneoforgepatchmember.PatchMemberEntity#canUpdate()Z, net.minecraft.world.entity.Entity#canUpdate()Z",
-            "Forge on NeoForge: 10 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
+            "Forge on NeoForge: 20 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
             "[forge_on_neoforge_events] constructed",
             "[forge_on_neoforge_events] EntityJoinLevelEvent: tagged entity joined false, untagged entity joined true",
             "All 1 required tests passed",
@@ -1555,6 +1700,25 @@ if (minecraft.startsWith("26.")) {
         )
         unexpectedOutput.addAll("PLEXUS-COMPAT-229", "chunky task done: false")
     }
+    // F-N6: the corpus's No Chat Reports, a MinecraftForge mod with common, server and client Mixins, an access
+    // transformer and a client listener of ClientPlayerNetworkEvent, passes the link check and the Mixin audit for the
+    // server side and runs its common and server Mixins on NeoForge's game test server (its client side is not run here).
+    scenarios.gameTest(
+        "forgeOnNeoForgeNoChatReports",
+        modJars(":test-mods:neoforge-gametest-harness") +
+            files(corpusRoot.map { it.dir("forge").asFileTree.matching { include("NoChatReports-FORGE-*.jar") } }),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, the corpus's No Chat Reports (a MinecraftForge mod with Mixins and an access transformer) runs on NeoForge's game test server (network)."
+        dependsOn(modCorpus)
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "Forge on NeoForge: NeoForge's FML runs 1 MinecraftForge mod file(s) with Forge's own mod container",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
 }
 
 // Mojang's game test server is neither a dedicated server nor a client. Left out of the game test runs, and run in
@@ -1605,6 +1769,31 @@ val brokenUnderForge = listOf(
     "rhino-2101.2.7-build.81.jar",
     "rhino-2101.2.7-build.85.jar",
 )
+if (minecraft.startsWith("26.")) {
+    // Forge on NeoForge, F-N8 (measurement, not in compatibilityCorpus yet): every Forge mod of the corpus on NeoForge's
+    // game test server with the flag on. The runtime's and the host's checks leave out what does not fit, each with
+    // PLEXUS-COMPAT-229 and its reasons; the rest run. Left out as in the Forge runs: notOnGameTestServer and
+    // brokenUnderForge. The log is the per-jar table of why a Forge mod does not run yet.
+    scenarios.gameTest(
+        "corpusForgeOnNeoForge",
+        modJars(":test-mods:neoforge-gametest-harness") +
+            files(corpusRoot.map {
+                it.dir("forge").asFileTree.matching {
+                    include("*.jar"); exclude(notOnGameTestServer); exclude(brokenUnderForge)
+                }
+            }),
+    ) {
+        description = "Forge on NeoForge (F-N8 measurement): with -Dplexus.forgeOnNeoForge=on, every Forge mod of the corpus on NeoForge's game test server; those that do not fit are left out with PLEXUS-COMPAT-229 and their reasons (network)."
+        dependsOn(modCorpus)
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "Forge on NeoForge: NeoForge's FML runs ",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+    }
+}
 // NeoForge mods that stop a real NeoForge server too (checked against NeoForge's own installed server, 2026-10-24),
 // left out of the NeoForge server runs of the corpus; they run on the client:
 // - Sodium's FML early service (SodiumWorkarounds) checks LWJGL, which a server does not have: FMLLoader.create stops in
@@ -3306,6 +3495,10 @@ if (minecraft == "26.2") {
             ":test-mods:forge-on-neoforge-hello",
             ":test-mods:forge-on-neoforge-events",
             ":test-mods:forge-on-neoforge-environment",
+            ":test-mods:forge-on-neoforge-key-mapping",
+            ":test-mods:forge-on-neoforge-event-subscriber",
+            ":test-mods:forge-on-neoforge-config",
+            ":test-mods:forge-on-neoforge-network",
         ))
         systemProperties.add("plexus.forgeOnNeoForge=on")
         worldName.set("plexus_forge_on_neoforge_client")
@@ -3315,6 +3508,7 @@ if (minecraft == "26.2") {
             "[Plexus Mod Loader] Forge on NeoForge: ",
             "[forge_on_neoforge_hello] constructed in module forge_on_neoforge_hello",
             "[forge_on_neoforge_hello] FMLCommonSetupEvent received",
+            "[forge_on_neoforge_events] FMLConstructModEvent received",
             "[forge_on_neoforge_events] FMLClientSetupEvent received",
             "[forge_on_neoforge_events] FMLLoadCompleteEvent received",
             "[forge_on_neoforge_events] ServerStartingEvent received",
@@ -3322,6 +3516,36 @@ if (minecraft == "26.2") {
             "[forge_on_neoforge_events] LevelTickEvent.Pre on SERVER received",
             "[forge_on_neoforge_events] LevelTickEvent.Pre on CLIENT received",
             "[forge_on_neoforge_events] ServerTickEvent.Pre received",
+            "Forge on NeoForge: 27 NeoForge game event(s) passed on to Forge mods (experimental, F-N3)",
+            "[forge_on_neoforge_events] ClientPlayerNetworkEvent.LoggingIn (player present true) received",
+            "[forge_on_neoforge_events] ClientTickEvent.Pre received",
+            "[forge_on_neoforge_events] ClientTickEvent.Post received",
+            "[forge_on_neoforge_events] RenderTickEvent.Pre received",
+            "[forge_on_neoforge_events] RenderTickEvent.Post received",
+            "[forge_on_neoforge_events] PlayerLoggedInEvent for ",
+            "[forge_on_neoforge_events] PlayerTickEvent.Pre on SERVER received",
+            "[forge_on_neoforge_events] PlayerTickEvent.Pre on CLIENT received",
+            "[forge_on_neoforge_events] reload listener applied: prepared received",
+            "Forge on NeoForge: NeoForge's key mapping registration passed on to Forge mods (experimental, F-N3)",
+            "[forge_on_neoforge_key_mapping] RegisterKeyMappingsEvent received",
+            "[forge_on_neoforge_key_mapping] key mapping in the game's options: true",
+            "[forge_on_neoforge_event_subscriber] client only subscriber got ServerStartedEvent",
+            "[forge_on_neoforge_event_subscriber] mod bus subscriber got FMLCommonSetupEvent",
+            // F-N6: Forge's config tracker on a client (CLIENT and COMMON configs, then the integrated server's SERVER
+            // config) and a Forge mod's config screen in NeoForge's mod list.
+            "Forge on NeoForge: Forge's config tracker loaded 1 COMMON and 1 CLIENT config(s) of Forge mods (experimental, F-N6)",
+            "[forge_on_neoforge_config] CLIENT config loaded from forge_on_neoforge_config-client.toml: scale 1.5",
+            "[forge_on_neoforge_config] NeoForge's mod list gets the config screen: Forge on NeoForge Config settings",
+            "[forge_on_neoforge_config] server started: SERVER config in the world's serverconfig folder true, file exists true",
+            // F-N6 networking: the client's ping and the server's three answers over NeoForge's payloads (in memory).
+            "Forge on NeoForge: 1 Forge channel(s) carried as NeoForge payloads [forge_on_neoforge_network:main] (ADR-0051 22)",
+            "Forge on NeoForge: client handlers for 1 Forge channel(s) (ADR-0051 22)",
+            "[forge_on_neoforge_network] client logged in; sending ping 1 to the server",
+            "[forge_on_neoforge_network] server got ping 1 on the server thread: true, from a player: true, server side: true",
+            "[forge_on_neoforge_network] client got pong 2, client side: true",
+            "[forge_on_neoforge_network] client got pong 101, client side: true",
+            "[forge_on_neoforge_network] client got pong 1001, client side: true",
+            "[forge_on_neoforge_network] client work for pong 2 ran on the client thread: true",
             "joined the game",
             "[neoforge_client_session] 200 client ticks in the world; save and quit",
             "[neoforge_client_session] left the saved world; stopping the client",
@@ -3330,7 +3554,13 @@ if (minecraft == "26.2") {
             "[forge_on_neoforge_environment] constructed: FMLEnvironment.dist = CLIENT, FMLLoader.getDist() = CLIENT, isDedicatedServer() = false",
             "[forge_on_neoforge_environment] FMLLoader.getGamePath() is FMLPaths.GAMEDIR: true",
         )
-        unexpectedOutput.addAll("PLEXUS-COMPAT-229", "FMLDedicatedServerSetupEvent received")
+        unexpectedOutput.addAll(
+            "PLEXUS-COMPAT-229",
+            "FMLDedicatedServerSetupEvent received",
+            "[forge_on_neoforge_event_subscriber] server only subscriber",
+            "NeoForge's mod list gets no config screen",
+            "was not handled",
+        )
     }
 }
 
@@ -4039,7 +4269,7 @@ tasks.register("compatibilityCorpus") {
         dependsOn(
             corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",
             "corpusFabricNeoForgeClientMixins", "corpusFabricNeoForgeClientBootstrap",
-            "mixinAuditQuiltClient", "mixinAuditQuiltServer", "forgeOnNeoForgeChunky",
+            "mixinAuditQuiltClient", "mixinAuditQuiltServer", "forgeOnNeoForgeChunky", "forgeOnNeoForgeNoChatReports",
         )
     }
 }
@@ -4056,6 +4286,8 @@ tasks.register("compatibilityMatrix") {
             "forgeOnNeoForgeLinkCheck", "forgeOnNeoForgeLinkCheckAlone", "forgeOnNeoForgeMixin",
             "forgeOnNeoForgeSharedMixin", "forgeOnNeoForgeEnvironment", "forgeOnNeoForgeExtensionPoint",
             "forgeOnNeoForgeAccessTransformer", "forgeOnNeoForgeAccessTransformerUnfit", "forgeOnNeoForgeModList",
+            "forgeOnNeoForgeRegistries", "forgeOnNeoForgeExtensions", "forgeOnNeoForgeEventSubscriber",
+            "forgeOnNeoForgeConfig", "forgeOnNeoForgeNetwork",
         )
     }
     if (minecraft == "26.2") {

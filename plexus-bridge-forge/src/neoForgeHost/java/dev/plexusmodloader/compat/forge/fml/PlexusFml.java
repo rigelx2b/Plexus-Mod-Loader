@@ -244,6 +244,12 @@ public final class PlexusFml implements NeoForgeLaunch {
         }
     }
 
+    /** Whether the launch is a client game (NeoForge's side {@code CLIENT}); {@code false} before the launch started. */
+    static boolean isClient() {
+        Request current = request;
+        return current != null && current.dist().equals("CLIENT");
+    }
+
     /**
      * Whether {@code jar} is a MinecraftForge mod Plexus Mod Loader handed to FML (Forge on NeoForge, ADR-0051): {@link
      * ForgeModsTomlReader} reads only these, so that no other jar's {@code mods.toml} is taken for a Forge mod.

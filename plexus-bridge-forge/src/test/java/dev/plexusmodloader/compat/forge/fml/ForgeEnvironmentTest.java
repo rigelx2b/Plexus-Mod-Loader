@@ -25,6 +25,7 @@ class ForgeEnvironmentTest {
     static final class Loader {
         private static Side dist;
         private static Path gamePath;
+        private static boolean production;
     }
 
     /** A release whose {@code dist} field has another type. */
@@ -74,6 +75,7 @@ class ForgeEnvironmentTest {
 
         assertEquals(Side.DEDICATED_SERVER, field(Loader.class, "dist"));
         assertEquals(directory.toAbsolutePath().normalize(), field(Loader.class, "gamePath"));
+        assertEquals(true, field(Loader.class, "production"));
     }
 
     @Test

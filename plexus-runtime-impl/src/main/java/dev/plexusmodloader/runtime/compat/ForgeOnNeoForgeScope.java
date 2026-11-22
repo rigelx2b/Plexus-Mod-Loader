@@ -36,12 +36,12 @@ public final class ForgeOnNeoForgeScope {
 
     /**
      * The Forge classes that run: the mod annotation and loading context (F-N2), the lifecycle events passed on (F-N2,
-     * F-N3), the game events of the Forge bridge's {@code ForgeEventPairs.GAME_EVENTS} with the interfaces and types
+     * F-N3; {@code FMLConstructModEvent} F-N6), the game events of the Forge bridge's {@code ForgeEventPairs.GAME_EVENTS} with the interfaces and types
      * their members use (F-N3), and registration with a registry key (F-N4: {@code DeferredRegister}, its {@code
      * RegistryObject}s, Forge's {@code RegisterEvent}, which NeoForge's is passed on as, and the keys of {@code
-     * ForgeRegistries.Keys}, whose outer class {@code ForgeRegistries} is named too, though none of its members may be).
-     * {@code IForgeRegistry} and the {@code RegisterEvent} helper (which needs Forge's {@code ModLoadingContext}) are
-     * not here: their names in a mod's descriptors leave it out. Also Forge's own game event bus ({@code
+     * ForgeRegistries.Keys}; F-N4 lookups: {@code ForgeRegistries} and {@code IForgeRegistry}, of which only some
+     * members, see {@link #ONLY_MEMBERS}). The {@code RegisterEvent} helper (which needs Forge's {@code
+     * ModLoadingContext}) is not here: its name in a mod's descriptors leaves it out. Also Forge's own game event bus ({@code
      * MinecraftForge.EVENT_BUS}, an {@code EventBusMigrationHelper} that registers a mod's listeners on the static
      * buses of the events passed on) and Forge's paths ({@code FMLPaths}, from Forge's {@code fmlloader} jar, which the
      * host sets to the game's paths), and the side and game directory the mod runs with: Forge's {@code Dist} (from
@@ -50,7 +50,11 @@ public final class ForgeOnNeoForgeScope {
      */
     private static final Set<String> CLASSES = Set.of(
             "net/minecraftforge/fml/common/Mod",
+            // F-N6: Forge's FMLModContainer registers these with the scan data the host gives it.
+            "net/minecraftforge/fml/common/Mod$EventBusSubscriber",
+            "net/minecraftforge/fml/common/Mod$EventBusSubscriber$Bus",
             "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext",
+            "net/minecraftforge/fml/event/lifecycle/FMLConstructModEvent",
             "net/minecraftforge/fml/event/lifecycle/FMLCommonSetupEvent",
             "net/minecraftforge/fml/event/lifecycle/FMLClientSetupEvent",
             "net/minecraftforge/fml/event/lifecycle/FMLDedicatedServerSetupEvent",
@@ -63,8 +67,34 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/event/TickEvent$LevelTickEvent",
             "net/minecraftforge/event/TickEvent$LevelTickEvent$Pre",
             "net/minecraftforge/event/TickEvent$LevelTickEvent$Post",
+            "net/minecraftforge/event/TickEvent$PlayerTickEvent",
+            "net/minecraftforge/event/TickEvent$PlayerTickEvent$Pre",
+            "net/minecraftforge/event/TickEvent$PlayerTickEvent$Post",
+            "net/minecraftforge/event/TickEvent$ClientTickEvent",
+            "net/minecraftforge/event/TickEvent$ClientTickEvent$Pre",
+            "net/minecraftforge/event/TickEvent$ClientTickEvent$Post",
+            "net/minecraftforge/event/TickEvent$RenderTickEvent",
+            "net/minecraftforge/event/TickEvent$RenderTickEvent$Pre",
+            "net/minecraftforge/event/TickEvent$RenderTickEvent$Post",
+            "net/minecraftforge/event/entity/living/LivingEvent",
+            "net/minecraftforge/event/entity/player/PlayerEvent",
+            "net/minecraftforge/event/entity/player/PlayerEvent$PlayerLoggedInEvent",
+            "net/minecraftforge/event/entity/player/PlayerEvent$PlayerLoggedOutEvent",
+            "net/minecraftforge/event/entity/player/PlayerEvent$PlayerRespawnEvent",
+            "net/minecraftforge/event/entity/player/PlayerEvent$PlayerChangedDimensionEvent",
             "net/minecraftforge/event/RegisterCommandsEvent",
+            "net/minecraftforge/event/AddReloadListenerEvent",
+            "net/minecraftforge/client/event/RegisterKeyMappingsEvent",
+            "net/minecraftforge/client/event/ClientPlayerNetworkEvent",
+            "net/minecraftforge/client/event/ClientPlayerNetworkEvent$LoggingIn",
+            "net/minecraftforge/client/event/ClientPlayerNetworkEvent$LoggingOut",
+            "net/minecraftforge/client/event/ClientPlayerNetworkEvent$Clone",
             "net/minecraftforge/event/server/ServerLifecycleEvent",
+            "net/minecraftforge/event/server/ServerAboutToStartEvent",
+            "net/minecraftforge/event/level/LevelEvent",
+            "net/minecraftforge/event/level/LevelEvent$Load",
+            "net/minecraftforge/event/level/LevelEvent$Unload",
+            "net/minecraftforge/event/entity/player/PlayerEvent$Clone",
             "net/minecraftforge/event/server/ServerStartingEvent",
             "net/minecraftforge/event/server/ServerStartedEvent",
             "net/minecraftforge/event/server/ServerStoppingEvent",
@@ -76,6 +106,7 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/RegisterEvent",
             "net/minecraftforge/registries/ForgeRegistries",
             "net/minecraftforge/registries/ForgeRegistries$Keys",
+            "net/minecraftforge/registries/IForgeRegistry",
             "net/minecraftforge/common/MinecraftForge",
             "net/minecraftforge/common/EventBusMigrationHelper",
             "net/minecraftforge/fml/loading/FMLPaths",
@@ -87,7 +118,52 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/fml/ModList",
             "net/minecraftforge/fml/ModLoadingContext",
             "net/minecraftforge/fml/ModContainer",
-            "net/minecraftforge/forgespi/language/IModInfo");
+            "net/minecraftforge/forgespi/language/IModInfo",
+            // F-N6: configs, kept and loaded by Forge's own config tracker (ForgeConfigs in the Forge bridge's host).
+            "net/minecraftforge/common/ForgeConfigSpec",
+            "net/minecraftforge/common/ForgeConfigSpec$Builder",
+            "net/minecraftforge/common/ForgeConfigSpec$Builder$BuilderConsumer",
+            "net/minecraftforge/common/ForgeConfigSpec$BuilderContext",
+            "net/minecraftforge/common/ForgeConfigSpec$ConfigValue",
+            "net/minecraftforge/common/ForgeConfigSpec$BooleanValue",
+            "net/minecraftforge/common/ForgeConfigSpec$ByteValue",
+            "net/minecraftforge/common/ForgeConfigSpec$ShortValue",
+            "net/minecraftforge/common/ForgeConfigSpec$IntValue",
+            "net/minecraftforge/common/ForgeConfigSpec$LongValue",
+            "net/minecraftforge/common/ForgeConfigSpec$FloatValue",
+            "net/minecraftforge/common/ForgeConfigSpec$DoubleValue",
+            "net/minecraftforge/common/ForgeConfigSpec$EnumValue",
+            "net/minecraftforge/common/ForgeConfigSpec$ValueSpec",
+            "net/minecraftforge/common/ForgeConfigSpec$Range",
+            "net/minecraftforge/fml/config/IConfigSpec",
+            "net/minecraftforge/fml/config/IConfigEvent",
+            "net/minecraftforge/fml/config/ModConfig",
+            "net/minecraftforge/fml/config/ModConfig$Type",
+            "net/minecraftforge/fml/event/config/ModConfigEvent",
+            "net/minecraftforge/fml/event/config/ModConfigEvent$Loading",
+            "net/minecraftforge/fml/event/config/ModConfigEvent$Reloading",
+            "net/minecraftforge/fml/event/config/ModConfigEvent$Unloading",
+            // F-N6: a config screen registered on the mod's container, which NeoForge's mod list gets from the host's
+            // container (ForgeConfigScreens in the Forge bridge's host); MinecraftForge.registerConfigScreen registers
+            // it
+            // on the active container, which the host sets while the mod is constructed and gets a lifecycle event.
+            "net/minecraftforge/client/ConfigScreenHandler",
+            "net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory",
+            // F-N6 networking (ADR-0051 22): play-phase SimpleChannel messages, carried over NeoForge's payloads by the
+            // host (ForgeNetworking) and Forge's own channel classes, with ForgeNetworkRules' redirects.
+            // NetworkProtocol and
+            // NetworkDirection stay out, and so do the messageBuilder overloads for other phases that name them.
+            "net/minecraftforge/network/ChannelBuilder",
+            "net/minecraftforge/network/Channel",
+            "net/minecraftforge/network/Channel$VersionTest",
+            // A version test's lambda names the status it is asked about; the host does not ask it (ADR-0051 22).
+            "net/minecraftforge/network/Channel$VersionTest$Status",
+            "net/minecraftforge/network/SimpleChannel",
+            "net/minecraftforge/network/SimpleChannel$MessageBuilder",
+            "net/minecraftforge/network/PacketDistributor",
+            "net/minecraftforge/network/PacketDistributor$PacketTarget",
+            "net/minecraftforge/event/network/CustomPayloadEvent",
+            "net/minecraftforge/event/network/CustomPayloadEvent$Context");
 
     /**
      * Allowed classes of which only some members may be used: Forge's {@code FMLEnvironment} and {@code FMLLoader} keep
@@ -106,13 +182,22 @@ public final class ForgeOnNeoForgeScope {
      * F-N6) and language extension ({@code extension}) are not set. Of a Forge mod container and its {@code IModInfo},
      * what Forge's own {@code FMLModContainer} and the host's view of the mod's {@code mods.toml} answer; not the mod's
      * file or dependencies, which that view does not have, and not its configs.
+     *
+     * <p>Forge's {@code ForgeRegistries} (F-N4): its {@code IForgeRegistry} fields of registries the game has among its
+     * built-in ones, which the host makes views of those registries ({@code ForgeRegistriesPatch} in the Forge bridge);
+     * not {@code PAINTING_VARIANTS} and {@code BIOMES} (data pack registries) nor the fields of Forge's own registries.
+     * Of {@code IForgeRegistry}, the members that view answers ({@code ForgeRegistriesPatch.VIEW_METHODS}, and {@code
+     * Iterable}'s); not {@code register}, {@code tags}, {@code getSlaveMap}, {@code getCodec}, {@code getDelegate} and
+     * {@code getDelegateOrThrow}.
      */
-    private static final Map<String, Set<String>> ONLY_MEMBERS = Map.of(
-            "net/minecraftforge/fml/loading/FMLEnvironment", Set.of("dist"),
-            "net/minecraftforge/fml/loading/FMLLoader", Set.of("getDist", "getGamePath"),
-            "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext",
-                    Set.of("getModBusGroup", "registerExtensionPoint", "registerDisplayTest"),
-            "net/minecraftforge/fml/ModList",
+    private static final Map<String, Set<String>> ONLY_MEMBERS = Map.ofEntries(
+            Map.entry("net/minecraftforge/fml/loading/FMLEnvironment", Set.of("dist", "production")),
+            Map.entry("net/minecraftforge/fml/loading/FMLLoader", Set.of("getDist", "getGamePath", "isProduction")),
+            Map.entry(
+                    "net/minecraftforge/fml/javafmlmod/FMLJavaModLoadingContext",
+                    Set.of("getModBusGroup", "registerExtensionPoint", "registerDisplayTest", "registerConfig")),
+            Map.entry(
+                    "net/minecraftforge/fml/ModList",
                     Set.of(
                             "isLoaded",
                             "getModContainerById",
@@ -122,15 +207,18 @@ public final class ForgeOnNeoForgeScope {
                             "forEachModContainer",
                             "forEachModInOrder",
                             "applyForEachModContainer",
-                            "size"),
-            "net/minecraftforge/fml/ModLoadingContext",
+                            "size")),
+            Map.entry(
+                    "net/minecraftforge/fml/ModLoadingContext",
                     Set.of(
                             "get",
                             "getContainer",
                             "getActiveNamespace",
                             "registerExtensionPoint",
-                            "registerDisplayTest"),
-            "net/minecraftforge/fml/ModContainer",
+                            "registerDisplayTest",
+                            "registerConfig")),
+            Map.entry(
+                    "net/minecraftforge/fml/ModContainer",
                     Set.of(
                             "getModId",
                             "getNamespace",
@@ -140,30 +228,96 @@ public final class ForgeOnNeoForgeScope {
                             "getCustomExtension",
                             "registerExtensionPoint",
                             "registerDisplayTest",
-                            "getModBusGroup"),
-            "net/minecraftforge/forgespi/language/IModInfo",
-                    Set.of("getModId", "getDisplayName", "getDescription", "getVersion", "getNamespace"));
-
-    /**
-     * {@code ForgeRegistries} is named by the {@code InnerClasses} attribute of every class that uses {@code
-     * ForgeRegistries.Keys}; its own members are Forge registries, which NeoForge's game does not have, so every member
-     * reference with this owner is left out.
-     */
-    private static final String FORGE_REGISTRIES = "net/minecraftforge/registries/ForgeRegistries";
+                            "getModBusGroup",
+                            "addConfig")),
+            Map.entry(
+                    "net/minecraftforge/forgespi/language/IModInfo",
+                    Set.of("getModId", "getDisplayName", "getDescription", "getVersion", "getNamespace")),
+            Map.entry(
+                    "net/minecraftforge/registries/ForgeRegistries",
+                    Set.of(
+                            "BLOCKS",
+                            "FLUIDS",
+                            "ITEMS",
+                            "MOB_EFFECTS",
+                            "SOUND_EVENTS",
+                            "POTIONS",
+                            "ENTITY_TYPES",
+                            "BLOCK_ENTITY_TYPES",
+                            "PARTICLE_TYPES",
+                            "MENU_TYPES",
+                            "RECIPE_TYPES",
+                            "RECIPE_SERIALIZERS",
+                            "ATTRIBUTES",
+                            "STAT_TYPES",
+                            "COMMAND_ARGUMENT_TYPES",
+                            "VILLAGER_PROFESSIONS",
+                            "POI_TYPES",
+                            "MEMORY_MODULE_TYPES",
+                            "SENSOR_TYPES",
+                            "ACTIVITIES",
+                            "WORLD_CARVERS",
+                            "FEATURES",
+                            "CHUNK_STATUS",
+                            "BLOCK_STATE_PROVIDER_TYPES",
+                            "FOLIAGE_PLACER_TYPES",
+                            "TREE_DECORATOR_TYPES")),
+            Map.entry(
+                    "net/minecraftforge/registries/IForgeRegistry",
+                    Set.of(
+                            "getRegistryKey",
+                            "getRegistryName",
+                            "containsKey",
+                            "containsValue",
+                            "isEmpty",
+                            "getValue",
+                            "getKey",
+                            "getDefaultKey",
+                            "getResourceKey",
+                            "getKeys",
+                            "getValues",
+                            "getEntries",
+                            "getHolder",
+                            "iterator",
+                            "forEach",
+                            "spliterator")),
+            Map.entry(
+                    "net/minecraftforge/network/ChannelBuilder",
+                    Set.of("named", "networkProtocolVersion", "optional", "acceptedVersions", "simpleChannel")),
+            Map.entry("net/minecraftforge/network/Channel", Set.of("send", "reply")),
+            Map.entry("net/minecraftforge/network/SimpleChannel", Set.of("messageBuilder", "build", "send", "reply")),
+            Map.entry(
+                    "net/minecraftforge/network/SimpleChannel$MessageBuilder",
+                    Set.of("encoder", "decoder", "consumerMainThread", "consumerNetworkThread", "add")),
+            Map.entry(
+                    "net/minecraftforge/network/PacketDistributor", Set.of("PLAYER", "SERVER", "ALL", "with", "noArg")),
+            Map.entry("net/minecraftforge/event/network/CustomPayloadEvent", Set.of()),
+            Map.entry(
+                    "net/minecraftforge/event/network/CustomPayloadEvent$Context",
+                    Set.of(
+                            "getSender",
+                            "isClientSide",
+                            "isServerSide",
+                            "enqueueWork",
+                            "setPacketHandled",
+                            "getPacketHandled",
+                            "getConnection")));
 
     /** Forge's event bus 7 API, which runs as Forge's own library and needs nothing of Forge's patches. */
     private static final String EVENT_BUS_API = "net/minecraftforge/eventbus/api/";
 
     /**
      * Members of allowed classes that need Forge's loader state, which NeoForge's game does not have, and the bus of an
-     * event interface whose other events are not passed on ({@code ServerLifecycleEvent} has {@code
-     * ServerAboutToStartEvent} too). For registration (F-N4): new registries and optional tag defaults (both need Forge's
+     * event interface whose other events are not passed on ({@code LevelEvent} has {@code Save}, {@code
+     * CreateSpawnPosition} and {@code PotentialSpawns} too). For registration (F-N4): new registries and optional tag defaults (both need Forge's
      * registries), a {@code RegistryObject} made outside a {@code DeferredRegister} (filled by Forge's object holders,
      * which do not run), Forge's registry of the registry event ({@code null} here), and the keys of registries only
      * Forge has, for which NeoForge sends no registry event.
      */
     private static final Set<String> MEMBERS = Set.of(
-            "net/minecraftforge/event/server/ServerLifecycleEvent.BUS",
+            "net/minecraftforge/event/level/LevelEvent.BUS",
+            // Calls ReloadableServerResources.getConditionContext(), which only MinecraftForge's patches add.
+            "net/minecraftforge/event/AddReloadListenerEvent.getConditionContext",
             "net/minecraftforge/registries/DeferredRegister.makeRegistry",
             "net/minecraftforge/registries/DeferredRegister.createOptionalTagKey",
             "net/minecraftforge/registries/DeferredRegister.addOptionalTagDefaults",
@@ -171,9 +325,13 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/RegistryObject.createOptional",
             "net/minecraftforge/registries/RegisterEvent.getForgeRegistry",
             "net/minecraftforge/common/MinecraftForge.initialize",
-            "net/minecraftforge/common/MinecraftForge.registerConfigScreen",
             "net/minecraftforge/fml/loading/FMLPaths.setup",
             "net/minecraftforge/fml/loading/FMLPaths.loadAbsolutePaths",
+            // Forge's network sends a server's configs to its clients, which the host does not do (F-N6).
+            "net/minecraftforge/fml/config/ModConfig.acceptSyncedConfig",
+            // Bus.MOD's group comes from FMLJavaModLoadingContext.get(), set only while Forge constructs the mod
+            // (F-N6).
+            "net/minecraftforge/fml/common/Mod$EventBusSubscriber$Bus.bus",
             "net/minecraftforge/registries/ForgeRegistries$Keys.ENTITY_DATA_SERIALIZERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.GLOBAL_LOOT_MODIFIER_SERIALIZERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.BIOME_MODIFIER_SERIALIZERS",
@@ -185,12 +343,6 @@ public final class ForgeOnNeoForgeScope {
             "net/minecraftforge/registries/ForgeRegistries$Keys.INGREDIENT_SERIALIZERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.BIOME_MODIFIERS",
             "net/minecraftforge/registries/ForgeRegistries$Keys.STRUCTURE_MODIFIERS");
-
-    /**
-     * Forge's lifecycle events queue {@code enqueueWork} work for Forge's loading stages, which do not run: denied on
-     * every class of this package, as the compiler names the class of the receiver.
-     */
-    private static final String LIFECYCLE_EVENTS = "net/minecraftforge/fml/event/lifecycle/";
 
     /**
      * Files that make Forge transform classes or install more jars, which F-N2 does not do. A mod's {@code
@@ -264,9 +416,7 @@ public final class ForgeOnNeoForgeScope {
                 String reference = owner + "." + member.name().stringValue();
                 Set<String> only = ONLY_MEMBERS.get(owner);
                 if (MEMBERS.contains(reference)
-                        || (only != null && !only.contains(member.name().stringValue()))
-                        || owner.equals(FORGE_REGISTRIES)
-                        || (reference.startsWith(LIFECYCLE_EVENTS) && reference.endsWith(".enqueueWork"))) {
+                        || (only != null && !only.contains(member.name().stringValue()))) {
                     found.add(reference);
                 }
             }

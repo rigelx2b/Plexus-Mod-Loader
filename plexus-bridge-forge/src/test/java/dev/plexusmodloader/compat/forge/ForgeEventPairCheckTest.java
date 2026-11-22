@@ -11,24 +11,41 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * Forge on NeoForge, F-N3: the event pairs hold for the NeoForge and Forge releases Plexus Mod Loader pins for Minecraft
- * 26.2 and 26.3 (their {@code universal} jars, from {@code plexus.forgeEventJars}), and the runtime hands over the Forge
- * mods that use them.
+ * 26.1, 26.1.1, 26.1.2, 26.2 and 26.3 (their {@code universal} jars, from {@code plexus.forgeEventJars}), and the runtime
+ * hands over the Forge mods that use them.
  */
 class ForgeEventPairCheckTest {
 
+    /** Each Minecraft 26.x release's NeoForge and Forge universal jar name prefixes. */
     @ParameterizedTest
-    @ValueSource(strings = {"26.2", "26.3"})
-    void everyPairHolds(String minecraft) throws IOException {
-        assertEquals(
-                List.of(),
-                ForgeEventPairCheck.missing(
-                        ForgeEventPairs.GAME_EVENTS,
-                        jar("neoforge-" + minecraft + "."),
-                        jar("forge-" + minecraft + "-")));
+    @CsvSource({
+        "neoforge-26.1.0., forge-26.1-",
+        "neoforge-26.1.1., forge-26.1.1-",
+        "neoforge-26.1.2., forge-26.1.2-",
+        "neoforge-26.2., forge-26.2-",
+        "neoforge-26.3., forge-26.3-"
+    })
+    void everyPairHolds(String neoForge, String forge) throws IOException {
+        assertEquals(List.of(), ForgeEventPairCheck.missing(ForgeEventPairs.GAME_EVENTS, jar(neoForge), jar(forge)));
+    }
+
+    /**
+     * NeoForge's player events declare {@code getEntity()} bridges returning less specific types; the check takes the
+     * player getter of their superclass, as reflection does, and a pair is checked whichever games it is passed on in.
+     */
+    @Test
+    void playerAndClientPairsAreChecked() throws IOException {
+        List<ForgeEventPairs.Pair> pairs = ForgeEventPairs.GAME_EVENTS.stream()
+                .filter(pair -> pair.neoForge().contains(".PlayerEvent$")
+                        || pair.neoForge().contains(".PlayerTickEvent$")
+                        || pair.where() == ForgeEventPairs.Where.CLIENT)
+                .toList();
+        assertEquals(14, pairs.size());
+        assertEquals(List.of(), ForgeEventPairCheck.missing(pairs, jar("neoforge-26.2."), jar("forge-26.2-")));
     }
 
     /** A cancellable Forge event paired with a NeoForge event that cannot be cancelled, and a constructor not found. */
@@ -58,14 +75,67 @@ class ForgeEventPairCheckTest {
                 ForgeEventPairCheck.missing(List.of(wrong), jar("neoforge-26.2."), jar("forge-26.2-")));
     }
 
-    /** F-N4: NeoForge's registry event and Forge's registry event have what registration passes on. */
+    /** NeoForge's and Forge's reload listener events have what the host passes on, on every 26.x release. */
     @ParameterizedTest
-    @ValueSource(strings = {"26.2", "26.3"})
-    void registrationHolds(String minecraft) throws IOException {
+    @CsvSource({
+        "neoforge-26.1.0., forge-26.1-",
+        "neoforge-26.1.1., forge-26.1.1-",
+        "neoforge-26.1.2., forge-26.1.2-",
+        "neoforge-26.2., forge-26.2-",
+        "neoforge-26.3., forge-26.3-"
+    })
+    void reloadListenersHold(String neoForge, String forge) throws IOException {
+        assertEquals(List.of(), ForgeEventPairCheck.missingReloadListeners(jar(neoForge), jar(forge)));
+    }
+
+    /** NeoForge's and Forge's key mapping registration events have what the host passes on, on every 26.x release. */
+    @ParameterizedTest
+    @CsvSource({
+        "neoforge-26.1.0., forge-26.1-",
+        "neoforge-26.1.1., forge-26.1.1-",
+        "neoforge-26.1.2., forge-26.1.2-",
+        "neoforge-26.2., forge-26.2-",
+        "neoforge-26.3., forge-26.3-"
+    })
+    void keyMappingsHold(String neoForge, String forge) throws IOException {
+        assertEquals(List.of(), ForgeEventPairCheck.missingKeyMappings(jar(neoForge), jar(forge)));
+    }
+
+    @Test
+    void keyMappingsThatDoNotHoldAreNamed() throws IOException {
         assertEquals(
-                List.of(),
-                ForgeEventPairCheck.missingRegistration(
-                        jar("neoforge-" + minecraft + "."), jar("forge-" + minecraft + "-")));
+                List.of(
+                        "no net/neoforged/neoforge/client/event/RegisterKeyMappingsEvent",
+                        "no net/minecraftforge/client/event/RegisterKeyMappingsEvent"),
+                ForgeEventPairCheck.missingKeyMappings(jar("forge-26.2-"), jar("neoforge-26.2.")));
+    }
+
+    /** With the two jars swapped, neither event is found and the wrapper is named. */
+    @Test
+    void reloadListenersThatDoNotHoldAreNamed() throws IOException {
+        assertEquals(
+                List.of(
+                        "no net/neoforged/neoforge/event/AddServerReloadListenersEvent",
+                        "no net/minecraftforge/event/AddReloadListenerEvent",
+                        "net/minecraftforge/event/AddReloadListenerEvent$WrappedStateAwareListener: no"
+                                + " wrapped()Lnet/minecraft/server/packs/resources/PreparableReloadListener;"),
+                ForgeEventPairCheck.missingReloadListeners(jar("forge-26.2-"), jar("neoforge-26.2.")));
+    }
+
+    /**
+     * F-N4: NeoForge's registry event and Forge's registry event have what registration passes on, and Forge's {@code
+     * ForgeRegistries} and {@code IForgeRegistry} what the host's views of the game's registries need.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "neoforge-26.1.0., forge-26.1-",
+        "neoforge-26.1.1., forge-26.1.1-",
+        "neoforge-26.1.2., forge-26.1.2-",
+        "neoforge-26.2., forge-26.2-",
+        "neoforge-26.3., forge-26.3-"
+    })
+    void registrationHolds(String neoForge, String forge) throws IOException {
+        assertEquals(List.of(), ForgeEventPairCheck.missingRegistration(jar(neoForge), jar(forge)));
     }
 
     /**
@@ -82,7 +152,9 @@ class ForgeEventPairCheckTest {
         assertEquals(
                 List.of(
                         "no net/minecraftforge/registries/RegisterEvent",
-                        "net/minecraftforge/registries/RegistryObject.class: 0 MappedRegistry.isIntrusive() call(s)"),
+                        "net/minecraftforge/registries/RegistryObject.class: 0 MappedRegistry.isIntrusive() call(s)",
+                        "no net/minecraftforge/registries/ForgeRegistries.class",
+                        "no net/minecraftforge/registries/IForgeRegistry"),
                 ForgeEventPairCheck.missingRegistration(neoForge, neoForge));
     }
 

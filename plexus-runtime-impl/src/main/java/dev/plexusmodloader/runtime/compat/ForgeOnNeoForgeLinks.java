@@ -27,7 +27,8 @@ import java.util.zip.ZipEntry;
  * NeoForge mods and the other Forge mods, with members reached through the mod's own subclasses of game classes too
  * ({@link ModLinkVerifier#builtForAnotherPatch}). A mod class that overrides a method NeoForge's patch made {@code final}
  * is found as well ({@link HostPatchCheck#finalOverrides}), and so is a mixin that names what NeoForge's patched game
- * lacks ({@link ForgeOnNeoForgeMixins}).
+ * lacks ({@link ForgeOnNeoForgeMixins}), and an override of a Forge extension method that NeoForge's game does not have
+ * and so never calls ({@link ForgeOnNeoForgeExtensions}, F-N5).
  *
  * <p>The Forge API jars must be among the jars checked against: otherwise every class that uses Forge's API counts as
  * another loader's code path, and its missing Minecraft members are noted instead of blocking.
@@ -36,7 +37,21 @@ import java.util.zip.ZipEntry;
  */
 public final class ForgeOnNeoForgeLinks {
 
+    /** A class only Forge's universal jar has: the jar whose extension interfaces the F-N5 check reads. */
+    private static final String FORGE_EXTENSION_PROBE = "net/minecraftforge/common/extensions/IForgeItem.class";
+
     private ForgeOnNeoForgeLinks() {}
+
+    private static boolean hasEntry(Path jar, String entry) {
+        if (jar == null || !Files.isRegularFile(jar)) {
+            return false;
+        }
+        try (JarFile file = new JarFile(jar.toFile())) {
+            return file.getEntry(entry) != null;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read " + jar, e);
+        }
+    }
 
     /** Class files from jars, first jar first. Never defines a class. */
     private static final class GameClassFiles implements AutoCloseable {
@@ -136,6 +151,17 @@ public final class ForgeOnNeoForgeLinks {
                         reasons.computeIfAbsent(jar, key -> new ArrayList<>()).addAll(lines));
         // A mixin may target NeoForge's own classes or another mod's, as well as the game's; the loader libraries
         // (Forge's API jars among them) are outside FML's game layer, where its Mixin transforms, so only supertypes.
+        // Forge's extension interfaces (F-N5), from Forge's universal jar among the loader libraries.
+        List<ForgeOnNeoForgeExtensions.Extension> extensions = new ArrayList<>();
+        for (Path library : host.loaderJars()) {
+            if (hasEntry(library, FORGE_EXTENSION_PROBE)) {
+                try {
+                    extensions.addAll(ForgeOnNeoForgeExtensions.extensions(library));
+                } catch (IOException e) {
+                    throw new UncheckedIOException("Failed to read Forge's extension interfaces from " + library, e);
+                }
+            }
+        }
         List<Path> mixinTargets = new ArrayList<>(patched);
         mixinTargets.add(vanillaGameJar);
         mixinTargets.addAll(otherJars);
@@ -156,6 +182,22 @@ public final class ForgeOnNeoForgeLinks {
                     reasons.computeIfAbsent(jar, key -> new ArrayList<>())
                             .add(lines.size() + " access transformer line(s) that do not fit " + hosted.hostName()
                                     + "'s patched game: " + String.join("; ", lines));
+                }
+                List<ForgeOnNeoForgeExtensions.Unfit> overrides = ForgeOnNeoForgeExtensions.unfit(
+                        jar,
+                        extensions,
+                        name -> classes.read(name)
+                                // A mod class may extend one of Forge's API classes (ForgeFlowingFluid and the like).
+                                .or(() -> libraries.read(name)));
+                if (!overrides.isEmpty()) {
+                    reasons.computeIfAbsent(jar, key -> new ArrayList<>())
+                            .add(overrides.size() + " override(s) of Forge extension methods that " + hosted.hostName()
+                                    + "'s game does not call: "
+                                    + String.join(
+                                            "; ",
+                                            overrides.stream()
+                                                    .map(ForgeOnNeoForgeExtensions.Unfit::toString)
+                                                    .toList()));
                 }
             }
         } catch (IOException e) {

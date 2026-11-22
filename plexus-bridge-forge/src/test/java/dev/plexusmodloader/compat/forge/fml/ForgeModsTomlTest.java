@@ -75,9 +75,11 @@ class ForgeModsTomlTest {
     void manifestMixinConfigsBecomeMixinsEntries() {
         CommentedConfig config = TomlFormat.instance()
                 .createParser()
-                .parse(FORGE_MODS_TOML + "\n[[mixins]]\nconfig = \"listed.mixins.json\"\n");
-        ForgeModsToml.addMixins(config, List.of("listed.mixins.json", "example.mixins.json"));
+                .parse(FORGE_MODS_TOML + "\n[[mixins]]\nconfig = \"listed.mixins.json\"\n"
+                        + "\n[[mixins]]\nconfig = \"not-in-the-manifest.mixins.json\"\n");
+        ForgeModsToml.addMixins(config, List.of("listed.mixins.json", "example.mixins.json", "example.mixins.json"));
         List<Config> mixins = config.get("mixins");
+        // Forge reads the manifest only: the mod's own entry outside it is dropped, duplicates are listed once.
         assertEquals(
                 List.of("listed.mixins.json", "example.mixins.json"),
                 mixins.stream().map(m -> (String) m.get("config")).toList());
@@ -86,6 +88,16 @@ class ForgeModsTomlTest {
     @Test
     void noManifestMixinConfigsAddNoMixinsEntry() {
         CommentedConfig config = parse();
+        ForgeModsToml.addMixins(config, List.of());
+        assertFalse(config.contains("mixins"));
+    }
+
+    /** As the corpus's boatiview 0.0.9: a [[mixins]] entry with no manifest MixinConfigs is not applied, as on Forge. */
+    @Test
+    void aModsTomlMixinsEntryWithoutManifestConfigsIsDropped() {
+        CommentedConfig config = TomlFormat.instance()
+                .createParser()
+                .parse(FORGE_MODS_TOML + "\n[[mixins]]\nconfig = \"boatiview-common.mixins.json\"\n");
         ForgeModsToml.addMixins(config, List.of());
         assertFalse(config.contains("mixins"));
     }

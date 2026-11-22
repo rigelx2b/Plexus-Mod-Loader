@@ -47,6 +47,6 @@ public final class ForgeLanguageLoader implements IModLanguageLoader {
                 .orElseThrow(
                         () -> new ModLoadingException(ModLoadingIssue.error("fml.modloadingissue.failedtoloadmodclass")
                                 .withAffectedMod(info)));
-        return ForgeModContainer.create(info, modClass, layer);
+        return ForgeModContainer.create(info, modClass, layer, ForgeEventSubscribers.of(scanData));
     }
 }
