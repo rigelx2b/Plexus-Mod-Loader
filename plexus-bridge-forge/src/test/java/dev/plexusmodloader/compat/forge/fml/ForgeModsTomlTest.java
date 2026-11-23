@@ -51,6 +51,26 @@ class ForgeModsTomlTest {
         assertEquals("[" + ForgeLanguageLoader.VERSION + ",)", config.get("loaderVersion"));
     }
 
+    /**
+     * A data-only Forge mod ({@code lowcodefml}, ADR-0051 23) has no class for Forge's mod container to construct: it
+     * gets no language loader, so FML 11 and 12 load it with their default one, as a NeoForge mod without a mod class.
+     */
+    @Test
+    void aLowCodeModGetsFmlsDefaultLanguageLoader() {
+        CommentedConfig config = TomlFormat.instance()
+                .createParser()
+                .parse(FORGE_MODS_TOML
+                        .replace("\"javafml\"", "\"lowcodefml\"")
+                        .replace("\"[65,)\"\nlicense", "\"[40,)\"\nlicense"));
+        ForgeModsToml.translate(config);
+        assertFalse(config.contains("modLoader"));
+        assertFalse(config.contains("loaderVersion"));
+        List<Config> dependencies = config.get(List.of("dependencies", "example"));
+        assertEquals(
+                List.of("minecraft", "jei"),
+                dependencies.stream().map(d -> (String) d.get("modId")).toList());
+    }
+
     /** MinecraftForge itself is present as libraries; the other dependencies keep their range and get FML 11's type. */
     @Test
     void theForgeDependencyIsDroppedAndMandatoryBecomesType() {

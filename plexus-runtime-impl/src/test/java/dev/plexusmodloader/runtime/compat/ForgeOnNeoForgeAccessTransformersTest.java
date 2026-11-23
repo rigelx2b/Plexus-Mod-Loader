@@ -77,6 +77,20 @@ class ForgeOnNeoForgeAccessTransformersTest {
                 unfit(jar, GameSide.CLIENT));
     }
 
+    /**
+     * Realms is client-only too: the 26.2 client jar has {@code com/mojang/realmsclient/} and {@code
+     * net/minecraft/realms/}, its dedicated server jar has neither (CraftPresence 2.7.1 opens {@code RealmsMainScreen}).
+     */
+    @Test
+    void realmsClassesAreClientOnly() throws IOException {
+        Path jar = jar("""
+                public com.mojang.realmsclient.RealmsMainScreen getSelectedServer()Lcom/mojang/realmsclient/dto/RealmsServer;
+                public net.minecraft.realms.RealmsScreen
+                """, null);
+        assertEquals(List.of(), unfit(jar, GameSide.DEDICATED_SERVER));
+        assertEquals(2, unfit(jar, GameSide.CLIENT).size());
+    }
+
     /** Lines whose syntax NeoForge's engine is not known to read the same way are not trusted. */
     @Test
     void otherSyntaxIsNamed() throws IOException {

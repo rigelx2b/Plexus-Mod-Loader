@@ -1,7 +1,9 @@
 package dev.plexusmodloader.compat.forge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.plexusmodloader.api.runtime.GameSide;
 import java.io.IOException;
@@ -79,6 +81,18 @@ class ForgeOnNeoForgeLibrariesTest {
         Path jar = jar("javafml", "example", false);
         assertEquals(
                 List.of(ForgeModRequirements.NO_MOD_CLASS + "example"), ForgeOnNeoForgeLibraries.languageReasons(jar));
+    }
+
+    /**
+     * A data-only mod of Forge's {@code lowcodefml} (a data pack packed as a mod) has nothing to construct: NeoForge's
+     * FML loads it with its own default language loader (ADR-0051 23).
+     */
+    @Test
+    void aLowCodeModIsKept() throws IOException {
+        Path jar = jar("lowcodefml", "example", false);
+        assertEquals(List.of(), ForgeOnNeoForgeLibraries.languageReasons(jar));
+        assertTrue(ForgeOnNeoForgeLibraries.lowCode(jar));
+        assertFalse(ForgeOnNeoForgeLibraries.lowCode(jar("javafml", "example", true)));
     }
 
     /** Another language provider's mod (Kotlin for Forge) is not constructed by Forge's Java mod container. */

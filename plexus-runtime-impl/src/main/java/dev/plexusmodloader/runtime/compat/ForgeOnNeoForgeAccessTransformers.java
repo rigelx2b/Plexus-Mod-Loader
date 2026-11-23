@@ -41,8 +41,11 @@ public final class ForgeOnNeoForgeAccessTransformers {
     private static final Pattern MODS_TOML_ACCESS_TRANSFORMERS =
             Pattern.compile("(?m)^\\s*\\[\\[\\s*accessTransformers\\s*]]");
 
-    /** Packages of the game that only its client has; their classes are absent from a dedicated server's game. */
-    private static final List<String> CLIENT_ONLY_PACKAGES = List.of("net/minecraft/client/", "com/mojang/blaze3d/");
+    /**
+     * Packages of the game that only its client has, as the link check knows them (Realms among them); their classes are
+     * absent from a dedicated server's game.
+     */
+    private static final List<String> CLIENT_ONLY_PACKAGES = ModLinkVerifier.CLIENT_PACKAGES;
 
     private ForgeOnNeoForgeAccessTransformers() {}
 

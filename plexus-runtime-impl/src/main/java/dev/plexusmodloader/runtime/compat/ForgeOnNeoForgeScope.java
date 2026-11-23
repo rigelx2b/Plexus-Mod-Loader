@@ -176,8 +176,8 @@ public final class ForgeOnNeoForgeScope {
      * whose members are not checked ({@code getContainer()}).
      *
      * <p>Forge's {@code ModList} holds the containers of the Forge mods the host runs ({@code ForgeModList} in the Forge
-     * bridge): its members that read those containers, not those that read Forge's loading mod list (mod files, scan
-     * data, sorted mod infos), which stays empty. Forge's {@code ModLoadingContext} has the mod's container as the
+     * bridge): its members that read those containers, and {@code getMods()}, which the host answers with their mod
+     * infos (ADR-0051 24); not those that read Forge's loading mod list (mod files, scan data), which stays empty. Forge's {@code ModLoadingContext} has the mod's container as the
      * active one while the mod is constructed and while it gets a lifecycle event; its config ({@code registerConfig},
      * F-N6) and language extension ({@code extension}) are not set. Of a Forge mod container and its {@code IModInfo},
      * what Forge's own {@code FMLModContainer} and the host's view of the mod's {@code mods.toml} answer; not the mod's
@@ -207,7 +207,9 @@ public final class ForgeOnNeoForgeScope {
                             "forEachModContainer",
                             "forEachModInOrder",
                             "applyForEachModContainer",
-                            "size")),
+                            "size",
+                            // ADR-0051 24: the mod infos of those containers (ForgeModInfosPatch in the Forge bridge).
+                            "getMods")),
             Map.entry(
                     "net/minecraftforge/fml/ModLoadingContext",
                     Set.of(

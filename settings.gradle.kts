@@ -134,6 +134,8 @@ includeIfPresent(
     "test-mods:forge-on-neoforge-access-transformer",
     "test-mods:forge-on-neoforge-mod-list",
     "test-mods:forge-on-neoforge-mod-list-peer",
+    "test-mods:forge-on-neoforge-data-only",
+    "test-mods:neoforge-data-probe",
     "test-mods:neoforge-hello",
     "test-mods:neoforge-fml4-hello",
     "test-mods:neoforge-chunky-driver",
