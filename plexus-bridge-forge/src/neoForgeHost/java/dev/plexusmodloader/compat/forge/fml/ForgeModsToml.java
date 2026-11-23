@@ -20,7 +20,8 @@ import net.neoforged.neoforgespi.locating.InvalidModFileException;
 /**
  * Forge on NeoForge (ADR-0051, F-N2): a MinecraftForge mod's {@code META-INF/mods.toml} as FML 11 reads a {@code
  * neoforge.mods.toml}, parsed with FML's own TOML parser and mod file classes, with four changes ({@link #translate}):
- * the language loader is Plexus Mod Loader's ({@link ForgeLanguageLoader}), the dependencies on MinecraftForge itself are
+ * the language loader is Plexus Mod Loader's ({@link ForgeLanguageLoader}; none, so FML's default, for a data-only
+ * {@code lowcodefml} mod), the dependencies on MinecraftForge itself are
  * dropped (its API is in the game as libraries), and each Forge {@code mandatory} flag becomes FML 11's {@code type}.
  *
  * <p>Thread: stateless.
@@ -32,6 +33,9 @@ final class ForgeModsToml {
 
     /** The mod ID of MinecraftForge itself, which Forge mods depend on. */
     static final String FORGE = "forge";
+
+    /** Forge's language loader of data-only mods, which have no mod class. */
+    static final String LOW_CODE = "lowcodefml";
 
     private ForgeModsToml() {}
 
@@ -73,8 +77,14 @@ final class ForgeModsToml {
 
     /** Changes {@code config}, a Forge {@code mods.toml}, into what FML 11 reads from a {@code neoforge.mods.toml}. */
     static void translate(Config config) {
-        config.set("modLoader", ForgeLanguageLoader.NAME);
-        config.set("loaderVersion", "[" + ForgeLanguageLoader.VERSION + ",)");
+        if (LOW_CODE.equals(config.get("modLoader"))) {
+            // A data-only mod: nothing for Forge's container to construct, so FML's default loader (ADR-0051 23).
+            config.remove("modLoader");
+            config.remove("loaderVersion");
+        } else {
+            config.set("modLoader", ForgeLanguageLoader.NAME);
+            config.set("loaderVersion", "[" + ForgeLanguageLoader.VERSION + ",)");
+        }
         Object dependencies = config.get("dependencies");
         if (!(dependencies instanceof Config byMod)) {
             return;

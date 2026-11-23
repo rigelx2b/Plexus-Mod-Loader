@@ -8,6 +8,7 @@ import java.util.List;
 import net.minecraftforge.fml.ModContainer;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.forgespi.language.IModInfo;
 
 /**
  * Forge on NeoForge (ADR-0051): Forge's {@code ModList} and {@code ModLoadingContext} for the Forge mods the host runs.
@@ -67,6 +68,17 @@ final class ForgeModList {
             setLoadedMods(List.copyOf(CONTAINERS));
             published = true;
         }
+    }
+
+    /**
+     * The mod infos of the containers Forge's {@code ModList} holds, in its order; empty until {@link #publish} (ADR-0051
+     * 24, what {@code ModList.getMods()} answers through {@code ForgeModListHooks}).
+     */
+    static synchronized List<IModInfo> modInfos() {
+        if (!published) {
+            return List.of();
+        }
+        return CONTAINERS.stream().map(ModContainer::getModInfo).toList();
     }
 
     /** Runs {@code action} with {@code container} as the active container of this thread's Forge {@code ModLoadingContext}. */

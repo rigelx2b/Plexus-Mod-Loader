@@ -257,7 +257,8 @@ class ForgeOnNeoForgeScopeTest {
 
     /**
      * Forge's mod list here holds the Forge mods' containers only: what reads Forge's loading mod list (mod files, scan
-     * data, sorted mod infos), a mod's file and dependencies, and config registration (F-N6) are named.
+     * data), a mod's file and dependencies, and config registration (F-N6) are named. The mod infos of the containers
+     * ({@code getMods}, ADR-0051 24) are not.
      */
     @Test
     void whatForgesModListDoesNotHoldIsNamed() throws IOException {
@@ -284,7 +285,6 @@ class ForgeOnNeoForgeScopeTest {
                 List.of(
                         "net/minecraftforge/fml/ModList.getAllScanData",
                         "net/minecraftforge/fml/ModList.getModFileById",
-                        "net/minecraftforge/fml/ModList.getMods",
                         "net/minecraftforge/fml/ModLoadingContext.extension",
                         "net/minecraftforge/forgespi/language/IModFileInfo",
                         "net/minecraftforge/forgespi/language/IModInfo.getDependencies",
@@ -635,13 +635,13 @@ class ForgeOnNeoForgeScopeTest {
     void splitKeepsTheOrderAndTheReasons() throws IOException {
         Path runs = jar("runs.jar", Map.of(), null, code -> {});
         Path left = jar("left.jar", Map.of(), null, code -> {
-            code.invokestatic(MOD_LIST, "getMods", MethodTypeDesc.of(ConstantDescs.CD_List));
+            code.invokestatic(MOD_LIST, "getAllScanData", MethodTypeDesc.of(ConstantDescs.CD_List));
             code.pop();
         });
         ForgeOnNeoForgeScope.Split split = ForgeOnNeoForgeScope.split(List.of(left, runs), "26.2", false);
         assertEquals(List.of(runs), split.runnable());
         assertEquals(
-                List.of(new ForgeOnNeoForgeScope.Left(left, List.of("net/minecraftforge/fml/ModList.getMods"))),
+                List.of(new ForgeOnNeoForgeScope.Left(left, List.of("net/minecraftforge/fml/ModList.getAllScanData"))),
                 split.leftOut());
         ForgeOnNeoForgeScope.Split declined = split.without(List.of(runs), ForgeOnNeoForgeScope.DECLINED_BY_HOST);
         assertEquals(List.of(), declined.runnable());

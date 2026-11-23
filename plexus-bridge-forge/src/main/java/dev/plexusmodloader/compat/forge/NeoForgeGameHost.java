@@ -478,6 +478,8 @@ final class NeoForgeGameHost implements GameHost {
                 reference = ForgeEventBusPatch.patching(reference);
                 // Forge on NeoForge, F-N6: Forge's config classes without Forge's Bindings and FMLConfig.
                 reference = ForgeConfigPatch.patching(reference);
+                // Forge on NeoForge (ADR-0051 24): Forge's ModList.getMods() from the Forge mods' containers.
+                reference = ForgeModInfosPatch.patching(reference);
             }
             if (request.sharedMixin()) {
                 reference = NeoForgeSharedMixinPatch.patching(reference, hierarchy, result -> {

@@ -1099,7 +1099,29 @@ if (minecraft.startsWith("26.")) {
             "[forge_on_neoforge_mod_list] ModList.getModContainerById(forge_on_neoforge_mod_list): forge_on_neoforge_mod_list 1.0.0 \"Forge on NeoForge Mod List\"",
             "[forge_on_neoforge_mod_list] ModLoadingContext.get() in the constructor: active namespace forge_on_neoforge_mod_list, container forge_on_neoforge_mod_list",
             "[forge_on_neoforge_mod_list] ModLoadingContext.get() in common setup: active namespace forge_on_neoforge_mod_list",
+            "[forge_on_neoforge_mod_list] ModList.getMods() in common setup: [forge_on_neoforge_mod_list, forge_on_neoforge_mod_list_peer]",
             "[forge_on_neoforge_mod_list_peer] ModList.isLoaded(forge_on_neoforge_mod_list) = true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
+    // Forge on NeoForge (ADR-0051 23): a data-only Forge mod (modLoader lowcodefml, no classes) is loaded by NeoForge's
+    // FML with its default language loader, and its damage type is in the game's registry once the server has started.
+    scenarios.gameTest(
+        "forgeOnNeoForgeDataOnly",
+        modJars(
+            ":test-mods:neoforge-gametest-harness",
+            ":test-mods:neoforge-data-probe",
+            ":test-mods:forge-on-neoforge-data-only",
+        ),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, a data-only Forge mod (lowcodefml) is loaded by NeoForge's FML and its data pack registry entry is in the game, on the game test server of the selected Minecraft version."
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "is a data-only mod (modLoader lowcodefml); NeoForge's FML loads it with its own mod container",
+            "[neoforge_data_probe] minecraft:damage_type forge_on_neoforge_data_only:plexus_probe: true",
             "All 1 required tests passed",
             worldsSavedLine,
         )
@@ -1700,6 +1722,25 @@ if (minecraft.startsWith("26.")) {
         )
         unexpectedOutput.addAll("PLEXUS-COMPAT-229", "chunky task done: false")
     }
+    // ADR-0051 23: the corpus's Dungeons and Taverns, a data-only MinecraftForge mod (lowcodefml) of structures, is loaded
+    // by NeoForge's FML with its default language loader; one of its structures is in the game's registry.
+    scenarios.gameTest(
+        "forgeOnNeoForgeDungeonsAndTaverns",
+        modJars(":test-mods:neoforge-gametest-harness", ":test-mods:neoforge-data-probe") +
+            files(corpusRoot.map { it.dir("forge").asFileTree.matching { include("dungeons-and-taverns-*.jar") } }),
+    ) {
+        description = "Forge on NeoForge: with -Dplexus.forgeOnNeoForge=on, the corpus's Dungeons and Taverns (a data-only MinecraftForge mod) is loaded by NeoForge's FML and its structures are in the game (network)."
+        dependsOn(modCorpus)
+        runsNeoForge()
+        systemProperty("plexus.forgeOnNeoForge", "on")
+        expectedOutput.addAll(
+            "is a data-only mod (modLoader lowcodefml); NeoForge's FML loads it with its own mod container",
+            "[neoforge_data_probe] minecraft:worldgen/structure nova_structures:badlands_miner_outpost: true",
+            "All 1 required tests passed",
+            worldsSavedLine,
+        )
+        unexpectedOutput.add("PLEXUS-COMPAT-229")
+    }
     // F-N6: the corpus's No Chat Reports, a MinecraftForge mod with common, server and client Mixins, an access
     // transformer and a client listener of ClientPlayerNetworkEvent, passes the link check and the Mixin audit for the
     // server side and runs its common and server Mixins on NeoForge's game test server (its client side is not run here).
@@ -1780,6 +1821,11 @@ if (minecraft.startsWith("26.")) {
             files(corpusRoot.map {
                 it.dir("forge").asFileTree.matching {
                     include("*.jar"); exclude(notOnGameTestServer); exclude(brokenUnderForge)
+                    // CWB (Cubes Without Borders) is a multi-loader jar; NeoForge runs its NeoForge entry, whose
+                    // constructor loads its config and reaches the client class com.mojang.blaze3d.platform.Window
+                    // (NoClassDefFoundError on the game test server: 5.0.0 on 26.3 and the 26.1.1 build, 2026-11-23),
+                    // which stops mod construction. Not a Forge mod; left out on every version.
+                    exclude("cwb-*.jar")
                 }
             }),
     ) {
@@ -4270,6 +4316,7 @@ tasks.register("compatibilityCorpus") {
             corpusScenarios, quiltCorpusScenarios, fabricApiEvents, "corpusAssessment", "corpusNeoForgeClientMixins",
             "corpusFabricNeoForgeClientMixins", "corpusFabricNeoForgeClientBootstrap",
             "mixinAuditQuiltClient", "mixinAuditQuiltServer", "forgeOnNeoForgeChunky", "forgeOnNeoForgeNoChatReports",
+            "forgeOnNeoForgeDungeonsAndTaverns",
         )
     }
 }
@@ -4287,7 +4334,7 @@ tasks.register("compatibilityMatrix") {
             "forgeOnNeoForgeSharedMixin", "forgeOnNeoForgeEnvironment", "forgeOnNeoForgeExtensionPoint",
             "forgeOnNeoForgeAccessTransformer", "forgeOnNeoForgeAccessTransformerUnfit", "forgeOnNeoForgeModList",
             "forgeOnNeoForgeRegistries", "forgeOnNeoForgeExtensions", "forgeOnNeoForgeEventSubscriber",
-            "forgeOnNeoForgeConfig", "forgeOnNeoForgeNetwork",
+            "forgeOnNeoForgeConfig", "forgeOnNeoForgeNetwork", "forgeOnNeoForgeDataOnly",
         )
     }
     if (minecraft == "26.2") {

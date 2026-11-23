@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.4.1 — 2026-11-24
+
+### Summary
+
+Plexus Mod Loader 2.4.1 lets the experimental Forge on NeoForge opt-in (`-Dplexus.forgeOnNeoForge=on`, Minecraft 26.1 to 26.3) load data-only (`lowcodefml`) Forge mods and answer Forge's `ModList.getMods()`, and fixes a false access transformer rejection and a pack metadata crash on 26.1, so more corpus Forge mods start server side (8 of 33 on 26.2, up from 5).
+
+### What's New
+
+- Load data-only (`lowcodefml`) Forge mods under `-Dplexus.forgeOnNeoForge=on` (Minecraft `26.1`, `26.1.1`, `26.1.2`, `26.2`, and `26.3`, ADR-0051 decision 23, commit `c3cf9723`): `ForgeOnNeoForgeLibraries.languageReasons` keeps `lowcodefml` jars and `ForgeModsToml.translate` drops `modLoader`/`loaderVersion` so NeoForge's FML loads them with its default language loader and its own mod container for resources and data (logging `"Forge on NeoForge: <jar> is a data-only mod (modLoader lowcodefml); NeoForge's FML loads it with its own mod container, for its resources and data (ADR-0051 23)"`). Such mods are not in Forge's `ModList`, while the runtime summary line `"NeoForge's FML runs N MinecraftForge mod file(s) with Forge's own mod container"` still counts them.
+- Support Forge's `ModList.getMods()` under `-Dplexus.forgeOnNeoForge=on` (Minecraft `26.1`, `26.1.1`, `26.1.2`, `26.2`, and `26.3`, ADR-0051 decision 24, commit `fce05e9d`): `ForgeModInfosPatch` rewrites the single `getstatic SORTED_LIST` in `fmlcore`'s `ModList.getMods()` to `invokestatic ForgeModListHooks.mods()Ljava/util/List;` (with a pre-launch check requiring exactly one read, else leaving out all Forge mods with `"Forge's ModList cannot be set up"`), returning the mod infos of Forge containers held by Forge's `ModList` after `ForgeModList.publish` (empty before), and `ForgeOnNeoForgeScope` allows `ModList.getMods`.
+
+### Improvements & Fixes
+
+- Skip all `ModLinkVerifier.CLIENT_PACKAGES` (`client`, `realms`, `blaze3d`, `renderpearl` for `26.3`, `realmsclient`) instead of only `net/minecraft/client/` and `com/mojang/blaze3d/` in `ForgeOnNeoForgeAccessTransformers` on dedicated servers (commit `a3e6299b`), fixing false-positive rejections such as `CraftPresence` `2.7.1`'s `accesstransformer.cfg` targeting `com.mojang.realmsclient.RealmsMainScreen`.
+- Add `ForgePackMetadataCheck` to `ForgeOnNeoForgeLibraries.check` (commit `819310c8`): on NeoForge releases whose `ResourcePackLoader.readMeta` has no `com/google/gson/JsonParseException` catch (`26.1.0.19-beta`, `26.1.1.15-beta`; unlike `26.1.2.122`, `26.2.0.93`, `26.3.0.98`), leave out under `PLEXUS-COMPAT-229` Forge mods whose `pack.mcmeta` declares `min_format` (and `max_format`) overlapping formats 17 to 81 without `supported_formats` (and their dependents), avoiding `JsonParseException` crashes on `26.1` (`UniLib` 1.2.1, `CraftPresence` 2.7.1) and leaving out `Sound Physics` 1.5.2 on `26.1`/`26.1.1`. Only this rejection is checked.
+- Exclude multi-loader `cwb-*.jar` from `corpusForgeOnNeoForge` across all `26.x` versions (commits `c3cf9723`, `819310c8`) because its NeoForge entry (`CWB$NeoForge`) loads `com.mojang.blaze3d.platform.Window` on the server (`NoClassDefFoundError`) at mod construction.
+
+### Verification
+
+- Unit tests and `check`: root `check` at `a3e6299b` passed (exit 0, 110 s; Gradle 967 actionable tasks, 221 executed, 99 from cache, 647 up-to-date), and `:plexus-bridge-forge:test` passed at `819310c8`. New and updated tests include `ForgeModsTomlTest.aLowCodeModGetsFmlsDefaultLanguageLoader`, `ForgeOnNeoForgeLibrariesTest.aLowCodeModIsKept`, `ForgeModInfosPatchTest` (2 tests: `26.2` and `26.3` `fmlcore`), `ForgeOnNeoForgeScopeTest` (28 tests), `ForgeOnNeoForgeAccessTransformersTest.realmsClassesAreClientOnly` (7 tests), and `ForgePackMetadataCheckTest` (7 tests).
+- Server-side integration and corpus runs (game test server only, Java 25, Windows 11, `2026-11-23`; no client window run):
+  - At `a3e6299b`: `26.2` (`compatibilityMatrix`, `corpusForgeOnNeoForge`, `forgeOnNeoForgeDungeonsAndTaverns`, `forgeOnNeoForgeChunky`, `forgeOnNeoForgeNoChatReports`, exit 0, 1021 s), `26.3` (same tasks, exit 0, 1036 s), `26.1.2` (23 Forge on NeoForge and corpus scenarios, exit 0, 807 s), and `26.1`/`26.1.1` (22 Forge on NeoForge scenarios including `forgeOnNeoForgeDataOnly`, `forgeOnNeoForgeDungeonsAndTaverns`, `Chunky`, and `NCR` passed).
+  - At `819310c8` (run `s5`): `corpusForgeOnNeoForge` passed on `26.1` (exit 0, 74 s), `26.1.1` (exit 0, 64 s), and `26.2` (exit 0, 75 s).
+  - Final re-run at `819310c8`: on `26.1` and `26.1.1`, the 19 Forge on NeoForge scenarios of `compatibilityMatrix` plus `corpusForgeOnNeoForge`, `forgeOnNeoForgeDungeonsAndTaverns`, `forgeOnNeoForgeChunky`, and `forgeOnNeoForgeNoChatReports` passed (23 each, 882 s and 884 s), with 4 corpus Forge mods running on each; root `check` passed (33 s).
+  - Server-side `corpusForgeOnNeoForge` Forge mods running (baseline `7a4f26f5` -> after): `26.1` `3/30` -> `4/30` (`+ dungeons-and-taverns 5.2.0`), `26.1.1` `3/30` -> `4/30` (`+ dungeons-and-taverns 5.2.0`), `26.1.2` `4/30` -> `5/30` (`+ dungeons-and-taverns 5.2.0`), `26.2` `5/33` -> `8/33` (`+ dungeons-and-taverns 5.3.2`, `UniLib 1.2.1`, `CraftPresence 2.7.1`), `26.3` `4/31` -> `7/31` (`+ dungeons-and-taverns 6.0.2`, `UniLib 1.2.1`, `CraftPresence 2.7.1`). `UniLib` and `CraftPresence` construct and disable themselves on the server (`"Disabling UniLib, as it is client side only."`, `"Disabling CraftPresence, as it is client side only."`), as under MinecraftForge; their client side was not run.
+- Release verification (`2026-11-23` to `2026-11-24`, Java 25, Windows 11, source `e56ff418`, record `docs/verification/2.4.1/release.md`): `check --rerun-tasks` (539 s), `build-logic` `check` (57 s), the headless suite, `serverInstallTest`, and `compatibilityCorpus` on all 9 versions, and all 34 client window tasks passed. Corpus load / not-loaded counts match `2.4.0` for every task, and the new `forgeOnNeoForgeDungeonsAndTaverns` passed on every `26.x` version. `gameTests` on `26.1.1` timed out once on `native_showcase:swimming_mob_swims_under_water` and passed on a rerun (97 required tests).
+
 ## 2.4.0 — 2026-11-23
 
 ### Summary

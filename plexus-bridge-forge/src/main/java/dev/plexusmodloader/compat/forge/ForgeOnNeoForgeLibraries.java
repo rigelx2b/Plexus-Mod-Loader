@@ -166,6 +166,13 @@ final class ForgeOnNeoForgeLibraries {
             List<String> noModList = ForgeModListCheck.missing(
                     only(libraries, name -> name.startsWith("fmlcore-"), "fmlcore-*.jar"),
                     only(libraries, name -> name.startsWith("fmlloader-"), "fmlloader-*.jar"));
+            int modInfoReads =
+                    ForgeModInfosPatch.reads(only(libraries, name -> name.startsWith("fmlcore-"), "fmlcore-*.jar"));
+            if (modInfoReads != 1) {
+                noModList = new ArrayList<>(noModList);
+                noModList.add(ForgeModInfosPatch.OWNER + "." + ForgeModInfosPatch.METHOD + "() has " + modInfoReads
+                        + " read(s) of " + ForgeModInfosPatch.FIELD);
+            }
             if (!noModList.isEmpty()) {
                 return declineAll(request, jars, "Forge's ModList cannot be set up: " + String.join("; ", noModList));
             }
@@ -174,7 +181,14 @@ final class ForgeOnNeoForgeLibraries {
         }
         Checked checked;
         try {
-            checked = check(request.gameVersion(), request.side(), request.log(), mavenArtifact, forgeVersion, jars);
+            checked = check(
+                    request.gameVersion(),
+                    request.side(),
+                    request.log(),
+                    mavenArtifact,
+                    forgeVersion,
+                    jars,
+                    ForgePackMetadataCheck.stopsOnRejectedMetadata(neoForgeUniversal));
         } catch (IOException | ReflectiveOperationException e) {
             return declineAll(request, jars, e.toString());
         }
@@ -202,6 +216,23 @@ final class ForgeOnNeoForgeLibraries {
             String forgeVersion,
             List<Path> jars)
             throws IOException, ReflectiveOperationException {
+        return check(gameVersion, side, log, mavenArtifact, forgeVersion, jars, false);
+    }
+
+    /**
+     * As {@link #check(String, GameSide, Consumer, Path, String, List)}; with {@code strictPackMetadata} (a NeoForge
+     * release that reads mod pack metadata without a fallback, {@link ForgePackMetadataCheck#stopsOnRejectedMetadata}),
+     * a mod whose {@code pack.mcmeta} would stop it is declined too ({@link ForgePackMetadataCheck#reasons}).
+     */
+    static Checked check(
+            String gameVersion,
+            GameSide side,
+            Consumer<String> log,
+            Path mavenArtifact,
+            String forgeVersion,
+            List<Path> jars,
+            boolean strictPackMetadata)
+            throws IOException, ReflectiveOperationException {
         List<Path> candidates = new ArrayList<>(jars);
         Map<Path, List<String>> declined = new LinkedHashMap<>();
         try (URLClassLoader maven = new URLClassLoader(
@@ -221,7 +252,10 @@ final class ForgeOnNeoForgeLibraries {
                             + String.join("; ", excluded.reasons()));
                 }
                 for (Path jar : result.kept()) {
-                    List<String> reasons = languageReasons(jar);
+                    List<String> reasons = new ArrayList<>(languageReasons(jar));
+                    if (strictPackMetadata) {
+                        reasons.addAll(ForgePackMetadataCheck.reasons(jar));
+                    }
                     if (!reasons.isEmpty()) {
                         candidates.remove(jar);
                         declined.put(jar, reasons);
@@ -230,6 +264,13 @@ final class ForgeOnNeoForgeLibraries {
                                 + String.join("; ", reasons));
                     }
                 }
+            }
+        }
+        for (Path jar : candidates) {
+            if (lowCode(jar)) {
+                log.accept(
+                        "Forge on NeoForge: " + jar.getFileName() + " is a data-only mod (modLoader " + LOW_CODE
+                                + "); NeoForge's FML loads it with its own mod container, for its resources and data (ADR-0051 23)");
             }
         }
         return new Checked(candidates, declined);
@@ -242,16 +283,37 @@ final class ForgeOnNeoForgeLibraries {
         return new Mods(List.of(), List.of(), jars, "");
     }
 
+    /** Forge's language loader of data-only mods (data packs and resource packs packed as mods). */
+    static final String LOW_CODE = "lowcodefml";
+
+    /**
+     * Whether {@code jar} is a data-only mod of Forge's {@link #LOW_CODE} loader. It has no class to construct, so the
+     * host gives it no language loader and NeoForge's FML loads it with its default one, as a NeoForge mod without a mod
+     * class (ADR-0051 23): its resources and data are the game's, and it is not in Forge's {@code ModList}.
+     */
+    static boolean lowCode(Path jar) {
+        try {
+            ForgeModRequirements.ModsToml toml = ForgeModRequirements.ModsToml.read(jar);
+            return toml != null && LOW_CODE.equals(toml.modLoader());
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
     /**
      * What keeps Plexus Mod Loader's Forge language loader from constructing {@code jar}'s mods: a {@code modLoader}
      * other than {@code javafml} (such as another language provider's), or the {@code javafml} mod IDs without an
-     * {@code @Mod} class (a data-only jar), with the words of {@link ForgeModRequirements#NO_MOD_CLASS}.
+     * {@code @Mod} class (a data-only jar), with the words of {@link ForgeModRequirements#NO_MOD_CLASS}. A {@link
+     * #LOW_CODE} mod has none: it runs without a language loader of the host ({@link #lowCode}).
      */
     static List<String> languageReasons(Path jar) {
         try {
             ForgeModRequirements.ModsToml toml = ForgeModRequirements.ModsToml.read(jar);
             if (toml == null) {
                 return List.of(NeoForgeModRequirements.LEGACY_METADATA);
+            }
+            if (LOW_CODE.equals(toml.modLoader())) {
+                return List.of();
             }
             if (!"javafml".equals(toml.modLoader())) {
                 return List.of("modLoader " + toml.modLoader());
