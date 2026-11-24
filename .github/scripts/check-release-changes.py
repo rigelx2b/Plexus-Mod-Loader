@@ -5,12 +5,22 @@ installer or the SDK, so they are deployed with the website (`npm run deploy:sit
 build in CHANGELOG.md's "## Unreleased" section. A file whose only change is the version number (the version
 bump itself) does not count either.
 
+It also stops when README.md or README.ko.md states another version than <version> (the intro and "Status" lines),
+since those are edited by hand and were missed in the 2.4.0 and 2.4.1 release commits.
+
 Usage: python -I check-release-changes.py <version> [<ref>]   (ref defaults to HEAD; run from the repository root)
 """
+import re
 import subprocess
 import sys
 
 version, ref = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'HEAD'
+
+# The hand-edited version lines of each README; every pattern must match once and name the released version.
+README_VERSIONS = {
+    'README.md': (r'\(version ([^,)]+), ', r'Current version: \*\*([^*]+)\*\*'),
+    'README.ko.md': (r'\(버전 ([^,)]+), ', r'현재 버전은 \*\*([^*]+)\*\*'),
+}
 
 # Paths that never reach the installer or the SDK.
 NOT_IN_BUILD = ('site/', 'docs/', 'examples/', '.claude/', '.github/')
@@ -28,6 +38,21 @@ def show(rev, path):
 def in_build(path):
     return not (path.startswith(NOT_IN_BUILD) or path.endswith('.md') or '/src/test/' in path)
 
+
+def readme_mismatches():
+    problems = []
+    for path, patterns in README_VERSIONS.items():
+        text = (show(ref, path) or b'').decode('utf-8')
+        for pattern in patterns:
+            found = re.findall(pattern, text)
+            if found != [version]:
+                problems.append(f'  {path}: /{pattern}/ found {found or "nothing"}, expected [{version!r}]')
+    return problems
+
+
+readme_problems = readme_mismatches()
+if readme_problems:
+    sys.exit(f'The README version lines do not say {version}; update them before releasing:\n' + '\n'.join(readme_problems))
 
 previous_tag = git('describe', '--tags', '--abbrev=0', '--match', 'v*', '--exclude', f'v{version}', ref).strip()
 previous_version = previous_tag.removeprefix('v')
